@@ -22,6 +22,17 @@
 - Установленный компонент KeeneticOS: Proxy client
 - SSH-доступ к роутеру
 
+## Рекомендация: сторонние DoT DNS
+
+Эта команда в Entware добавляет DNS-over-TLS upstream-серверы сохраняет конфигурацию.
+
+```sh
+ndmc -c "dns-proxy tls upstream 9.9.9.9 sni dns.quad9.net" \
+&& ndmc -c "dns-proxy tls upstream 8.8.8.8 sni dns.google" \
+&& ndmc -c "dns-proxy tls upstream 77.88.8.8 sni common.dot.dns.yandex.net" \
+&& ndmc -c "system configuration save"
+```
+
 ## Установка одной командой
 
 ```sh
