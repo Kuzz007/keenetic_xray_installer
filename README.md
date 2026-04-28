@@ -32,8 +32,22 @@ ndmc -c "dns-proxy tls upstream 9.9.9.9 sni dns.quad9.net" \
 && ndmc -c "dns-proxy tls upstream 77.88.8.8 sni common.dot.dns.yandex.net" \
 && ndmc -c "system configuration save"
 ```
+## Установка
 
-## Смена VLESS-ссылки без переустановки
+```sh
+opkg update && opkg install curl ca-bundle && curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-vless-auto-install.sh | sh
+```
+
+## Управление Xray
+
+```sh
+/opt/etc/init.d/S24xray start
+/opt/etc/init.d/S24xray stop
+/opt/etc/init.d/S24xray restart
+/opt/etc/init.d/S24xray status
+```
+
+## Смена Vless-ссылки без переустановки
 
 ```sh
 vless-update
@@ -54,3 +68,11 @@ netstat -lntp | grep 10808
 ```
 
 `Прокси подключение` при этом остаётся прежним, меняется только Xray-конфиг.
+
+## Обновление скрипта
+
+```sh
+installer-update
+```
+При обновлении установщика команда `не просит заново вставлять Vless ссылку`.
+
