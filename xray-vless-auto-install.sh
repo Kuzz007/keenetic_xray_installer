@@ -1,4 +1,3 @@
-cat > /opt/tmp/xray-vless-auto-install.sh <<'SH'
 #!/bin/sh
 
 set -e
@@ -402,7 +401,3 @@ echo "$XRAY_BIN run -test -config $XRAY_CONFIG"
 echo "netstat -lntp | grep $SOCKS_PORT"
 echo "ndmc -c 'show running-config' | grep -i proxy"
 echo
-SH
-
-chmod +x /opt/tmp/xray-vless-auto-install.sh
-/opt/tmp/xray-vless-auto-install.sh
