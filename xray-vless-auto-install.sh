@@ -7,20 +7,26 @@ XRAY_CONFIG="$XRAY_DIR/config.json"
 INIT_SCRIPT="/opt/etc/init.d/S24xray"
 SOCKS_PORT="10808"
 PROXY_IFACE="Proxy0"
+GLOBAL_PRIORITY="16375"
 
-echo
-echo "======================================"
-echo " Xray VLESS auto installer for Keenetic"
-echo " curl-ready edition"
-echo "======================================"
-echo
+printf '\n'
+printf '======================================\n'
+printf ' Xray VLESS auto installer for Keenetic\n'
+printf ' curl-ready edition\n'
+printf '======================================\n'
+printf '\n'
 
 read_tty() {
     prompt="$1"
     var_name="$2"
 
-    printf "%s" "$prompt" >/dev/tty
-    IFS= read -r value </dev/tty
+    if [ -r /dev/tty ]; then
+        printf "%s" "$prompt" >/dev/tty
+        IFS= read -r value </dev/tty
+    else
+        printf "%s" "$prompt"
+        IFS= read -r value
+    fi
 
     eval "$var_name=\$value"
 }
@@ -95,6 +101,7 @@ SOCKS_HOST="$ROUTER_LAN_IP"
 echo "Router LAN IP: $ROUTER_LAN_IP"
 echo "Xray SOCKS5: $SOCKS_HOST:$SOCKS_PORT"
 echo "Keenetic Proxy interface: $PROXY_IFACE"
+echo "Use for Internet access priority: $GLOBAL_PRIORITY"
 echo
 
 echo "[1/8] Updating Entware package list..."
@@ -250,7 +257,6 @@ config = {
     "log": {
         "loglevel": "warning"
     },
-    
     "inbounds": [
         {
             "tag": "socks-in",
@@ -363,12 +369,14 @@ if command -v ndmc >/dev/null 2>&1; then
         && ndmc -c "interface $PROXY_IFACE proxy socks5-udp" \
         && ndmc -c "interface $PROXY_IFACE proxy upstream $SOCKS_HOST $SOCKS_PORT" \
         && ndmc -c "interface $PROXY_IFACE description Xray" \
+        && ndmc -c "interface $PROXY_IFACE ip global $GLOBAL_PRIORITY" \
         && ndmc -c "interface $PROXY_IFACE up" \
         && ndmc -c "system configuration save"
 
     echo
     echo "Keenetic proxy interface created:"
     echo "$PROXY_IFACE -> SOCKS5 $SOCKS_HOST:$SOCKS_PORT"
+    echo "Internet access checkbox enabled with ip global $GLOBAL_PRIORITY"
 else
     echo "ndmc not found."
     echo
@@ -376,6 +384,7 @@ else
     echo "Type: SOCKS5"
     echo "Host: $SOCKS_HOST"
     echo "Port: $SOCKS_PORT"
+    echo "Enable: Use for Internet access"
 fi
 
 echo
@@ -403,5 +412,5 @@ echo "$INIT_SCRIPT status"
 echo "$INIT_SCRIPT restart"
 echo "$XRAY_BIN run -test -config $XRAY_CONFIG"
 echo "netstat -lntp | grep $SOCKS_PORT"
-echo "ndmc -c 'show running-config' | grep -i proxy"
+echo "ndmc -c 'show running-config' | grep -A12 -i 'interface $PROXY_IFACE'"
 echo
