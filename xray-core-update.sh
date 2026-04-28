@@ -14,27 +14,82 @@ XRAY_SERVICE="/opt/etc/init.d/S24xray"
 FAILOVER_SERVICE="/opt/etc/init.d/S25xray-failover"
 
 USE_PRERELEASE="0"
+NO_BACKUP="0"
+DO_CLEAN_ONLY="0"
 
-case "${1:-}" in
-    --prerelease)
-        USE_PRERELEASE="1"
-        ;;
-    --stable|"")
-        USE_PRERELEASE="0"
-        ;;
-    --help|-h)
-        echo "Usage:"
-        echo "$0"
-        echo "$0 --stable"
-        echo "$0 --prerelease"
-        exit 0
-        ;;
-    *)
-        echo "Unknown option: $1"
-        echo "Use: $0 --help"
-        exit 1
-        ;;
-esac
+for ARG in "$@"; do
+    case "$ARG" in
+        --stable)
+            USE_PRERELEASE="0"
+            ;;
+        --prerelease)
+            USE_PRERELEASE="1"
+            ;;
+        --no-backup)
+            NO_BACKUP="1"
+            ;;
+        --clean)
+            DO_CLEAN_ONLY="1"
+            ;;
+        --help|-h)
+            echo "Usage:"
+            echo "$0"
+            echo "$0 --stable"
+            echo "$0 --prerelease"
+            echo "$0 --no-backup"
+            echo "$0 --prerelease --no-backup"
+            echo "$0 --clean"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $ARG"
+            echo "Use: $0 --help"
+            exit 1
+            ;;
+    esac
+done
+
+clean_temp() {
+    echo "Очищаем временные файлы обновления..."
+    rm -rf "$TMP_DIR"
+    rm -f /opt/tmp/xray-core-update.sh
+    rm -f /opt/tmp/xray-core-update-nobackup.sh
+    rm -f /opt/tmp/xray.zip
+}
+
+show_space() {
+    echo
+    echo "Свободное место:"
+    df -h /opt 2>/dev/null || true
+    echo
+}
+
+free_kb_opt() {
+    df -k /opt 2>/dev/null | awk 'NR==2 {print $4}'
+}
+
+need_cmd() {
+    CMD="$1"
+    PKG="$2"
+
+    if ! command -v "$CMD" >/dev/null 2>&1; then
+        echo "Команда $CMD не найдена. Устанавливаем пакет $PKG..."
+        opkg update
+        opkg install "$PKG"
+    fi
+}
+
+if [ "$DO_CLEAN_ONLY" = "1" ]; then
+    echo
+    echo "======================================"
+    echo " Xray-core updater cleanup"
+    echo "======================================"
+    echo
+    clean_temp
+    rm -rf /opt/var/opkg-lists/*
+    show_space
+    exit 0
+fi
 
 echo
 echo "======================================"
@@ -49,11 +104,18 @@ else
     echo "Mode: latest stable release"
 fi
 
+if [ "$NO_BACKUP" = "1" ]; then
+    echo "Backup: disabled"
+else
+    echo "Backup: enabled"
+fi
+
 echo
 echo "Что будет сделано:"
+echo "- очистка старых временных файлов обновления"
 echo "- определение архитектуры роутера"
 echo "- скачивание Xray-core из официального GitHub XTLS/Xray-core"
-echo "- backup текущего /opt/bin/xray"
+echo "- backup текущего /opt/bin/xray, если не указан --no-backup"
 echo "- замена /opt/bin/xray"
 echo "- проверка версии"
 echo "- проверка /opt/etc/xray/config.json, если файл существует"
@@ -66,22 +128,19 @@ if ! command -v opkg >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "[1/8] Устанавливаем зависимости..."
-opkg update
-opkg install curl ca-bundle unzip >/dev/null 2>&1 || true
+echo "[1/9] Предварительная очистка..."
+rm -rf "$TMP_DIR"
+mkdir -p /opt/tmp
+show_space
 
-if ! command -v curl >/dev/null 2>&1; then
-    echo "ОШИБКА: curl не найден."
-    exit 1
-fi
+echo "[2/9] Проверяем зависимости..."
 
-if ! command -v unzip >/dev/null 2>&1; then
-    echo "ОШИБКА: unzip не найден."
-    exit 1
-fi
+need_cmd curl curl
+opkg install ca-bundle >/dev/null 2>&1 || true
+need_cmd unzip unzip
 
 echo
-echo "[2/8] Определяем архитектуру..."
+echo "[3/9] Определяем архитектуру..."
 
 ARCH="$(uname -m 2>/dev/null || echo unknown)"
 
@@ -127,10 +186,9 @@ echo "Архитектура системы: $ARCH"
 echo "GitHub asset: $ASSET_NAME"
 
 echo
-echo "[3/8] Получаем release из GitHub..."
+echo "[4/9] Получаем release из GitHub..."
 
-mkdir -p "$TMP_DIR" "$BACKUP_DIR"
-rm -rf "$TMP_DIR"/*
+mkdir -p "$TMP_DIR"
 cd "$TMP_DIR"
 
 RELEASE_JSON="$TMP_DIR/release.json"
@@ -148,6 +206,7 @@ TAG="$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$RELE
 if [ -z "$TAG" ]; then
     echo "ОШИБКА: не удалось определить tag_name release."
     echo "Проверь доступ к GitHub API."
+    clean_temp
     exit 1
 fi
 
@@ -161,6 +220,7 @@ if [ -z "$DOWNLOAD_URL" ]; then
     echo
     echo "Доступные Xray-linux assets:"
     grep '"name"' "$RELEASE_JSON" | grep 'Xray-linux' || true
+    clean_temp
     exit 1
 fi
 
@@ -168,43 +228,69 @@ echo "Download URL:"
 echo "$DOWNLOAD_URL"
 
 echo
-echo "[4/8] Скачиваем Xray-core..."
+echo "[5/9] Скачиваем Xray-core..."
 
-ZIP_FILE="$TMP_DIR/$ASSET_NAME"
+ZIP_FILE="$TMP_DIR/xray.zip"
 curl -fL -o "$ZIP_FILE" "$DOWNLOAD_URL"
 
 echo
-echo "[5/8] Распаковываем архив..."
+echo "[6/9] Распаковываем только бинарник xray..."
 
-unzip -o "$ZIP_FILE" >/dev/null
+unzip -o "$ZIP_FILE" xray >/dev/null
 
 if [ ! -x "$TMP_DIR/xray" ]; then
     if [ -f "$TMP_DIR/xray" ]; then
         chmod +x "$TMP_DIR/xray"
     else
         echo "ОШИБКА: бинарник xray не найден внутри архива."
+        clean_temp
         exit 1
     fi
 fi
 
-echo
-echo "[6/8] Делаем backup текущего Xray..."
+rm -f "$ZIP_FILE"
 
-if [ -x "$XRAY_BIN" ]; then
-    OLD_VERSION="$("$XRAY_BIN" version 2>/dev/null | head -n 1 || true)"
-    BACKUP_FILE="$BACKUP_DIR/xray.backup.$(date '+%Y%m%d-%H%M%S' 2>/dev/null || date +%s)"
-    cp "$XRAY_BIN" "$BACKUP_FILE"
-    chmod +x "$BACKUP_FILE"
-    echo "Текущая версия:"
-    echo "$OLD_VERSION"
-    echo "Backup создан:"
-    echo "$BACKUP_FILE"
+show_space
+
+echo "[7/9] Backup текущего Xray..."
+
+if [ "$NO_BACKUP" = "1" ]; then
+    echo "Backup отключён параметром --no-backup."
 else
-    echo "Текущий /opt/bin/xray не найден. Будет установлена новая версия."
+    if [ -x "$XRAY_BIN" ]; then
+        mkdir -p "$BACKUP_DIR"
+
+        FREE_KB="$(free_kb_opt)"
+        XRAY_SIZE_KB="$(du -k "$XRAY_BIN" 2>/dev/null | awk '{print $1}')"
+
+        if [ -n "$FREE_KB" ] && [ -n "$XRAY_SIZE_KB" ] && [ "$FREE_KB" -lt "$XRAY_SIZE_KB" ]; then
+            echo "ПРЕДУПРЕЖДЕНИЕ: места для backup недостаточно."
+            echo "Свободно KB: $FREE_KB"
+            echo "Размер текущего xray KB: $XRAY_SIZE_KB"
+            echo
+            echo "Запусти обновление с --no-backup или освободи место:"
+            echo "rm -rf /opt/tmp/* /opt/var/opkg-lists/*"
+            clean_temp
+            exit 1
+        fi
+
+        OLD_VERSION="$("$XRAY_BIN" version 2>/dev/null | head -n 1 || true)"
+        BACKUP_FILE="$BACKUP_DIR/xray.backup.$(date '+%Y%m%d-%H%M%S' 2>/dev/null || date +%s)"
+
+        cp "$XRAY_BIN" "$BACKUP_FILE"
+        chmod +x "$BACKUP_FILE"
+
+        echo "Текущая версия:"
+        echo "$OLD_VERSION"
+        echo "Backup создан:"
+        echo "$BACKUP_FILE"
+    else
+        echo "Текущий /opt/bin/xray не найден. Будет установлена новая версия."
+    fi
 fi
 
 echo
-echo "[7/8] Останавливаем сервисы и заменяем бинарник..."
+echo "[8/9] Останавливаем сервисы и заменяем бинарник..."
 
 if [ -x "$FAILOVER_SERVICE" ]; then
     "$FAILOVER_SERVICE" stop >/dev/null 2>&1 || true
@@ -214,6 +300,7 @@ if [ -x "$XRAY_SERVICE" ]; then
     "$XRAY_SERVICE" stop >/dev/null 2>&1 || true
 fi
 
+rm -f "$XRAY_BIN"
 cp "$TMP_DIR/xray" "$XRAY_BIN"
 chmod +x "$XRAY_BIN"
 
@@ -221,11 +308,13 @@ echo "Новая версия:"
 "$XRAY_BIN" version | head -n 3 || true
 
 echo
-echo "[8/8] Проверяем config и запускаем сервисы..."
+echo "[9/9] Проверяем config, чистим временные файлы и запускаем сервисы..."
 
 if [ -f /opt/etc/xray/config.json ]; then
     "$XRAY_BIN" run -test -config /opt/etc/xray/config.json
 fi
+
+clean_temp
 
 if [ -x "$XRAY_SERVICE" ]; then
     "$XRAY_SERVICE" start
@@ -248,15 +337,15 @@ echo
 echo "Xray version:"
 "$XRAY_BIN" version | head -n 1 || true
 echo
-echo "Backup folder:"
-echo "$BACKUP_DIR"
-echo
+if [ "$NO_BACKUP" = "0" ]; then
+    echo "Backup folder:"
+    echo "$BACKUP_DIR"
+    echo
+fi
 echo "Проверка:"
 echo "/opt/etc/init.d/S24xray status"
 echo "netstat -lntp | grep 10808"
 echo
-echo "Откат при необходимости:"
-echo "ls -lh $BACKUP_DIR"
-echo "cp $BACKUP_DIR/xray.backup.YYYYMMDD-HHMMSS $XRAY_BIN"
-echo "chmod +x $XRAY_BIN"
+echo "Очистка при нехватке места:"
+echo "rm -rf /opt/tmp/* /opt/var/opkg-lists/*"
 echo
