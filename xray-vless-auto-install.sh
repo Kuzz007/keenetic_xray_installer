@@ -10,6 +10,9 @@ PROXY_IFACE="Proxy0"
 GLOBAL_PRIORITY="16375"
 UPDATE_CMD="/opt/bin/xray-vless-update"
 UPDATE_ALIAS="/opt/bin/vless-update"
+REPO_RAW_URL="https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-vless-auto-install.sh"
+INSTALLER_UPDATE_CMD="/opt/bin/xray-installer-update"
+INSTALLER_UPDATE_ALIAS="/opt/bin/installer-update"
 
 printf '\n'
 printf '======================================\n'
@@ -106,11 +109,11 @@ echo "Keenetic Proxy interface: $PROXY_IFACE"
 echo "Use for Internet access priority: $GLOBAL_PRIORITY"
 echo
 
-echo "[1/9] Updating Entware package list..."
+echo "[1/10] Updating Entware package list..."
 opkg update
 
 echo
-echo "[2/9] Installing Xray and dependencies..."
+echo "[2/10] Installing Xray and dependencies..."
 opkg install ca-bundle python3 >/dev/null 2>&1 || true
 
 if opkg install xray xray-core; then
@@ -136,7 +139,7 @@ echo "Xray binary: $XRAY_BIN"
 mkdir -p "$XRAY_DIR"
 
 echo
-echo "[3/9] Enter your VLESS link."
+echo "[3/10] Enter your VLESS link."
 read_tty "VLESS link: " VLESS_URL
 
 if [ -z "$VLESS_URL" ]; then
@@ -147,7 +150,7 @@ fi
 export VLESS_URL XRAY_CONFIG SOCKS_HOST SOCKS_PORT
 
 echo
-echo "[4/9] Generating Xray config..."
+echo "[4/10] Generating Xray config..."
 
 python3 <<'PY'
 import os
@@ -321,7 +324,7 @@ print("Local SOCKS5:", f"{socks_host}:{socks_port}")
 PY
 
 echo
-echo "[5/9] Creating Entware init script..."
+echo "[5/10] Creating Entware init script..."
 
 cat > "$INIT_SCRIPT" <<INIT
 #!/bin/sh
@@ -338,7 +341,7 @@ INIT
 chmod +x "$INIT_SCRIPT"
 
 echo
-echo "[6/9] Creating VLESS update command..."
+echo "[6/10] Creating VLESS update command..."
 
 cat > "$UPDATE_CMD" <<'UPDATER'
 #!/bin/sh
@@ -656,11 +659,69 @@ echo "$UPDATE_CMD"
 echo "$UPDATE_ALIAS"
 
 echo
-echo "[7/9] Validating Xray config..."
+echo "[7/10] Creating installer self-update command..."
+
+cat > "$INSTALLER_UPDATE_CMD" <<UPDATER_INSTALLER
+#!/bin/sh
+
+set -e
+
+REPO_RAW_URL="$REPO_RAW_URL"
+TMP_INSTALLER="/opt/tmp/xray-vless-auto-install.sh"
+
+echo
+echo "======================================"
+echo " Xray VLESS installer updater"
+echo "======================================"
+echo
+echo "Repository:"
+echo "\$REPO_RAW_URL"
+echo
+
+if ! command -v opkg >/dev/null 2>&1; then
+    echo "ERROR: opkg not found. Entware is not available in this shell."
+    exit 1
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+    echo "curl not found. Installing curl..."
+    opkg update
+    opkg install curl ca-bundle
+fi
+
+mkdir -p /opt/tmp
+
+echo "Downloading latest installer..."
+curl -fsSL -o "\$TMP_INSTALLER" "\$REPO_RAW_URL"
+
+echo "Checking shell syntax..."
+sh -n "\$TMP_INSTALLER"
+
+chmod +x "\$TMP_INSTALLER"
+
+echo
+echo "Latest installer downloaded:"
+echo "\$TMP_INSTALLER"
+echo
+echo "Running latest installer..."
+echo
+
+"\$TMP_INSTALLER"
+UPDATER_INSTALLER
+
+chmod +x "$INSTALLER_UPDATE_CMD"
+ln -sf "$INSTALLER_UPDATE_CMD" "$INSTALLER_UPDATE_ALIAS"
+
+echo "Installer update command created:"
+echo "$INSTALLER_UPDATE_CMD"
+echo "$INSTALLER_UPDATE_ALIAS"
+
+echo
+echo "[8/10] Validating Xray config..."
 "$XRAY_BIN" run -test -config "$XRAY_CONFIG"
 
 echo
-echo "[8/9] Starting Xray..."
+echo "[9/10] Starting Xray..."
 
 "$INIT_SCRIPT" stop >/dev/null 2>&1 || true
 sleep 1
@@ -681,7 +742,7 @@ else
 fi
 
 echo
-echo "[9/9] Creating Keenetic Proxy interface $PROXY_IFACE..."
+echo "[10/10] Creating Keenetic Proxy interface $PROXY_IFACE..."
 
 if command -v ndmc >/dev/null 2>&1; then
     ndmc -c "interface $PROXY_IFACE" \
@@ -730,6 +791,10 @@ echo
 echo "VLESS update commands:"
 echo "xray-vless-update"
 echo "vless-update"
+echo
+echo "Installer update commands:"
+echo "xray-installer-update"
+echo "installer-update"
 echo
 echo "Useful commands:"
 echo "$INIT_SCRIPT status"
