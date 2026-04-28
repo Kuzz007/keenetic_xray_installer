@@ -74,7 +74,7 @@ tail -f /opt/var/log/xray-vless-failover.log
 ## Управление Xray-Failower
 
 ```sh
-/opt/etc/init.d/S25xray-failover status
+/opt/etc/init.d/S25xray-failover start
 /opt/etc/init.d/S25xray-failover stop
 /opt/etc/init.d/S25xray-failover restart
 /opt/etc/init.d/S25xray-failover status
@@ -105,6 +105,12 @@ failover-installer-update
 ```
 
 При обновлении установщика команда `не просит заново вставлять Vless ссылку`.
+
+## Проверить версию Xray
+
+```sh
+/opt/bin/xray version
+```
 
 ## Обновления Xray-core `stable/latest`
 
