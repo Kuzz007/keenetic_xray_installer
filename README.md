@@ -1,6 +1,7 @@
 # Keenetic Xray VLESS Auto Installer
 
 Автоматическая установка Xray из Entware на роутер Keenetic.
+Работоспособность проверена только на aarch64.
 
 Скрипт:
 
