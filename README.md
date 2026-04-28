@@ -33,7 +33,24 @@ ndmc -c "dns-proxy tls upstream 9.9.9.9 sni dns.quad9.net" \
 && ndmc -c "system configuration save"
 ```
 
-## Установка одной командой
+## Смена VLESS-ссылки без переустановки
 
 ```sh
-opkg update && opkg install curl ca-bundle && curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-vless-auto-install.sh | sh
+vless-update
+```
+
+### Проверить после обновления
+
+```sh
+xray run -test -config /opt/etc/xray/config.json
+```
+
+```sh
+/opt/etc/init.d/S24xray status
+```
+
+```sh
+netstat -lntp | grep 10808
+```
+
+`Прокси подключение` при этом остаётся прежним, потому что меняется только Xray-конфиг.
