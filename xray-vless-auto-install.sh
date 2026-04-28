@@ -11,8 +11,19 @@ PROXY_IFACE="Proxy0"
 echo
 echo "======================================"
 echo " Xray VLESS auto installer for Keenetic"
+echo " curl-ready edition"
 echo "======================================"
 echo
+
+read_tty() {
+    prompt="$1"
+    var_name="$2"
+
+    printf "%s" "$prompt" >/dev/tty
+    IFS= read -r value </dev/tty
+
+    eval "$var_name=\$value"
+}
 
 detect_router_ip() {
     if [ -n "$ROUTER_IP" ]; then
@@ -71,8 +82,7 @@ ROUTER_LAN_IP="$(detect_router_ip | head -n 1)"
 
 if [ -z "$ROUTER_LAN_IP" ]; then
     echo "Could not auto-detect router LAN IP."
-    printf "Enter router LAN IP, for example 192.168.1.1: "
-    read -r ROUTER_LAN_IP
+    read_tty "Enter router LAN IP, for example 192.168.1.1: " ROUTER_LAN_IP
 fi
 
 if [ -z "$ROUTER_LAN_IP" ]; then
@@ -118,8 +128,7 @@ mkdir -p "$XRAY_DIR"
 
 echo
 echo "[3/8] Enter your VLESS link."
-printf "VLESS link: "
-read -r VLESS_URL
+read_tty "VLESS link: " VLESS_URL
 
 if [ -z "$VLESS_URL" ]; then
     echo "ERROR: empty VLESS link."
