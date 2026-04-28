@@ -4,6 +4,7 @@ set -e
 
 XRAY_DIR="/opt/etc/xray"
 XRAY_CONFIG="$XRAY_DIR/config.json"
+VLESS_STORE="/opt/etc/xray/vless.url"
 INIT_SCRIPT="/opt/etc/init.d/S24xray"
 SOCKS_PORT="10808"
 PROXY_IFACE="Proxy0"
@@ -13,6 +14,14 @@ UPDATE_ALIAS="/opt/bin/vless-update"
 REPO_RAW_URL="https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-vless-auto-install.sh"
 INSTALLER_UPDATE_CMD="/opt/bin/xray-installer-update"
 INSTALLER_UPDATE_ALIAS="/opt/bin/installer-update"
+
+REUSE_VLESS="0"
+
+case "${1:-}" in
+    --reuse-vless)
+        REUSE_VLESS="1"
+        ;;
+esac
 
 printf '\n'
 printf '======================================\n'
@@ -139,13 +148,23 @@ echo "Xray binary: $XRAY_BIN"
 mkdir -p "$XRAY_DIR"
 
 echo
-echo "[3/10] Enter your VLESS link."
-read_tty "VLESS link: " VLESS_URL
+echo "[3/10] Preparing VLESS link..."
+
+if [ "$REUSE_VLESS" = "1" ] && [ -s "$VLESS_STORE" ]; then
+    VLESS_URL="$(cat "$VLESS_STORE")"
+    echo "Using saved VLESS link from:"
+    echo "$VLESS_STORE"
+else
+    read_tty "VLESS link: " VLESS_URL
+fi
 
 if [ -z "$VLESS_URL" ]; then
     echo "ERROR: empty VLESS link."
     exit 1
 fi
+
+printf "%s\n" "$VLESS_URL" > "$VLESS_STORE"
+chmod 600 "$VLESS_STORE"
 
 export VLESS_URL XRAY_CONFIG SOCKS_HOST SOCKS_PORT
 
@@ -350,6 +369,7 @@ set -e
 
 XRAY_DIR="/opt/etc/xray"
 XRAY_CONFIG="$XRAY_DIR/config.json"
+VLESS_STORE="/opt/etc/xray/vless.url"
 INIT_SCRIPT="/opt/etc/init.d/S24xray"
 SOCKS_PORT="10808"
 
@@ -462,9 +482,11 @@ if [ -z "$VLESS_URL" ]; then
     exit 1
 fi
 
-export VLESS_URL XRAY_CONFIG SOCKS_HOST SOCKS_PORT
-
 mkdir -p "$XRAY_DIR"
+printf "%s\n" "$VLESS_URL" > "$VLESS_STORE"
+chmod 600 "$VLESS_STORE"
+
+export VLESS_URL XRAY_CONFIG SOCKS_HOST SOCKS_PORT
 
 python3 <<'PY'
 import os
@@ -646,6 +668,8 @@ echo "Restarting Xray..."
 echo
 echo "Done."
 echo "VLESS link updated."
+echo "Saved VLESS link:"
+echo "$VLESS_STORE"
 echo "Xray config:"
 echo "$XRAY_CONFIG"
 echo
@@ -668,6 +692,7 @@ set -e
 
 REPO_RAW_URL="$REPO_RAW_URL"
 TMP_INSTALLER="/opt/tmp/xray-vless-auto-install.sh"
+VLESS_STORE="$VLESS_STORE"
 
 echo
 echo "======================================"
@@ -689,6 +714,14 @@ if ! command -v curl >/dev/null 2>&1; then
     opkg install curl ca-bundle
 fi
 
+if [ ! -s "\$VLESS_STORE" ]; then
+    echo "ERROR: saved VLESS link not found:"
+    echo "\$VLESS_STORE"
+    echo
+    echo "Run vless-update first or run full installer manually."
+    exit 1
+fi
+
 mkdir -p /opt/tmp
 
 echo "Downloading latest installer..."
@@ -703,10 +736,10 @@ echo
 echo "Latest installer downloaded:"
 echo "\$TMP_INSTALLER"
 echo
-echo "Running latest installer..."
+echo "Running latest installer with saved VLESS link..."
 echo
 
-"\$TMP_INSTALLER"
+"\$TMP_INSTALLER" --reuse-vless
 UPDATER_INSTALLER
 
 chmod +x "$INSTALLER_UPDATE_CMD"
@@ -778,6 +811,9 @@ echo "$ROUTER_LAN_IP"
 echo
 echo "Xray config:"
 echo "$XRAY_CONFIG"
+echo
+echo "Saved VLESS link:"
+echo "$VLESS_STORE"
 echo
 echo "Xray service:"
 echo "$INIT_SCRIPT"
