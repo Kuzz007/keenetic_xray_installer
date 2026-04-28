@@ -25,6 +25,4 @@
 ## Установка одной командой
 
 ```sh
-opkg update
-opkg install wget-ssl ca-bundle
-wget -O - https://raw.githubusercontent.com/Kuzz007/test/main/xray-vless-auto-install.sh | sh
+opkg update && opkg install curl ca-bundle && curl -fsSL https://raw.githubusercontent.com/Kuzz007/test/main/xray-vless-auto-install.sh | sh
