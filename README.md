@@ -25,3 +25,4 @@
 ## Установка одной командой
 
 ```sh
+wget -O - https://raw.githubusercontent.com/Kuzz007/test/main/xray-vless-auto-install.sh | sh
