@@ -54,7 +54,7 @@ opkg update && opkg install curl ca-bundle python3 && curl -fsSL https://raw.git
 Логи в реальном времени после настройки для проверки переключений
 
 ```sh
-tail -f /opt/var/log/xray-vless-failover.log```
+tail -f /opt/var/log/xray-vless-failover.log
 ```
 
 ## Управление Xray
