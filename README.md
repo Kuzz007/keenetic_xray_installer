@@ -106,3 +106,14 @@ failover-installer-update
 
 При обновлении установщика команда `не просит заново вставлять Vless ссылку`.
 
+## Обновления Xray-core `stable/latest`
+
+```sh
+opkg update && opkg install curl ca-bundle unzip && curl -fsSL -o /opt/tmp/xray-core-update.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-core-update.sh && chmod +x /opt/tmp/xray-core-update.sh && /opt/tmp/xray-core-update.sh
+```
+
+## Обновления Xray-core `pre-release`
+
+```sh
+opkg update && opkg install curl ca-bundle unzip && curl -fsSL -o /opt/tmp/xray-core-update.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-core-update.sh && chmod +x /opt/tmp/xray-core-update.sh && /opt/tmp/xray-core-update.sh --prerelease
+```
