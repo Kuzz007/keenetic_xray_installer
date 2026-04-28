@@ -33,10 +33,20 @@ ndmc -c "dns-proxy tls upstream 9.9.9.9 sni dns.quad9.net" \
 && ndmc -c "dns-proxy tls upstream 77.88.8.8 sni common.dot.dns.yandex.net" \
 && ndmc -c "system configuration save"
 ```
-## Установка
+## Установка Xray
 
 ```sh
 opkg update && opkg install curl ca-bundle && curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-vless-auto-install.sh | sh
+```
+## Установка Xray-Failower
+
+```sh
+opkg update && opkg install curl ca-bundle python3 && curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-vless-failover-install.sh | sh
+```
+Логи в реальном времени после настройки для проверки переключений
+
+```sh
+tail -f /opt/var/log/xray-vless-failover.log```
 ```
 
 ## Управление Xray
@@ -48,32 +58,38 @@ opkg update && opkg install curl ca-bundle && curl -fsSL https://raw.githubuserc
 /opt/etc/init.d/S24xray status
 ```
 
-## Смена Vless-ссылки без переустановки
+## Управление Xray-Failower
+
+```sh
+/opt/etc/init.d/S25xray-failover status
+/opt/etc/init.d/S25xray-failover stop
+/opt/etc/init.d/S25xray-failover restart
+/opt/etc/init.d/S25xray-failover status
+```
+
+## Смена Vless-ссылки Xray без переустановки
 
 ```sh
 vless-update
 ```
-
-### Проверить после обновления
-
-```sh
-xray run -test -config /opt/etc/xray/config.json
-```
+## Смена Vless-ссылки Xray-Failover без переустановки
 
 ```sh
-/opt/etc/init.d/S24xray status
-```
-
-```sh
-netstat -lntp | grep 10808
+vless-failover-update
 ```
 
 `Прокси подключение` при этом остаётся прежним, меняется только Xray-конфиг.
 
-## Обновление скрипта
+## Обновление скрипта Xray
 
 ```sh
 installer-update
 ```
+## Обновление скрипта Xray-Failover
+
+```sh
+failover-installer-update
+```
+
 При обновлении установщика команда `не просит заново вставлять Vless ссылку`.
 
