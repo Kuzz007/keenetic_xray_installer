@@ -250,12 +250,7 @@ config = {
     "log": {
         "loglevel": "warning"
     },
-    "dns": {
-        "servers": [
-            "1.1.1.1",
-            "8.8.8.8"
-        ]
-    },
+    
     "inbounds": [
         {
             "tag": "socks-in",
