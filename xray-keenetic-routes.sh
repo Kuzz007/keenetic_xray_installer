@@ -8,6 +8,7 @@ INSTALL_PATH="/opt/bin/xray-keenetic-routes"
 SYNC_LINK="/opt/bin/xray-routes-sync"
 CLEAR_LINK="/opt/bin/xray-routes-clear"
 STATUS_LINK="/opt/bin/xray-routes-status"
+REINSTALL_LINK="/opt/bin/xray-routes-reinstall"
 BACKUP_DIR="/opt/etc/xray/route-backups"
 
 need_ndmc() {
@@ -390,15 +391,33 @@ DATA
 }
 
 for_each_domain_group() {
-    for group in domain-list80 domain-list81 domain-list82 domain-list83 domain-list84 domain-list85 domain-list86; do
+    # FQDN object groups. In Keenetic web UI these are shown in "Списки доменных имен".
+    # They can contain both domains and IPv4/CIDR entries.
+    for group in domain-list80 domain-list81 domain-list82 domain-list83 domain-list84 domain-list85 domain-list86 domain-list87 domain-list88 domain-list89 domain-list90; do
         echo "$group"
     done
 }
 
 for_each_ip_group() {
+    # Legacy cleanup only. Current mode does not create object-group ip.
     for group in ip-list80 ip-list81 ip-list82 ip-list83 ip-list84 ip-list85 ip-list86 ip-list87; do
         echo "$group"
     done
+}
+
+ip_to_fqdn_group() {
+    ip_group="$1"
+    case "$ip_group" in
+        ip-list80) echo "domain-list87|xray-akamai-mixed" ;;
+        ip-list81) echo "domain-list81|xray-apple-domains-ips" ;;
+        ip-list82) echo "domain-list88|xray-amazon-mixed" ;;
+        ip-list83) echo "domain-list89|xray-cloudflare-mixed" ;;
+        ip-list84) echo "domain-list90|xray-fastly-mixed" ;;
+        ip-list85) echo "domain-list84|xray-meta-domains-ips" ;;
+        ip-list86) echo "domain-list85|xray-telegram-domains-ips" ;;
+        ip-list87) echo "domain-list86|xray-youtube-domains-ips" ;;
+        *) echo "" ;;
+    esac
 }
 
 remove_policy_route() {
@@ -450,11 +469,9 @@ sync_routes() {
     echo "Policy: $POLICY_NAME"
     echo
 
-    backup_config
-    clear_routes_nosave
+    echo "Создаём FQDN mixed groups: domain-list80..90..."
 
-    echo
-    echo "Создаём FQDN groups и DNS proxy routes..."
+    # 1. Domain entries.
     domain_data | while IFS='|' read -r kind group desc domain; do
         [ "$kind" = "D" ] || continue
         quiet_ndmc "object-group fqdn $group"
@@ -462,13 +479,10 @@ sync_routes() {
         quiet_ndmc "object-group fqdn $group include $domain"
     done
 
-    for_each_domain_group | while read -r group; do
-        echo "Route FQDN group $group -> $PROXY_IFACE"
-        quiet_ndmc "dns-proxy route object-group $group $PROXY_IFACE auto"
-    done
-
-    echo
-    echo "Создаём IP/CIDR только как отдельные Policy0 routes..."
+    # 2. IP/CIDR entries are added to FQDN object-groups too,
+    # so Keenetic web UI shows IPv4 counters in "Списки доменных имен".
+    # Real routing is still done by explicit Policy0 routes below.
+    echo "Добавляем IP/CIDR в FQDN mixed groups и Policy0 routes..."
     ip_data | while IFS='|' read -r kind group desc item; do
         [ "$kind" = "I" ] || continue
         route_parts="$(ip_route_parts "$item")" || {
@@ -476,10 +490,22 @@ sync_routes() {
             continue
         }
 
-        # IP/CIDR intentionally are NOT added to object-group ip.
-        # Keenetic web UI does not show IP groups together with domain groups.
-        # We add IP/CIDR only as separate Policy0 routes via Proxy0, so they are visible as routes.
+        mixed="$(ip_to_fqdn_group "$group")"
+        if [ -n "$mixed" ]; then
+            fqdn_group="${mixed%%|*}"
+            fqdn_desc="${mixed#*|}"
+            quiet_ndmc "object-group fqdn $fqdn_group"
+            quiet_ndmc "object-group fqdn $fqdn_group description $fqdn_desc"
+            quiet_ndmc "object-group fqdn $fqdn_group include $item"
+        fi
+
         quiet_ndmc "ip policy $POLICY_NAME route $route_parts $PROXY_IFACE auto"
+    done
+
+    # 3. Route all FQDN/mixed groups through Proxy0 for domain DNS routing.
+    echo "Добавляем dns-proxy routes для domain-list80..90..."
+    for_each_domain_group | while read -r group; do
+        quiet_ndmc "dns-proxy route object-group $group $PROXY_IFACE auto"
     done
 
     echo
@@ -489,6 +515,21 @@ sync_routes() {
     echo
     echo "Готово."
     echo "Проверка: xray-routes-status"
+}
+
+reinstall_routes() {
+    need_ndmc
+
+    echo
+    echo "======================================"
+    echo " Xray Keenetic Routes reinstall"
+    echo "======================================"
+    echo "Будет выполнена полная очистка domain-list80..90, ip-list80..87 и наших Policy0 routes, затем повторное добавление."
+    echo
+
+    backup_config
+    clear_routes_nosave
+    sync_routes
 }
 
 clear_routes() {
@@ -516,10 +557,14 @@ status_routes() {
 
     echo
     echo "FQDN groups domain-list80..86:"
-    ndmc -c "show running-config" | grep -E "object-group fqdn domain-list8[0-6]|description xray-.*-domains|route object-group domain-list8[0-6]" || true
+    ndmc -c "show running-config" | grep -E "object-group fqdn domain-list(8[0-9]|90)|description xray-.*|route object-group domain-list(8[0-9]|90)" || true
 
     echo
-    echo "IP object groups ip-list80..87, should be absent in route-only mode:"
+    echo "Mixed FQDN groups with IPv4/CIDR, domain-list80..90:"
+    ndmc -c "show running-config" | grep -E "object-group fqdn domain-list(8[0-9]|90)|description xray-.*|include [0-9]+\." | head -n 160 || true
+
+    echo
+    echo "Legacy IP object groups ip-list80..87, should be absent:"
     ndmc -c "show running-config" | grep -E "object-group ip ip-list8[0-7]|description xray-.*-ips|include ip " | head -n 120 || true
 
     echo
@@ -540,12 +585,14 @@ install_self() {
     ln -sf "$INSTALL_PATH" "$SYNC_LINK"
     ln -sf "$INSTALL_PATH" "$CLEAR_LINK"
     ln -sf "$INSTALL_PATH" "$STATUS_LINK"
+    ln -sf "$INSTALL_PATH" "$REINSTALL_LINK"
 
     echo
     echo "Установлены команды:"
     echo "$SYNC_LINK"
     echo "$CLEAR_LINK"
     echo "$STATUS_LINK"
+    echo "$REINSTALL_LINK"
     echo
     echo "Запуск синхронизации:"
     echo "xray-routes-sync"
@@ -558,6 +605,7 @@ case "$base" in
     xray-routes-sync) cmd="sync" ;;
     xray-routes-clear) cmd="clear" ;;
     xray-routes-status) cmd="status" ;;
+    xray-routes-reinstall) cmd="reinstall" ;;
 esac
 
 case "$cmd" in
@@ -573,13 +621,17 @@ case "$cmd" in
     status)
         status_routes
         ;;
+    reinstall)
+        reinstall_routes
+        ;;
     *)
-        echo "Использование: $0 {install|sync|clear|status}"
+        echo "Использование: $0 {install|sync|clear|status|reinstall}"
         echo
         echo "Команды после install:"
         echo "  xray-routes-sync"
         echo "  xray-routes-clear"
         echo "  xray-routes-status"
+        echo "  xray-routes-reinstall"
         exit 1
         ;;
 esac
