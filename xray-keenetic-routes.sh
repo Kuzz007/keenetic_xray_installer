@@ -468,7 +468,7 @@ sync_routes() {
     done
 
     echo
-    echo "Создаём IP groups и Policy0 routes..."
+    echo "Создаём IP/CIDR только как отдельные Policy0 routes..."
     ip_data | while IFS='|' read -r kind group desc item; do
         [ "$kind" = "I" ] || continue
         route_parts="$(ip_route_parts "$item")" || {
@@ -476,9 +476,9 @@ sync_routes() {
             continue
         }
 
-        quiet_ndmc "object-group ip $group"
-        quiet_ndmc "object-group ip $group description $desc"
-        quiet_ndmc "object-group ip $group include ip $item"
+        # IP/CIDR intentionally are NOT added to object-group ip.
+        # Keenetic web UI does not show IP groups together with domain groups.
+        # We add IP/CIDR only as separate Policy0 routes via Proxy0, so they are visible as routes.
         quiet_ndmc "ip policy $POLICY_NAME route $route_parts $PROXY_IFACE auto"
     done
 
@@ -519,11 +519,11 @@ status_routes() {
     ndmc -c "show running-config" | grep -E "object-group fqdn domain-list8[0-6]|description xray-.*-domains|route object-group domain-list8[0-6]" || true
 
     echo
-    echo "IP groups ip-list80..87:"
+    echo "IP object groups ip-list80..87, should be absent in route-only mode:"
     ndmc -c "show running-config" | grep -E "object-group ip ip-list8[0-7]|description xray-.*-ips|include ip " | head -n 120 || true
 
     echo
-    echo "Policy0 routes through $PROXY_IFACE, first 120 lines:"
+    echo "Policy0 IP routes through $PROXY_IFACE, first 120 lines:"
     ndmc -c "show running-config" | grep -A800 "ip policy $POLICY_NAME" | grep "route .* $PROXY_IFACE auto" | head -n 120 || true
 }
 
