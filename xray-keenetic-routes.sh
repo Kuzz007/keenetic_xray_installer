@@ -403,10 +403,17 @@ for_each_ip_group() {
 
 remove_policy_route() {
     route_parts="$1"
-    quiet_ndmc "ip policy $POLICY_NAME no route $route_parts $PROXY_IFACE auto"
-    quiet_ndmc "no ip policy $POLICY_NAME route $route_parts $PROXY_IFACE auto"
+
+    # KeeneticOS on different versions accepts different delete forms.
+    # The most reliable forms are the short ones without interface/auto.
+    quiet_ndmc "ip policy $POLICY_NAME no route $route_parts"
+    quiet_ndmc "no ip policy $POLICY_NAME route $route_parts"
+
+    # Extra compatibility attempts. Errors are intentionally hidden.
     quiet_ndmc "ip policy $POLICY_NAME no route $route_parts $PROXY_IFACE"
+    quiet_ndmc "ip policy $POLICY_NAME no route $route_parts $PROXY_IFACE auto"
     quiet_ndmc "no ip policy $POLICY_NAME route $route_parts $PROXY_IFACE"
+    quiet_ndmc "no ip policy $POLICY_NAME route $route_parts $PROXY_IFACE auto"
 }
 
 clear_routes_nosave() {
@@ -424,8 +431,8 @@ clear_routes_nosave() {
         remove_policy_route "$route_parts"
     done
 
-    quiet_ndmc "ip policy $POLICY_NAME no route 1.1.1.1 $PROXY_IFACE auto"
-    quiet_ndmc "ip policy $POLICY_NAME no route 1.0.0.0 255.255.255.0 $PROXY_IFACE auto"
+    remove_policy_route "1.1.1.1"
+    remove_policy_route "1.0.0.0 255.255.255.0"
 
     for_each_ip_group | while read -r group; do
         quiet_ndmc "no object-group ip $group"
