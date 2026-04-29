@@ -17,6 +17,15 @@ need_ndmc() {
     fi
 }
 
+run_ndmc() {
+    echo "+ ndmc -c \"$1\""
+    ndmc -c "$1"
+}
+
+quiet_ndmc() {
+    ndmc -c "$1" >/dev/null 2>&1 || true
+}
+
 backup_config() {
     mkdir -p "$BACKUP_DIR"
     BACKUP_FILE="$BACKUP_DIR/running-config-before-xray-routes-$(date +%Y%m%d-%H%M%S 2>/dev/null || echo now).txt"
@@ -94,135 +103,25 @@ D|domain-list80|xray-ai-domains|oaistatic.com
 D|domain-list80|xray-ai-domains|oaiusercontent.com
 D|domain-list80|xray-ai-domains|openai.com
 D|domain-list80|xray-ai-domains|sora.com
-D|domain-list81|xray-apple-domains|12dagenkerstbijitunes.com
-D|domain-list81|xray-apple-domains|12diasdepresentesdeitunes.com
-D|domain-list81|xray-apple-domains|12diasderegalosdeitunes.cl
-D|domain-list81|xray-apple-domains|12diasderegalosdeitunes.co
-D|domain-list81|xray-apple-domains|12diasderegalosdeitunes.co.cr
-D|domain-list81|xray-apple-domains|12diasderegalosdeitunes.co.ve
-D|domain-list81|xray-apple-domains|12diasderegalosdeitunes.com
-D|domain-list81|xray-apple-domains|12diasderegalosdeitunes.com.co
-D|domain-list81|xray-apple-domains|12diasderegalosdeitunes.com.hn
-D|domain-list81|xray-apple-domains|12diasderegalosdeitunes.com.ni
-D|domain-list81|xray-apple-domains|12diasderegalosdeitunes.com.ve
-D|domain-list81|xray-apple-domains|12diasderegalosdeitunes.cr
-D|domain-list81|xray-apple-domains|12diasderegalosdeitunes.gt
-D|domain-list81|xray-apple-domains|12diasderegalosdeitunes.hn
-D|domain-list81|xray-apple-domains|12diasderegalosdeitunes.pe
-D|domain-list81|xray-apple-domains|12joursdecadeauxdeitunes.com
-D|domain-list81|xray-apple-domains|12joursdecadeauxdeitunes.fr
 D|domain-list81|xray-apple-domains|aaplimg.com
-D|domain-list81|xray-apple-domains|apple-appstore.cn
 D|domain-list81|xray-apple-domains|apple-cloudkit.com
-D|domain-list81|xray-apple-domains|apple-dns.cn
 D|domain-list81|xray-apple-domains|apple-dns.com
-D|domain-list81|xray-apple-domains|apple-dns.com.cn
 D|domain-list81|xray-apple-domains|apple-dns.net
-D|domain-list81|xray-apple-domains|apple-icloud.cn
-D|domain-list81|xray-apple-domains|apple-itunes.cn
-D|domain-list81|xray-apple-domains|apple-livephotoskit.com
-D|domain-list81|xray-apple-domains|apple-mapkit.com
 D|domain-list81|xray-apple-domains|apple.com
-D|domain-list81|xray-apple-domains|appleappstore.cn
-D|domain-list81|xray-apple-domains|appleappstore.net
-D|domain-list81|xray-apple-domains|appleappstore.tv
-D|domain-list81|xray-apple-domains|applecare.berlin
-D|domain-list81|xray-apple-domains|applecare.cc
-D|domain-list81|xray-apple-domains|applecare.com
-D|domain-list81|xray-apple-domains|applecare.eu
-D|domain-list81|xray-apple-domains|applecare.hamburg
-D|domain-list81|xray-apple-domains|applecare.wang
-D|domain-list81|xray-apple-domains|appledns.cn
-D|domain-list81|xray-apple-domains|appledns.com.cn
-D|domain-list81|xray-apple-domains|appleicloud.cn
-D|domain-list81|xray-apple-domains|applemx-icloud.com
-D|domain-list81|xray-apple-domains|appstore.co.id
 D|domain-list81|xray-apple-domains|appstore.com
-D|domain-list81|xray-apple-domains|appstore.com.br
-D|domain-list81|xray-apple-domains|appstore.hk
-D|domain-list81|xray-apple-domains|appstore.my
-D|domain-list81|xray-apple-domains|appstore.ph
-D|domain-list81|xray-apple-domains|appstoreapple.cn
-D|domain-list81|xray-apple-domains|carekit.org
 D|domain-list81|xray-apple-domains|cdn-apple.com
-D|domain-list81|xray-apple-domains|foundationdb.com
-D|domain-list81|xray-apple-domains|foundationdb.net
-D|domain-list81|xray-apple-domains|foundationdb.org
-D|domain-list81|xray-apple-domains|icloud-apple.cn
-D|domain-list81|xray-apple-domains|icloud-content.com
-D|domain-list81|xray-apple-domains|icloud-sandbox.com
-D|domain-list81|xray-apple-domains|icloud.ch
-D|domain-list81|xray-apple-domains|icloud.cl
 D|domain-list81|xray-apple-domains|icloud.com
-D|domain-list81|xray-apple-domains|icloud.com.cn
-D|domain-list81|xray-apple-domains|icloud.de
-D|domain-list81|xray-apple-domains|icloud.ee
-D|domain-list81|xray-apple-domains|icloud.fi
-D|domain-list81|xray-apple-domains|icloud.fr
-D|domain-list81|xray-apple-domains|icloud.hu
-D|domain-list81|xray-apple-domains|icloud.ie
-D|domain-list81|xray-apple-domains|icloud.is
-D|domain-list81|xray-apple-domains|icloud.jp
-D|domain-list81|xray-apple-domains|icloud.lv
-D|domain-list81|xray-apple-domains|icloud.net.cn
-D|domain-list81|xray-apple-domains|icloud.org
-D|domain-list81|xray-apple-domains|icloud.pt
-D|domain-list81|xray-apple-domains|icloud.ro
-D|domain-list81|xray-apple-domains|icloud.se
-D|domain-list81|xray-apple-domains|icloud.si
-D|domain-list81|xray-apple-domains|icloud.sk
-D|domain-list81|xray-apple-domains|icloud.vn
-D|domain-list81|xray-apple-domains|icloudapple.cn
-D|domain-list81|xray-apple-domains|ios-icloud.com
-D|domain-list81|xray-apple-domains|itunes-apple.cn
-D|domain-list81|xray-apple-domains|itunes-nocookie.com
-D|domain-list81|xray-apple-domains|itunes-radio.net
-D|domain-list81|xray-apple-domains|itunes12days.com
-D|domain-list81|xray-apple-domains|itunes12tage.com
-D|domain-list81|xray-apple-domains|itunesessentials.com
-D|domain-list81|xray-apple-domains|itunesfestivals.com
-D|domain-list81|xray-apple-domains|itunesiradio.com
-D|domain-list81|xray-apple-domains|ituneslatino.com
-D|domain-list81|xray-apple-domains|itunesmatch.com
-D|domain-list81|xray-apple-domains|itunesmusicstore.com
-D|domain-list81|xray-apple-domains|itunesparty.com
-D|domain-list81|xray-apple-domains|itunesradio.com
-D|domain-list81|xray-apple-domains|itunesu.com
-D|domain-list81|xray-apple-domains|itunesu.net
-D|domain-list81|xray-apple-domains|los12diasderegalosdeitunes.es
-D|domain-list81|xray-apple-domains|macosforge.org
+D|domain-list81|xray-apple-domains|icloud-content.com
+D|domain-list81|xray-apple-domains|itunes.apple.com
 D|domain-list81|xray-apple-domains|mzstatic.com
-D|domain-list81|xray-apple-domains|researchandcare.org
-D|domain-list81|xray-apple-domains|researchkit.tv
 D|domain-list81|xray-apple-domains|shazam.com
-D|domain-list81|xray-apple-domains|swift.org
-D|domain-list81|xray-apple-domains|webkit.org
-D|domain-list81|xray-apple-domains|webkitgtk.org
-D|domain-list81|xray-apple-domains|wpewebkit.org
-D|domain-list81|xray-apple-domains|wwwicloud.com
-D|domain-list81|xray-apple-domains|wwwitunes.com
 D|domain-list82|xray-discord-domains|dis.gd
-D|domain-list82|xray-discord-domains|discord-activities.com
-D|domain-list82|xray-discord-domains|discord.co
 D|domain-list82|xray-discord-domains|discord.com
-D|domain-list82|xray-discord-domains|discord.design
-D|domain-list82|xray-discord-domains|discord.dev
 D|domain-list82|xray-discord-domains|discord.gg
-D|domain-list82|xray-discord-domains|discord.gift
-D|domain-list82|xray-discord-domains|discord.gifts
 D|domain-list82|xray-discord-domains|discord.media
-D|domain-list82|xray-discord-domains|discord.new
-D|domain-list82|xray-discord-domains|discord.store
-D|domain-list82|xray-discord-domains|discord.tools
-D|domain-list82|xray-discord-domains|discordactivities.com
 D|domain-list82|xray-discord-domains|discordapp.com
-D|domain-list82|xray-discord-domains|discordapp.io
 D|domain-list82|xray-discord-domains|discordapp.net
 D|domain-list82|xray-discord-domains|discordcdn.com
-D|domain-list82|xray-discord-domains|discordmerch.com
-D|domain-list82|xray-discord-domains|discordpartygames.com
-D|domain-list82|xray-discord-domains|discordsays.com
-D|domain-list82|xray-discord-domains|discordstatus.com
 D|domain-list83|xray-gemini-domains|ai.google.dev
 D|domain-list83|xray-gemini-domains|ai.studio
 D|domain-list83|xray-gemini-domains|aistudio.google.com
@@ -244,16 +143,9 @@ D|domain-list83|xray-gemini-domains|stitch.withgoogle.com
 D|domain-list84|xray-meta-domains|aboutfacebook.com
 D|domain-list84|xray-meta-domains|facebook.com
 D|domain-list84|xray-meta-domains|facebook.net
-D|domain-list84|xray-meta-domains|facebook.org
-D|domain-list84|xray-meta-domains|facebookmail.com
 D|domain-list84|xray-meta-domains|fb.com
-D|domain-list84|xray-meta-domains|fb.gg
-D|domain-list84|xray-meta-domains|fb.me
-D|domain-list84|xray-meta-domains|fb.watch
 D|domain-list84|xray-meta-domains|fbcdn.com
 D|domain-list84|xray-meta-domains|fbcdn.net
-D|domain-list84|xray-meta-domains|fbsbx.com
-D|domain-list84|xray-meta-domains|fbsbx.net
 D|domain-list84|xray-meta-domains|instagram.com
 D|domain-list84|xray-meta-domains|cdninstagram.com
 D|domain-list84|xray-meta-domains|ig.me
@@ -262,22 +154,16 @@ D|domain-list84|xray-meta-domains|messenger.com
 D|domain-list84|xray-meta-domains|m.me
 D|domain-list84|xray-meta-domains|meta.ai
 D|domain-list84|xray-meta-domains|meta.com
-D|domain-list84|xray-meta-domains|oculus.com
-D|domain-list84|xray-meta-domains|oculuscdn.com
-D|domain-list84|xray-meta-domains|oculusvr.com
 D|domain-list84|xray-meta-domains|threads.com
 D|domain-list84|xray-meta-domains|threads.net
 D|domain-list84|xray-meta-domains|wa.me
 D|domain-list84|xray-meta-domains|whatsapp.com
 D|domain-list84|xray-meta-domains|whatsapp.net
-D|domain-list84|xray-meta-domains|whatsapp.org
-D|domain-list84|xray-meta-domains|workplace.com
 D|domain-list85|xray-telegram-domains|cdn-telegram.org
 D|domain-list85|xray-telegram-domains|comments.app
 D|domain-list85|xray-telegram-domains|contest.com
 D|domain-list85|xray-telegram-domains|fragment.com
 D|domain-list85|xray-telegram-domains|graph.org
-D|domain-list85|xray-telegram-domains|quiz.directory
 D|domain-list85|xray-telegram-domains|t.me
 D|domain-list85|xray-telegram-domains|tdesktop.com
 D|domain-list85|xray-telegram-domains|telegra.ph
@@ -289,7 +175,6 @@ D|domain-list85|xray-telegram-domains|telegram.space
 D|domain-list85|xray-telegram-domains|telesco.pe
 D|domain-list85|xray-telegram-domains|tg.dev
 D|domain-list85|xray-telegram-domains|ton.org
-D|domain-list85|xray-telegram-domains|tx.me
 D|domain-list86|xray-youtube-domains|googlevideo.com
 D|domain-list86|xray-youtube-domains|i.ytimg.com
 D|domain-list86|xray-youtube-domains|manifest.googlevideo.com
@@ -304,17 +189,9 @@ D|domain-list86|xray-youtube-domains|youtu.be
 D|domain-list86|xray-youtube-domains|youtube-nocookie.com
 D|domain-list86|xray-youtube-domains|youtube.com
 D|domain-list86|xray-youtube-domains|youtube.googleapis.com
-D|domain-list86|xray-youtube-domains|youtubeeducation.com
-D|domain-list86|xray-youtube-domains|youtubeembeddedplayer.googleapis.com
 D|domain-list86|xray-youtube-domains|youtubei.googleapis.com
-D|domain-list86|xray-youtube-domains|youtubekids.com
-D|domain-list86|xray-youtube-domains|yt.be
-D|domain-list86|xray-youtube-domains|yt3.ggpht.com
-D|domain-list86|xray-youtube-domains|yt3.googleusercontent.com
-D|domain-list86|xray-youtube-domains|yt4.ggpht.com
 D|domain-list86|xray-youtube-domains|ytimg.com
 D|domain-list86|xray-youtube-domains|ytimg.googleusercontent.com
-D|domain-list86|xray-youtube-domains|ytimg.l.google.com
 DATA
 }
 
@@ -460,23 +337,6 @@ I|ip-list85|xray-meta-ips|102.132.126.0/24
 I|ip-list85|xray-meta-ips|102.221.188.0/22
 I|ip-list85|xray-meta-ips|103.4.96.0/22
 I|ip-list85|xray-meta-ips|129.134.0.0/17
-I|ip-list85|xray-meta-ips|129.134.130.0/24
-I|ip-list85|xray-meta-ips|129.134.132.0/24
-I|ip-list85|xray-meta-ips|129.134.135.0/24
-I|ip-list85|xray-meta-ips|129.134.136.0/22
-I|ip-list85|xray-meta-ips|129.134.140.0/24
-I|ip-list85|xray-meta-ips|129.134.143.0/24
-I|ip-list85|xray-meta-ips|129.134.144.0/24
-I|ip-list85|xray-meta-ips|129.134.147.0/24
-I|ip-list85|xray-meta-ips|129.134.148.0/23
-I|ip-list85|xray-meta-ips|129.134.154.0/23
-I|ip-list85|xray-meta-ips|129.134.156.0/22
-I|ip-list85|xray-meta-ips|129.134.160.0/22
-I|ip-list85|xray-meta-ips|129.134.164.0/23
-I|ip-list85|xray-meta-ips|129.134.168.0/21
-I|ip-list85|xray-meta-ips|129.134.176.0/20
-I|ip-list85|xray-meta-ips|129.134.194.0/24
-I|ip-list85|xray-meta-ips|129.134.196.0/24
 I|ip-list85|xray-meta-ips|157.240.0.0/17
 I|ip-list85|xray-meta-ips|157.240.128.0/23
 I|ip-list85|xray-meta-ips|157.240.131.0/24
@@ -496,13 +356,9 @@ I|ip-list85|xray-meta-ips|157.240.182.0/23
 I|ip-list85|xray-meta-ips|157.240.184.0/21
 I|ip-list85|xray-meta-ips|157.240.192.0/18
 I|ip-list85|xray-meta-ips|163.70.128.0/17
-I|ip-list85|xray-meta-ips|163.77.132.0/23
-I|ip-list85|xray-meta-ips|163.77.136.0/23
-I|ip-list85|xray-meta-ips|163.114.128.0/20
 I|ip-list85|xray-meta-ips|173.252.64.0/18
 I|ip-list85|xray-meta-ips|179.60.192.0/22
 I|ip-list85|xray-meta-ips|185.60.216.0/22
-I|ip-list85|xray-meta-ips|185.89.216.0/22
 I|ip-list85|xray-meta-ips|199.201.64.0/22
 I|ip-list85|xray-meta-ips|204.15.20.0/22
 I|ip-list86|xray-telegram-ips|91.105.192.0/23
@@ -533,23 +389,46 @@ I|ip-list87|xray-youtube-ips|216.239.32.0/19
 DATA
 }
 
+for_each_domain_group() {
+    for group in domain-list80 domain-list81 domain-list82 domain-list83 domain-list84 domain-list85 domain-list86; do
+        echo "$group"
+    done
+}
+
+for_each_ip_group() {
+    for group in ip-list80 ip-list81 ip-list82 ip-list83 ip-list84 ip-list85 ip-list86 ip-list87; do
+        echo "$group"
+    done
+}
+
+remove_policy_route() {
+    route_parts="$1"
+    quiet_ndmc "ip policy $POLICY_NAME no route $route_parts $PROXY_IFACE auto"
+    quiet_ndmc "no ip policy $POLICY_NAME route $route_parts $PROXY_IFACE auto"
+    quiet_ndmc "ip policy $POLICY_NAME no route $route_parts $PROXY_IFACE"
+    quiet_ndmc "no ip policy $POLICY_NAME route $route_parts $PROXY_IFACE"
+}
+
 clear_routes_nosave() {
     echo "Удаляем наши FQDN routes и domain-list80..86..."
-    for group in domain-list80 domain-list81 domain-list82 domain-list83 domain-list84 domain-list85 domain-list86; do
-        ndmc -c "dns-proxy no route object-group $group $PROXY_IFACE auto" 2>/dev/null || true
-        ndmc -c "no dns-proxy route object-group $group $PROXY_IFACE auto" 2>/dev/null || true
-        ndmc -c "no object-group fqdn $group" 2>/dev/null || true
+    for_each_domain_group | while read -r group; do
+        quiet_ndmc "dns-proxy no route object-group $group $PROXY_IFACE auto"
+        quiet_ndmc "no dns-proxy route object-group $group $PROXY_IFACE auto"
+        quiet_ndmc "no object-group fqdn $group"
     done
 
     echo "Удаляем наши IP routes и ip-list80..87..."
     ip_data | while IFS='|' read -r kind group desc item; do
         [ "$kind" = "I" ] || continue
         route_parts="$(ip_route_parts "$item")" || continue
-        ndmc -c "ip policy $POLICY_NAME no route $route_parts $PROXY_IFACE auto" 2>/dev/null || true
+        remove_policy_route "$route_parts"
     done
 
-    for group in ip-list80 ip-list81 ip-list82 ip-list83 ip-list84 ip-list85 ip-list86 ip-list87; do
-        ndmc -c "no object-group ip $group" 2>/dev/null || true
+    quiet_ndmc "ip policy $POLICY_NAME no route 1.1.1.1 $PROXY_IFACE auto"
+    quiet_ndmc "ip policy $POLICY_NAME no route 1.0.0.0 255.255.255.0 $PROXY_IFACE auto"
+
+    for_each_ip_group | while read -r group; do
+        quiet_ndmc "no object-group ip $group"
     done
 }
 
@@ -571,14 +450,14 @@ sync_routes() {
     echo "Создаём FQDN groups и DNS proxy routes..."
     domain_data | while IFS='|' read -r kind group desc domain; do
         [ "$kind" = "D" ] || continue
-        ndmc -c "object-group fqdn $group" >/dev/null 2>&1 || true
-        ndmc -c "object-group fqdn $group description $desc" >/dev/null 2>&1 || true
-        ndmc -c "object-group fqdn $group include $domain" >/dev/null 2>&1 || true
+        quiet_ndmc "object-group fqdn $group"
+        quiet_ndmc "object-group fqdn $group description $desc"
+        quiet_ndmc "object-group fqdn $group include $domain"
     done
 
-    for group in domain-list80 domain-list81 domain-list82 domain-list83 domain-list84 domain-list85 domain-list86; do
+    for_each_domain_group | while read -r group; do
         echo "Route FQDN group $group -> $PROXY_IFACE"
-        ndmc -c "dns-proxy route object-group $group $PROXY_IFACE auto" >/dev/null 2>&1 || true
+        quiet_ndmc "dns-proxy route object-group $group $PROXY_IFACE auto"
     done
 
     echo
@@ -590,15 +469,15 @@ sync_routes() {
             continue
         }
 
-        ndmc -c "object-group ip $group" >/dev/null 2>&1 || true
-        ndmc -c "object-group ip $group description $desc" >/dev/null 2>&1 || true
-        ndmc -c "object-group ip $group include ip $item" >/dev/null 2>&1 || true
-        ndmc -c "ip policy $POLICY_NAME route $route_parts $PROXY_IFACE auto" >/dev/null 2>&1 || true
+        quiet_ndmc "object-group ip $group"
+        quiet_ndmc "object-group ip $group description $desc"
+        quiet_ndmc "object-group ip $group include ip $item"
+        quiet_ndmc "ip policy $POLICY_NAME route $route_parts $PROXY_IFACE auto"
     done
 
     echo
     echo "Сохраняем конфигурацию Keenetic..."
-    ndmc -c "system configuration save"
+    run_ndmc "system configuration save"
 
     echo
     echo "Готово."
@@ -619,7 +498,7 @@ clear_routes() {
 
     echo
     echo "Сохраняем конфигурацию Keenetic..."
-    ndmc -c "system configuration save"
+    run_ndmc "system configuration save"
 
     echo
     echo "Готово. Наши auto routes/groups удалены."
@@ -634,16 +513,14 @@ status_routes() {
 
     echo
     echo "IP groups ip-list80..87:"
-    ndmc -c "show running-config" | grep -E "object-group ip ip-list8[0-7]|description xray-.*-ips" || true
+    ndmc -c "show running-config" | grep -E "object-group ip ip-list8[0-7]|description xray-.*-ips|include ip " | head -n 120 || true
 
     echo
-    echo "Policy0 routes through $PROXY_IFACE, first 80 lines:"
-    ndmc -c "show running-config" | grep -A500 "ip policy $POLICY_NAME" | grep "route .* $PROXY_IFACE auto" | head -n 80 || true
+    echo "Policy0 routes through $PROXY_IFACE, first 120 lines:"
+    ndmc -c "show running-config" | grep -A800 "ip policy $POLICY_NAME" | grep "route .* $PROXY_IFACE auto" | head -n 120 || true
 }
 
 install_self() {
-    need_ndmc
-
     mkdir -p /opt/bin
 
     if [ "$(readlink -f "$0" 2>/dev/null || echo "$0")" != "$INSTALL_PATH" ]; then
