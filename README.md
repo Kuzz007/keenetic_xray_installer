@@ -1,31 +1,76 @@
-# Keenetic Xray VLESS Installer
+# Keenetic Xray VLESS Auto Installer
 
-Минималистичный набор установщиков Xray/VLESS для роутеров Keenetic с Entware.
+Автоматический установщик Xray/VLESS Failover для роутеров Keenetic с Entware.
 
-Проект оставляет в корне только основные публичные скрипты установки:
+Главный скрипт проекта:
+
+```text
+xray_vless_failover_auto.sh
+```
+
+Он сам проверяет доступное место в `/opt` и предлагает подходящий вариант установки:
+
+| Условие | Что предложит установщик |
+| --- | --- |
+| Места достаточно | `full`-версию с подписками, failover, обновлением ссылок и служебными командами |
+| Места мало | `minimal`-версию для прямых `vless://` ссылок без тяжёлых зависимостей |
+
+В корне репозитория оставлены три публичных скрипта:
 
 | Скрипт | Назначение |
 | --- | --- |
-| `xray_vless_failover.sh` | Полная версия с failover, подписками, обновлением ссылок и служебными командами |
-| `xray_vless_failover_auto.sh` | Автоматический запуск установки failover-версии |
-| `xray_vless_failover_minimal.sh` | Облегчённая версия для роутеров с малым объёмом `/opt` |
+| `xray_vless_failover_auto.sh` | Рекомендуемый автоустановщик. Сам выбирает full или minimal по доступной памяти |
+| `xray_vless_failover.sh` | Full-установщик, который auto-скрипт использует при достаточном месте |
+| `xray_vless_failover_minimal.sh` | Minimal-установщик, который auto-скрипт предлагает при малом объёме `/opt` |
 
-> Проверено на Keenetic + Entware. На устройствах с ограниченной встроенной памятью лучше начинать с minimal-версии.
+> Обычно вручную запускать `xray_vless_failover.sh` или `xray_vless_failover_minimal.sh` не нужно. Начинай с auto-установщика.
 
-## Возможности full-версии
+## Возможности auto-установщика
 
-- установка `xray` / `xray-core` из Entware;
-- поддержка прямых `vless://` ссылок;
-- поддержка HTTP/HTTPS ссылок подписок;
-- генерация `/opt/etc/xray/config.json`;
-- создание init-скрипта Xray;
-- создание failover-daemon;
-- автоматическое переключение между основным и резервным профилем;
+- проверяет Entware и базовые пакеты;
+- определяет свободное место в `/opt`;
+- выбирает подходящий режим установки;
+- предлагает `full`, если памяти достаточно;
+- предлагает `minimal`, если памяти мало;
+- скачивает нужный installer из GitHub;
+- проверяет shell-синтаксис перед запуском;
+- запускает выбранный установщик.
+
+## Чем отличаются режимы
+
+### Full
+
+Full-режим подходит для обычной установки на USB/SSD или при достаточном месте во встроенной памяти.
+
+Поддерживает:
+
+- прямые `vless://` ссылки;
+- HTTP/HTTPS ссылки подписок;
+- выбор профиля из подписки;
+- основной и резервный профиль;
+- автоматический failover;
 - возврат на основной профиль после восстановления;
-- настройка Keenetic `Proxy0`;
-- SOCKS5 на `192.168.1.1:10808` или другом LAN-IP роутера;
-- health-check через несколько `generate_204` endpoint-ов;
-- команды статуса, обновления ссылок, подписок и установщика.
+- обновление VLESS-ссылок;
+- обновление подписок;
+- автообновление подписок через cron;
+- команду обновления установщика;
+- меню `failover`;
+- расширенный health-check.
+
+### Minimal
+
+Minimal-режим предназначен для роутеров, где мало места в `/opt`.
+
+Особенности:
+
+- меньше зависимостей;
+- без `python3`;
+- без подписок;
+- без cron;
+- только прямые `vless://` ссылки;
+- основной и резервный профиль сохраняются;
+- failover работает;
+- Proxy0 и SOCKS5 также настраиваются.
 
 ## Требования
 
@@ -35,27 +80,15 @@
 - SSH-доступ к роутеру;
 - доступ в интернет с роутера.
 
-## Быстрый старт
+## Установка
 
-### Рекомендуемая установка с failover
-
-```sh
-opkg update && opkg install curl ca-bundle && curl -fsSL -o /opt/tmp/xray_vless_failover.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover.sh && sh -n /opt/tmp/xray_vless_failover.sh && chmod +x /opt/tmp/xray_vless_failover.sh && /opt/tmp/xray_vless_failover.sh
-```
-
-### Автоматическая установка
+Запусти на роутере через SSH:
 
 ```sh
 opkg update && opkg install curl ca-bundle && curl -fsSL -o /opt/tmp/xray_vless_failover_auto.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto.sh && sh -n /opt/tmp/xray_vless_failover_auto.sh && chmod +x /opt/tmp/xray_vless_failover_auto.sh && /opt/tmp/xray_vless_failover_auto.sh
 ```
 
-### Minimal-версия
-
-Используй, если на роутере мало места в `/opt` или не нужен разбор подписок.
-
-```sh
-opkg update && opkg install curl ca-bundle && curl -fsSL -o /opt/tmp/xray_vless_failover_minimal.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_minimal.sh && sh -n /opt/tmp/xray_vless_failover_minimal.sh && chmod +x /opt/tmp/xray_vless_failover_minimal.sh && /opt/tmp/xray_vless_failover_minimal.sh
-```
+После запуска auto-установщик покажет доступное место и предложит подходящий вариант.
 
 ## Как работает failover
 
@@ -63,8 +96,8 @@ opkg update && opkg install curl ca-bundle && curl -fsSL -o /opt/tmp/xray_vless_
 
 | Профиль | Назначение |
 | --- | --- |
-| Основной | основной VLESS или профиль из подписки |
-| Резервный | запасной VLESS или профиль из подписки |
+| Основной | основной VLESS или профиль из подписки в full-режиме |
+| Резервный | запасной VLESS или профиль из подписки в full-режиме |
 
 Сценарий работы:
 
@@ -114,6 +147,8 @@ vless-failover-update
 
 ### Обновить подписки
 
+Доступно в full-режиме:
+
 ```sh
 vless-subscription-update
 ```
@@ -124,7 +159,7 @@ vless-subscription-update
 failover-installer-update
 ```
 
-Команда обновления установщика использует актуальный файл:
+Команда обновления установщика использует актуальный full installer:
 
 ```text
 https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover.sh
@@ -170,7 +205,7 @@ rm -rf /opt/tmp/* /opt/var/opkg-lists/* /opt/var/cache/*
 opkg update
 ```
 
-После этого запускай minimal-версию.
+После очистки снова запусти auto-установщик. Он предложит full или minimal по текущему состоянию памяти.
 
 ## Релизы
 
