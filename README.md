@@ -54,11 +54,13 @@ opkg update && opkg install curl ca-bundle && curl -fsSL https://raw.githubuserc
 ## Установка Xray-Failower
 
 ```sh
-opkg update && opkg install curl ca-bundle python3 && curl -fsSL -o /opt/tmp/xray_vless_failover.sh \
-  https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover.sh && \
-sh -n /opt/tmp/xray_vless_failover.sh && \
-chmod +x /opt/tmp/xray_vless_failover.sh && \
-/opt/tmp/xray_vless_failover.sh
+opkg update && \
+opkg install curl ca-bundle && \
+curl -fsSL -o /opt/tmp/xray_vless_failover_auto.sh \
+  https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto.sh && \
+sh -n /opt/tmp/xray_vless_failover_auto.sh && \
+chmod +x /opt/tmp/xray_vless_failover_auto.sh && \
+/opt/tmp/xray_vless_failover_auto.sh
 ```
 Логи в реальном времени после настройки для проверки переключений
 
