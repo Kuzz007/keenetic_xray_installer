@@ -39,7 +39,7 @@ RECOVERY_SUCCESSES_REQUIRED="2"
 CHECK_URL="https://www.gstatic.com/generate_204"
 CHECK_URLS="https://www.gstatic.com/generate_204 https://www.google.com/generate_204 https://cp.cloudflare.com/generate_204"
 IP_CHECK_URL="https://api.ipify.org"
-DNS_CHECK_HOST="cloudflare.com"
+DNS_CHECK_URL="https://cp.cloudflare.com/generate_204"
 FAILOVER_CONF="$XRAY_DIR/failover.conf"
 [ -s "$FAILOVER_CONF" ] && . "$FAILOVER_CONF"
 
@@ -624,7 +624,8 @@ configure_proxy0() {
         && ndmc -c "interface $PROXY_IFACE proxy protocol socks5" \
         && ndmc -c "interface $PROXY_IFACE proxy socks5-udp" \
         && ndmc -c "interface $PROXY_IFACE proxy upstream $ROUTER_LAN_IP $SOCKS_PORT" \
-        && ndmc -c "interface $PROXY_IFACE description Xray-Failover" \        && ndmc -c "interface $PROXY_IFACE no ip global" \
+        && ndmc -c "interface $PROXY_IFACE description Xray-Failover" \
+        && ndmc -c "interface $PROXY_IFACE no ip global" \
         && ndmc -c "interface $PROXY_IFACE up" \
         && ndmc -c "system configuration save"
     then
@@ -665,7 +666,7 @@ RECOVERY_SUCCESSES_REQUIRED="2"
 CHECK_URL="https://www.gstatic.com/generate_204"
 CHECK_URLS="https://www.gstatic.com/generate_204 https://www.google.com/generate_204 https://cp.cloudflare.com/generate_204"
 IP_CHECK_URL="https://api.ipify.org"
-DNS_CHECK_HOST="cloudflare.com"
+DNS_CHECK_URL="https://cp.cloudflare.com/generate_204"
 
 TMP_DIR="/opt/tmp"
 TEMP_HOST="127.0.0.1"
@@ -733,10 +734,17 @@ profile_external_ip() {
     curl -k -sS --socks5-hostname "$HOST:$PORT" --connect-timeout 5 --max-time 10 "$IP_CHECK_URL" 2>/dev/null || true
 }
 
-test_dns_through_socks() {
+test_https_healthcheck_through_socks() {
     HOST="$1"
     PORT="$2"
-    curl -k -sS --socks5-hostname "$HOST:$PORT" --connect-timeout 5 --max-time 10 -o /dev/null "https://$DNS_CHECK_HOST" >/dev/null 2>&1
+    HTTP_CODE="$(curl -k -sS \
+        --socks5-hostname "$HOST:$PORT" \
+        --connect-timeout 5 \
+        --max-time 10 \
+        -o /dev/null \
+        -w '%{http_code}' \
+        "$DNS_CHECK_URL" 2>/dev/null || true)"
+    [ "$HTTP_CODE" = "204" ]
 }
 
 test_socks_endpoint() {
@@ -757,10 +765,10 @@ test_socks_endpoint() {
     if [ "$OK_COUNT" -ge 1 ]; then
         IP="$(profile_external_ip "$HOST" "$PORT")"
         [ -n "$IP" ] && echo "Внешний IP через туннель: $IP"
-        if test_dns_through_socks "$HOST" "$PORT"; then
-            echo "DNS/HTTPS через туннель: OK"
+        if test_https_healthcheck_through_socks "$HOST" "$PORT"; then
+            echo "Дополнительная HTTPS-проверка через туннель: OK"
         else
-            echo "DNS/HTTPS через туннель: предупреждение"
+            echo "Дополнительная HTTPS-проверка через туннель: нестабильна"
         fi
         return 0
     fi
@@ -1136,7 +1144,7 @@ LOGFILE="/opt/var/log/xray-vless-failover.log"
 SOCKS_PORT="10808"
 CHECK_URLS="https://www.gstatic.com/generate_204 https://www.google.com/generate_204 https://cp.cloudflare.com/generate_204"
 IP_CHECK_URL="https://api.ipify.org"
-DNS_CHECK_HOST="cloudflare.com"
+DNS_CHECK_URL="https://cp.cloudflare.com/generate_204"
 
 profile_display_name() {
     case "$1" in
@@ -1202,8 +1210,9 @@ if [ -s "$ROUTER_IP_STORE" ] && command -v curl >/dev/null 2>&1; then
     echo "Внешний IP через туннель:"
     curl -k -sS --socks5-hostname "$ROUTER_LAN_IP:$SOCKS_PORT" --connect-timeout 5 --max-time 10 "$IP_CHECK_URL" 2>/dev/null || echo "не удалось получить"
     echo
-    echo "DNS/HTTPS через туннель ($DNS_CHECK_HOST):"
-    curl -k -sS --socks5-hostname "$ROUTER_LAN_IP:$SOCKS_PORT" --connect-timeout 5 --max-time 10 -o /dev/null "https://$DNS_CHECK_HOST" >/dev/null 2>&1 && echo "OK" || echo "ОШИБКА"
+    echo "Дополнительная HTTPS-проверка через туннель:"
+    HTTP_CODE="$(curl -k -sS --socks5-hostname "$ROUTER_LAN_IP:$SOCKS_PORT" --connect-timeout 5 --max-time 10 -o /dev/null -w '%{http_code}' "$DNS_CHECK_URL" 2>/dev/null || true)"
+    [ "$HTTP_CODE" = "204" ] && echo "OK" || echo "нестабильна"
 fi
 
 echo
@@ -1530,7 +1539,7 @@ TMP_DIR="/opt/tmp"
 SOCKS_PORT="10808"
 CHECK_URLS="https://www.gstatic.com/generate_204 https://www.google.com/generate_204 https://cp.cloudflare.com/generate_204"
 IP_CHECK_URL="https://api.ipify.org"
-DNS_CHECK_HOST="cloudflare.com"
+DNS_CHECK_URL="https://cp.cloudflare.com/generate_204"
 LOGFILE="/opt/var/log/xray-vless-failover.log"
 LATEST_API="https://api.github.com/repos/XTLS/Xray-core/releases/latest"
 
@@ -1654,11 +1663,12 @@ show_external_ip() {
 
 check_dns_tunnel() {
     ROUTER_LAN_IP="$(cat "$ROUTER_IP_STORE" 2>/dev/null || echo 127.0.0.1)"
-    echo "DNS/HTTPS проверка через туннель ($DNS_CHECK_HOST):"
-    if curl -k -sS --socks5-hostname "$ROUTER_LAN_IP:$SOCKS_PORT" --connect-timeout 5 --max-time 10 -o /dev/null "https://$DNS_CHECK_HOST" >/dev/null 2>&1; then
+    echo "Дополнительная HTTPS-проверка через туннель:"
+    HTTP_CODE="$(curl -k -sS --socks5-hostname "$ROUTER_LAN_IP:$SOCKS_PORT" --connect-timeout 5 --max-time 10 -o /dev/null -w '%{http_code}' "$DNS_CHECK_URL" 2>/dev/null || true)"
+    if [ "$HTTP_CODE" = "204" ]; then
         echo "OK"
     else
-        echo "ОШИБКА"
+        echo "нестабильна"
     fi
 }
 
