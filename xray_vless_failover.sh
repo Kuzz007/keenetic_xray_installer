@@ -12,6 +12,7 @@ FAILOVER_STATUS="/opt/bin/vless-failover-status"
 FAILOVER_MENU_CMD="/opt/bin/failover"
 XRAY_CORE_UPDATE_CMD="/opt/bin/xray-core-update"
 SUBSCRIPTION_UPDATE_CMD="/opt/bin/vless-subscription-update"
+SUBSCRIPTION_AUTO_CMD="/opt/bin/vless-subscription-auto-update"
 FAILOVER_UPDATE_CMD="/opt/bin/vless-failover-update"
 FAILOVER_UPDATE_ALIAS="/opt/bin/xray-failover-update"
 
@@ -1784,14 +1785,15 @@ while true; do
     show_header
     echo "1 Обновление VLESS/подписок вручную"
     echo "2 Обновить подписки"
-    echo "3 Лог в реальном времени"
-    echo "4 Диагностика"
-    echo "5 Обновление ядра Xray"
-    echo "6 Настройки failover"
-    echo "7 История переключений"
-    echo "8 Ручное переключение профиля"
-    echo "9 Проверить версию Xray"
-    echo "10 Удаление / деинсталляция"
+    echo "3 Автообновление подписок"
+    echo "4 Лог в реальном времени"
+    echo "5 Диагностика"
+    echo "6 Обновление ядра Xray"
+    echo "7 Настройки failover"
+    echo "8 История переключений"
+    echo "9 Ручное переключение профиля"
+    echo "10 Проверить версию Xray"
+    echo "11 Удаление / деинсталляция"
     echo "0 Выход"
     echo
     printf "Выберите пункт: "
@@ -1799,14 +1801,15 @@ while true; do
     case "$MENU_CHOICE" in
         1) [ -x "$UPDATE_CMD" ] && "$UPDATE_CMD" || { echo "Команда обновления не найдена: $UPDATE_CMD"; pause_menu; } ;;
         2) [ -x "$SUBSCRIPTION_UPDATE_CMD" ] && "$SUBSCRIPTION_UPDATE_CMD" || { echo "Команда обновления подписок не найдена: $SUBSCRIPTION_UPDATE_CMD"; pause_menu; } ;;
-        3) show_realtime_log ;;
-        4) run_diagnostics ;;
-        5) [ -x "$XRAY_CORE_UPDATE_CMD" ] && "$XRAY_CORE_UPDATE_CMD" || echo "Команда обновления ядра не найдена"; pause_menu ;;
-        6) settings_menu ;;
-        7) show_history ;;
-        8) manual_switch ;;
-        9) check_xray_version ;;
-        10) uninstall_failover ;;
+        3) [ -x "$SUBSCRIPTION_AUTO_CMD" ] && "$SUBSCRIPTION_AUTO_CMD" || { echo "Команда автообновления подписок не найдена: $SUBSCRIPTION_AUTO_CMD"; pause_menu; } ;;
+        4) show_realtime_log ;;
+        5) run_diagnostics ;;
+        6) [ -x "$XRAY_CORE_UPDATE_CMD" ] && "$XRAY_CORE_UPDATE_CMD" || echo "Команда обновления ядра не найдена"; pause_menu ;;
+        7) settings_menu ;;
+        8) show_history ;;
+        9) manual_switch ;;
+        10) check_xray_version ;;
+        11) uninstall_failover ;;
         0) echo "Выход."; exit 0 ;;
         *) echo "Неизвестный пункт: $MENU_CHOICE"; pause_menu ;;
     esac
@@ -2324,6 +2327,161 @@ SUBUPDATE
     chmod +x "$SUBSCRIPTION_UPDATE_CMD"
 }
 
+create_subscription_auto_update_command() {
+    echo "[10/10] Создаём команду автообновления подписок..."
+
+    cat > "$SUBSCRIPTION_AUTO_CMD" <<'AUTOSUB'
+#!/bin/sh
+set -e
+
+CRON_FILE="/opt/var/spool/cron/crontabs/root"
+CRON_DIR="$(dirname "$CRON_FILE")"
+UPDATE_CMD="/opt/bin/vless-subscription-update"
+LOG_FILE="/opt/var/log/xray-vless-subscription-update.log"
+TAG="xray-vless-subscription-auto-update"
+
+read_tty() {
+    prompt="$1"
+    if [ -r /dev/tty ]; then
+        printf "%s" "$prompt" >/dev/tty
+        IFS= read -r REPLY </dev/tty
+    else
+        printf "%s" "$prompt" >&2
+        IFS= read -r REPLY
+    fi
+}
+
+ensure_cron_dirs() {
+    mkdir -p "$CRON_DIR" /opt/var/log
+    [ -f "$CRON_FILE" ] || touch "$CRON_FILE"
+    chmod 600 "$CRON_FILE" 2>/dev/null || true
+}
+
+restart_crond() {
+    if [ -x /opt/etc/init.d/S10cron ]; then
+        /opt/etc/init.d/S10cron restart >/dev/null 2>&1 || true
+    elif [ -x /opt/etc/init.d/S10crond ]; then
+        /opt/etc/init.d/S10crond restart >/dev/null 2>&1 || true
+    elif command -v crond >/dev/null 2>&1; then
+        killall crond >/dev/null 2>&1 || true
+        crond -c /opt/var/spool/cron/crontabs >/dev/null 2>&1 || crond >/dev/null 2>&1 || true
+    else
+        echo "ПРЕДУПРЕЖДЕНИЕ: crond не найден. Установите cron/cronie через opkg или запустите cron вручную."
+    fi
+}
+
+remove_job() {
+    ensure_cron_dirs
+    grep -v "$TAG" "$CRON_FILE" > "$CRON_FILE.tmp" 2>/dev/null || true
+    mv "$CRON_FILE.tmp" "$CRON_FILE"
+    chmod 600 "$CRON_FILE" 2>/dev/null || true
+}
+
+show_status() {
+    ensure_cron_dirs
+    echo "Cron-файл: $CRON_FILE"
+    echo
+    echo "Текущее задание автообновления:"
+    grep "$TAG" "$CRON_FILE" 2>/dev/null || echo "не настроено"
+    echo
+    echo "Лог автообновления:"
+    echo "$LOG_FILE"
+    [ -f "$LOG_FILE" ] && tail -n 20 "$LOG_FILE" || true
+}
+
+enable_every_hours() {
+    HOURS="$1"
+
+    case "$HOURS" in
+        ''|*[!0-9]*)
+            echo "ОШИБКА: интервал должен быть числом часов."
+            exit 1
+            ;;
+    esac
+
+    if [ "$HOURS" -lt 1 ] || [ "$HOURS" -gt 24 ]; then
+        echo "ОШИБКА: интервал должен быть от 1 до 24 часов."
+        exit 1
+    fi
+
+    [ -x "$UPDATE_CMD" ] || {
+        echo "ОШИБКА: команда обновления подписок не найдена: $UPDATE_CMD"
+        exit 1
+    }
+
+    ensure_cron_dirs
+    remove_job
+
+    if [ "$HOURS" = "1" ]; then
+        SCHEDULE="7 * * * *"
+    else
+        SCHEDULE="7 */$HOURS * * *"
+    fi
+
+    echo "$SCHEDULE $UPDATE_CMD >> $LOG_FILE 2>&1 # $TAG" >> "$CRON_FILE"
+    chmod 600 "$CRON_FILE" 2>/dev/null || true
+    restart_crond
+
+    echo "Автообновление подписок включено."
+    echo "Интервал: каждые $HOURS ч."
+    echo "Задание:"
+    grep "$TAG" "$CRON_FILE" 2>/dev/null || true
+}
+
+disable_auto() {
+    remove_job
+    restart_crond
+    echo "Автообновление подписок отключено."
+}
+
+case "${1:-menu}" in
+    enable)
+        enable_every_hours "${2:-1}"
+        ;;
+    disable)
+        disable_auto
+        ;;
+    status)
+        show_status
+        ;;
+    menu|*)
+        while true; do
+            echo
+            echo "======================================"
+            echo " Автообновление подписок"
+            echo "======================================"
+            echo "1 Включить / изменить интервал"
+            echo "2 Отключить"
+            echo "3 Показать статус"
+            echo "0 Выход"
+            echo
+            read_tty "Выберите пункт: "
+            case "$REPLY" in
+                1)
+                    read_tty "Интервал автообновления в часах, например 1, 2, 6, 12, 24: "
+                    enable_every_hours "$REPLY"
+                    ;;
+                2)
+                    disable_auto
+                    ;;
+                3)
+                    show_status
+                    ;;
+                0)
+                    exit 0
+                    ;;
+                *)
+                    echo "Неверный пункт."
+                    ;;
+            esac
+        done
+        ;;
+esac
+AUTOSUB
+
+    chmod +x "$SUBSCRIPTION_AUTO_CMD"
+}
+
 create_failover_installer_update_command() {
     echo "[10/10] Создаём команду обновления установщика..."
 
@@ -2369,6 +2527,7 @@ check_generated_scripts() {
     sh -n "$FAILOVER_MENU_CMD"
     sh -n "$FAILOVER_UPDATE_CMD"
     sh -n "$SUBSCRIPTION_UPDATE_CMD"
+    sh -n "$SUBSCRIPTION_AUTO_CMD"
     sh -n "$FAILOVER_INSTALLER_UPDATE_CMD"
     sh -n "$INIT_SCRIPT"
     sh -n "$FAILOVER_INIT"
