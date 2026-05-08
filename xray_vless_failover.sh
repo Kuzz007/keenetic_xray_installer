@@ -36,6 +36,14 @@ TEMP_PRIMARY_PORT="19080"
 TEMP_BACKUP_PORT="19081"
 REUSE_FAILOVER="0"
 
+profile_display_name() {
+    case "$1" in
+        primary) echo "Основной" ;;
+        backup) echo "Резервный" ;;
+        *) echo "$1" ;;
+    esac
+}
+
 case "${1:-}" in
     --reuse-failover)
         REUSE_FAILOVER="1"
@@ -68,6 +76,14 @@ get_xray_bin() {
     else
         echo ""
     fi
+}
+
+profile_display_name() {
+    case "$1" in
+        primary) echo "Основной" ;;
+        backup) echo "Резервный" ;;
+        *) echo "$1" ;;
+    esac
 }
 
 test_xray_config() {
@@ -323,12 +339,12 @@ config = {
 with open(output_config, "w") as f:
     json.dump(config, f, indent=2)
 
-print("Generated:", output_config)
-print("Profile:", profile_name)
-print("Server:", server)
-print("Port:", port)
-print("Network:", network)
-print("Security:", security)
+print("Создан config:", output_config)
+print("Профиль:", profile_name)
+print("Сервер:", server)
+print("Порт:", port)
+print("Транспорт:", network)
+print("Защита:", security)
 print("SOCKS5:", f"{listen_host}:{listen_port}")
 PY
 GEN
@@ -408,6 +424,14 @@ TEMP_PRIMARY_PORT="19080"
 TEMP_BACKUP_PORT="19081"
 
 TMP_TEST_PIDS=""
+
+profile_display_name() {
+    case "$1" in
+        primary) echo "Основной" ;;
+        backup) echo "Резервный" ;;
+        *) echo "$1" ;;
+    esac
+}
 
 cleanup_children() {
     for p in $TMP_TEST_PIDS; do
@@ -503,15 +527,16 @@ test_vless_temp() {
     TMP_CONFIG="$TMP_DIR/xray-failover-test-$PROFILE.json"
     TMP_LOG="$TMP_DIR/xray-failover-test-$PROFILE.log"
 
-    echo "Проверяем временный SOCKS5 профиля: $PROFILE"
+    PROFILE_LABEL="$(profile_display_name "$PROFILE")"
+    echo "Проверяем временный SOCKS5 профиля: $PROFILE_LABEL"
 
     if ! generate_profile_config "$PROFILE" "$URL" "$TEMP_HOST" "$PORT" "$TMP_CONFIG" >/dev/null; then
-        echo "Не удалось сгенерировать временный config для $PROFILE."
+        echo "Не удалось сгенерировать временный config для профиля $PROFILE_LABEL."
         return 1
     fi
 
     if ! test_xray_config "$TMP_CONFIG" >/dev/null; then
-        echo "Временный config Xray не прошёл проверку для $PROFILE."
+        echo "Временный config Xray не прошёл проверку для профиля $PROFILE_LABEL."
         return 1
     fi
 
@@ -522,7 +547,7 @@ test_vless_temp() {
     sleep 3
 
     if ! kill -0 "$TMP_PID" 2>/dev/null; then
-        echo "Временный Xray не запустился для $PROFILE."
+        echo "Временный Xray не запустился для профиля $PROFILE_LABEL."
         cat "$TMP_LOG"
         wait "$TMP_PID" 2>/dev/null || true
         return 1
@@ -569,18 +594,19 @@ switch_to_profile() {
     OLD_CONFIG="$TMP_DIR/xray-config-before-switch.json"
 
     echo "======================================"
-    echo "ПЕРЕКЛЮЧЕНИЕ ПРОФИЛЯ -> $TARGET"
+    TARGET_LABEL="$(profile_display_name "$TARGET")"
+    echo "ПЕРЕКЛЮЧЕНИЕ ПРОФИЛЯ -> $TARGET_LABEL"
     echo "======================================"
 
-    echo "[1/6] Генерируем временный config для $TARGET..."
+    echo "[1/6] Генерируем временный config для профиля $TARGET_LABEL..."
     if ! generate_profile_config "$TARGET" "$URL" "$ROUTER_LAN_IP" "$SOCKS_PORT" "$TMP_SWITCH_CONFIG"; then
-        echo "ОШИБКА: не удалось сгенерировать config для $TARGET."
+        echo "ОШИБКА: не удалось сгенерировать config для профиля $TARGET_LABEL."
         return 1
     fi
 
     echo "[2/6] Проверяем временный config..."
     if ! test_xray_config "$TMP_SWITCH_CONFIG"; then
-        echo "ОШИБКА: config Xray не прошёл проверку для $TARGET."
+        echo "ОШИБКА: config Xray не прошёл проверку для профиля $TARGET_LABEL."
         return 1
     fi
 
@@ -594,7 +620,7 @@ switch_to_profile() {
     sleep 2
 
     if ! "$INIT_SCRIPT" start; then
-        echo "ОШИБКА: Xray не запустился после переключения на $TARGET."
+        echo "ОШИБКА: Xray не запустился после переключения на профиль $TARGET_LABEL."
         rollback_config "$OLD_CONFIG"
         return 1
     fi
@@ -617,7 +643,7 @@ switch_to_profile() {
 
     echo "$TARGET" > "$ACTIVE_STORE"
     sleep 5
-    echo "Активный профиль теперь: $TARGET"
+    echo "Активный профиль теперь: $TARGET_LABEL"
 }
 
 mkdir -p "$TMP_DIR"
@@ -631,74 +657,75 @@ while true; do
     NOW="$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date)"
 
     echo
-    echo "[$NOW] Активный профиль: $ACTIVE"
+    ACTIVE_LABEL="$(profile_display_name "$ACTIVE")"
+    echo "[$NOW] Активный профиль: $ACTIVE_LABEL"
 
     if [ "$ACTIVE" = "primary" ]; then
-        echo "Проверяем active primary через $ROUTER_LAN_IP:$SOCKS_PORT..."
+        echo "Проверяем активный Основной профиль через $ROUTER_LAN_IP:$SOCKS_PORT..."
 
         if test_socks_endpoint "$ROUTER_LAN_IP" "$SOCKS_PORT"; then
-            echo "Primary OK."
+            echo "Основной профиль доступен."
             PRIMARY_FAIL_COUNT="0"
         else
             PRIMARY_FAIL_COUNT=$((PRIMARY_FAIL_COUNT + 1))
-            echo "Primary НЕ ДОСТУПЕН. Неудачная проверка: $PRIMARY_FAIL_COUNT/$FAILOVER_FAILURES_REQUIRED."
+            echo "Основной профиль НЕДОСТУПЕН. Неудачная проверка: $PRIMARY_FAIL_COUNT/$FAILOVER_FAILURES_REQUIRED."
 
             if [ "$PRIMARY_FAIL_COUNT" -lt "$FAILOVER_FAILURES_REQUIRED" ]; then
                 echo "Ждём следующую проверку."
             elif [ -s "$BACKUP_STORE" ]; then
-                echo "Проверяем backup перед переключением..."
+                echo "Проверяем Резервный профиль перед переключением..."
                 if test_vless_temp "backup" "$(cat "$BACKUP_STORE")" "$TEMP_BACKUP_PORT"; then
                     if switch_to_profile "backup"; then
                         PRIMARY_FAIL_COUNT="0"
                         PRIMARY_RECOVERY_COUNT="0"
                         BACKUP_FAIL_COUNT="0"
                     else
-                        echo "Переключение на backup не удалось."
+                        echo "Переключение на Резервный профиль не удалось."
                     fi
                 else
-                    echo "Backup тоже недоступен. Остаёмся на primary config."
+                    echo "Резервный профиль тоже недоступен. Остаёмся на config Основного профиля."
                 fi
             else
-                echo "Backup-ссылка не настроена."
+                echo "VLESS-ссылка Резервного профиля не настроена."
             fi
         fi
 
     elif [ "$ACTIVE" = "backup" ]; then
-        echo "Проверяем active backup через $ROUTER_LAN_IP:$SOCKS_PORT..."
+        echo "Проверяем активный Резервный профиль через $ROUTER_LAN_IP:$SOCKS_PORT..."
 
         if test_socks_endpoint "$ROUTER_LAN_IP" "$SOCKS_PORT"; then
-            echo "Backup OK."
+            echo "Резервный профиль доступен."
             BACKUP_FAIL_COUNT="0"
         else
             BACKUP_FAIL_COUNT=$((BACKUP_FAIL_COUNT + 1))
-            echo "Backup НЕ ДОСТУПЕН. Неудачная проверка backup: $BACKUP_FAIL_COUNT."
+            echo "Резервный профиль НЕДОСТУПЕН. Неудачная проверка Резервного профиля: $BACKUP_FAIL_COUNT."
         fi
 
-        echo "Проверяем, вернулся ли primary..."
+        echo "Проверяем, восстановился ли Основной профиль..."
 
         if test_vless_temp "primary" "$(cat "$PRIMARY_STORE")" "$TEMP_PRIMARY_PORT"; then
             PRIMARY_RECOVERY_COUNT=$((PRIMARY_RECOVERY_COUNT + 1))
-            echo "Primary доступен. Успешная проверка восстановления: $PRIMARY_RECOVERY_COUNT/$RECOVERY_SUCCESSES_REQUIRED."
+            echo "Основной профиль доступен. Успешная проверка восстановления: $PRIMARY_RECOVERY_COUNT/$RECOVERY_SUCCESSES_REQUIRED."
 
             if [ "$PRIMARY_RECOVERY_COUNT" -ge "$RECOVERY_SUCCESSES_REQUIRED" ]; then
-                echo "Primary стабильно доступен. Возвращаемся на primary."
+                echo "Основной профиль стабильно доступен. Возвращаемся на Основной профиль."
                 if switch_to_profile "primary"; then
                     PRIMARY_FAIL_COUNT="0"
                     PRIMARY_RECOVERY_COUNT="0"
                     BACKUP_FAIL_COUNT="0"
                 else
-                    echo "Переключение на primary не удалось."
+                    echo "Переключение на Основной профиль не удалось."удалось."
                 fi
             else
-                echo "Ждём ещё одну успешную проверку primary."
+                echo "Ждём ещё одну успешную проверку Основного профиля."
             fi
         else
             PRIMARY_RECOVERY_COUNT="0"
-            echo "Primary всё ещё недоступен. Остаёмся на backup."
+            echo "Основной профиль всё ещё недоступен. Остаёмся на Резервном профиле."
         fi
     else
-        echo "Неизвестный active-profile. Пробуем вернуться на primary."
-        switch_to_profile "primary" || echo "Переключение на primary не удалось."
+        echo "Неизвестное значение active-profile. Пробуем вернуться на Основной профиль."
+        switch_to_profile "primary" || echo "Переключение на Основной профиль не удалось."
     fi
 
     sleep "$CHECK_INTERVAL"
@@ -911,18 +938,18 @@ echo " Обновление VLESS-ссылок failover"
 echo "======================================"
 echo "LAN-IP роутера: $ROUTER_LAN_IP"
 
-read_tty "New Primary VLESS link: "
+read_tty "Новая VLESS-ссылка Основного профиля: "
 PRIMARY_VLESS="$REPLY"
 
 [ -n "$PRIMARY_VLESS" ] || { echo "ОШИБКА: Primary VLESS-ссылка пустая."; exit 1; }
 
-echo "Backup VLESS link опциональна. Для пропуска нажмите Enter."
-read_tty "New Backup VLESS link, optional. Press Enter to skip: "
+echo "VLESS-ссылка Резервного профиля опциональна. Для пропуска нажмите Enter."ажмите Enter."
+read_tty "Новая VLESS-ссылка Резервного профиля, опционально: "
 BACKUP_VLESS="$REPLY"
 
 mkdir -p "$XRAY_DIR" "$TMP_DIR"
 
-echo "Проверяем новый primary config во временном файле..."
+echo "Проверяем новый config Основного профиля во временном файле..."
 PROFILE_NAME="primary" \
 VLESS_URL="$PRIMARY_VLESS" \
 LISTEN_HOST="$ROUTER_LAN_IP" \
@@ -933,7 +960,7 @@ OUTPUT_CONFIG="$TMP_PRIMARY_CONFIG" \
 test_xray_config "$TMP_PRIMARY_CONFIG"
 
 if [ -n "$BACKUP_VLESS" ]; then
-    echo "Проверяем новый backup config во временном файле..."
+    echo "Проверяем новый config Резервного профиля во временном файле..."
     PROFILE_NAME="backup" \
     VLESS_URL="$BACKUP_VLESS" \
     LISTEN_HOST="127.0.0.1" \
@@ -975,7 +1002,7 @@ if [ -x "$FAILOVER_INIT" ]; then
     "$FAILOVER_INIT" start
 fi
 
-echo "Готово. Активный профиль сброшен на primary."
+echo "Готово. Активный профиль сброшен на Основной."
 VUPDATE
 
     chmod +x "$FAILOVER_UPDATE_CMD"
@@ -1079,12 +1106,12 @@ if [ "$REUSE_FAILOVER" = "1" ] && [ -s "$PRIMARY_STORE" ]; then
         BACKUP_VLESS=""
     fi
 else
-    read_tty "Primary VLESS link: "
+    read_tty "VLESS-ссылка Основного профиля: "
     PRIMARY_VLESS="$REPLY"
     [ -n "$PRIMARY_VLESS" ] || { echo "ОШИБКА: Primary VLESS-ссылка пустая."; exit 1; }
 
-    echo "Backup VLESS link опциональна. Для пропуска нажмите Enter."
-    read_tty "Backup VLESS link, optional. Press Enter to skip: "
+    echo "VLESS-ссылка Резервного профиля опциональна. Для пропуска нажмите Enter."
+    read_tty "VLESS-ссылка Резервного профиля, опционально: "
     BACKUP_VLESS="$REPLY"
 fi
 
@@ -1098,7 +1125,7 @@ create_failover_init
 
 check_generated_scripts
 
-echo "Проверяем primary config во временном файле..."
+echo "Проверяем config Основного профиля во временном файле..."
 TMP_PRIMARY_CONFIG="$TMP_DIR/xray-install-primary.json"
 PROFILE_NAME="primary" \
 VLESS_URL="$PRIMARY_VLESS" \
@@ -1110,7 +1137,7 @@ OUTPUT_CONFIG="$TMP_PRIMARY_CONFIG" \
 test_xray_config "$TMP_PRIMARY_CONFIG"
 
 if [ -n "$BACKUP_VLESS" ]; then
-    echo "Проверяем backup config во временном файле..."
+    echo "Проверяем config Резервного профиля во временном файле..."
     TMP_BACKUP_CONFIG="$TMP_DIR/xray-install-backup.json"
     PROFILE_NAME="backup" \
     VLESS_URL="$BACKUP_VLESS" \
@@ -1128,10 +1155,10 @@ chmod 600 "$PRIMARY_STORE"
 if [ -n "$BACKUP_VLESS" ]; then
     printf "%s\n" "$BACKUP_VLESS" > "$BACKUP_STORE"
     chmod 600 "$BACKUP_STORE"
-    echo "Backup-ссылка сохранена."
+    echo "VLESS-ссылка Резервного профиля сохранена."
 else
     rm -f "$BACKUP_STORE"
-    echo "Backup-ссылка не задана."
+    echo "VLESS-ссылка Резервного профиля не задана."
 fi
 
 cp "$TMP_PRIMARY_CONFIG" "$XRAY_CONFIG"
@@ -1155,9 +1182,9 @@ echo "======================================"
 echo " ГОТОВО"
 echo "======================================"
 echo "Xray config: $XRAY_CONFIG"
-echo "Primary VLESS: $PRIMARY_STORE"
-echo "Backup VLESS: $BACKUP_STORE"
-echo "Активный профиль: $ACTIVE_STORE"
+echo "VLESS Основного профиля: $PRIMARY_STORE"
+echo "VLESS Резервного профиля: $BACKUP_STORE"
+echo "Файл активного профиля: $ACTIVE_STORE"
 echo "SOCKS5: $ROUTER_LAN_IP:$SOCKS_PORT"
 echo "Proxy: $PROXY_IFACE"
 echo "Failover log: /opt/var/log/xray-vless-failover.log"
