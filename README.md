@@ -1,67 +1,94 @@
 # Keenetic Xray VLESS Installer
 
-Минималистичный установщик Xray/VLESS для роутеров Keenetic с Entware.
+Минималистичный набор установщиков Xray/VLESS для роутеров Keenetic с Entware.
 
-> Проверено на `aarch64`. На `mipsel` может потребоваться больше свободного места в `/opt` для установки `xray-core`.
+Проект оставляет в корне только основные публичные скрипты установки:
 
-## Возможности
+| Скрипт | Назначение |
+| --- | --- |
+| `xray_vless_failover.sh` | Полная версия с failover, подписками, обновлением ссылок и служебными командами |
+| `xray_vless_failover_auto.sh` | Автоматический запуск установки failover-версии |
+| `xray_vless_failover_minimal.sh` | Облегчённая версия для роутеров с малым объёмом `/opt` |
+
+> Проверено на Keenetic + Entware. На устройствах с ограниченной встроенной памятью лучше начинать с minimal-версии.
+
+## Возможности full-версии
 
 - установка `xray` / `xray-core` из Entware;
-- настройка VLESS по готовой ссылке;
+- поддержка прямых `vless://` ссылок;
+- поддержка HTTP/HTTPS ссылок подписок;
 - генерация `/opt/etc/xray/config.json`;
-- создание init-скрипта `/opt/etc/init.d/S24xray`;
-- запуск локального SOCKS5 на LAN-IP роутера;
-- создание Keenetic Proxy interface `Proxy0`;
-- включение SOCKS5 UDP;
-- сохранение конфигурации Keenetic;
-- failover между основной и резервной VLESS-ссылкой.
+- создание init-скрипта Xray;
+- создание failover-daemon;
+- автоматическое переключение между основным и резервным профилем;
+- возврат на основной профиль после восстановления;
+- настройка Keenetic `Proxy0`;
+- SOCKS5 на `192.168.1.1:10808` или другом LAN-IP роутера;
+- health-check через несколько `generate_204` endpoint-ов;
+- команды статуса, обновления ссылок, подписок и установщика.
 
 ## Требования
 
 - роутер Keenetic;
 - установленный Entware;
 - компонент KeeneticOS `Proxy client`;
-- SSH-доступ к роутеру.
+- SSH-доступ к роутеру;
+- доступ в интернет с роутера.
 
 ## Быстрый старт
 
-### Обычная установка
+### Рекомендуемая установка с failover
 
 ```sh
-opkg update && opkg install curl ca-bundle && curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-vless-auto-install.sh | sh
+opkg update && opkg install curl ca-bundle && curl -fsSL -o /opt/tmp/xray_vless_failover.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover.sh && sh -n /opt/tmp/xray_vless_failover.sh && chmod +x /opt/tmp/xray_vless_failover.sh && /opt/tmp/xray_vless_failover.sh
 ```
 
-### Установка с failover
+### Автоматическая установка
 
 ```sh
 opkg update && opkg install curl ca-bundle && curl -fsSL -o /opt/tmp/xray_vless_failover_auto.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto.sh && sh -n /opt/tmp/xray_vless_failover_auto.sh && chmod +x /opt/tmp/xray_vless_failover_auto.sh && /opt/tmp/xray_vless_failover_auto.sh
 ```
 
+### Minimal-версия
+
+Используй, если на роутере мало места в `/opt` или не нужен разбор подписок.
+
+```sh
+opkg update && opkg install curl ca-bundle && curl -fsSL -o /opt/tmp/xray_vless_failover_minimal.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_minimal.sh && sh -n /opt/tmp/xray_vless_failover_minimal.sh && chmod +x /opt/tmp/xray_vless_failover_minimal.sh && /opt/tmp/xray_vless_failover_minimal.sh
+```
+
 ## Как работает failover
 
-Failover-версия использует две VLESS-ссылки:
+Установщик использует два профиля:
 
 | Профиль | Назначение |
 | --- | --- |
-| `Primary` | основная ссылка |
-| `Backup` | резервная ссылка |
+| Основной | основной VLESS или профиль из подписки |
+| Резервный | запасной VLESS или профиль из подписки |
 
-Сценарий переключения:
+Сценарий работы:
 
-1. `Primary` работает -> используется основной профиль.
-2. `Primary` недоступен -> проверяется `Backup`.
-3. `Backup` доступен -> Xray переключается на резервный профиль.
-4. `Primary` восстановился -> Xray возвращается на основной профиль.
+1. Пока основной профиль доступен, используется он.
+2. После заданного числа ошибок daemon проверяет резервный профиль.
+3. Если резервный профиль доступен, Xray переключается на него.
+4. Daemon продолжает проверять основной профиль.
+5. После восстановления основной профиль снова становится активным.
 
-Логи переключений:
+## Команды после установки
+
+### Статус
 
 ```sh
-tail -f /opt/var/log/xray-vless-failover.log
+vless-failover-status
 ```
 
-## Управление
+или меню:
 
-### Xray
+```sh
+failover
+```
+
+### Управление Xray
 
 ```sh
 /opt/etc/init.d/S24xray start
@@ -70,7 +97,7 @@ tail -f /opt/var/log/xray-vless-failover.log
 /opt/etc/init.d/S24xray status
 ```
 
-### Xray Failover
+### Управление failover-daemon
 
 ```sh
 /opt/etc/init.d/S25xray-failover start
@@ -79,87 +106,74 @@ tail -f /opt/var/log/xray-vless-failover.log
 /opt/etc/init.d/S25xray-failover status
 ```
 
-## Смена VLESS-ссылок
-
-Обычный режим:
-
-```sh
-vless-update
-```
-
-Failover-режим:
+### Обновить VLESS-ссылки
 
 ```sh
 vless-failover-update
 ```
 
-Proxy-подключение при этом остаётся прежним, меняется только Xray-конфиг.
-
-## Обновления
-
-### Обновить установщик
-
-Обычный режим:
+### Обновить подписки
 
 ```sh
-installer-update
+vless-subscription-update
 ```
 
-Failover-режим:
+### Обновить установщик
 
 ```sh
 failover-installer-update
 ```
 
-Команда обновления установщика не просит заново вставлять VLESS-ссылку.
+Команда обновления установщика использует актуальный файл:
 
-### Проверить версию Xray
-
-```sh
-/opt/bin/xray version
+```text
+https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover.sh
 ```
 
-### Обновить Xray-core до stable/latest
+## Проверка работы
 
 ```sh
-opkg update && opkg install curl ca-bundle unzip && curl -fsSL -o /opt/tmp/xray-core-update.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-core-update.sh && chmod +x /opt/tmp/xray-core-update.sh && /opt/tmp/xray-core-update.sh --stable --no-backup
+vless-failover-status
+curl -k --socks5-hostname 192.168.1.1:10808 https://www.gstatic.com/generate_204 -o /dev/null -w 'http_code=%{http_code} time_total=%{time_total}\n'
 ```
 
-### Обновить Xray-core до pre-release
+Нормальный результат:
 
-```sh
-opkg update && opkg install curl ca-bundle unzip && curl -fsSL -o /opt/tmp/xray-core-update.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-core-update.sh && chmod +x /opt/tmp/xray-core-update.sh && /opt/tmp/xray-core-update.sh --prerelease --no-backup
+```text
+http_code=204
 ```
 
-## DNS-over-TLS
-
-Опционально можно добавить сторонние DoT upstream-серверы и сохранить конфигурацию:
+## Логи
 
 ```sh
-ndmc -c "dns-proxy tls upstream 9.9.9.9 sni dns.quad9.net" \
-&& ndmc -c "dns-proxy tls upstream 8.8.8.8 sni dns.google" \
-&& ndmc -c "dns-proxy tls upstream 77.88.8.8 sni common.dot.dns.yandex.net" \
-&& ndmc -c "system configuration save"
+tail -f /opt/var/log/xray-vless-failover.log
 ```
 
-## Маршрутизация доменов
-
-Установка списка доменов через Entware:
+История переключений:
 
 ```sh
-opkg update && opkg install curl ca-bundle && curl -fsSL -o /opt/tmp/xray-keenetic-routes.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-keenetic-routes.sh && chmod +x /opt/tmp/xray-keenetic-routes.sh && /opt/tmp/xray-keenetic-routes.sh install && xray-routes-sync
-```
-
-Удаление списка:
-
-```sh
-xray-routes-clear
+cat /opt/var/log/xray-vless-switch-history.log
 ```
 
 ## Если мало места в `/opt`
 
-Освободить временные файлы и кэш Entware, затем проверить свободное место:
+Проверь свободное место:
 
 ```sh
 df -h /opt
 ```
+
+Очисти временные файлы и кэш Entware:
+
+```sh
+rm -rf /opt/tmp/* /opt/var/opkg-lists/* /opt/var/cache/*
+opkg update
+```
+
+После этого запускай minimal-версию.
+
+## Релизы
+
+Текущая стабильная точка: `v005`.
+
+Следующие изменения лучше выпускать отдельными релизами: `v006`, `v007` и дальше.
