@@ -9,73 +9,55 @@ TARGET="src/full/xray_vless_failover.sh"
 
 python3 - "$TARGET" <<'PY'
 from pathlib import Path
-import re
 import sys
 
 path = Path(sys.argv[1])
 text = path.read_text()
 original = text
 
-# The installer already generates temporary JSON configs before this stage.
-# The validation step must test those JSON configs with xray, not call the
-# VLESS/subscription generator again. Calling the generator with a JSON path
-# produces: ERROR: expected vless:// link or http(s) subscription link.
+primary_old = '''echo "Проверяем config Основного профиля во временном файле..."
+TMP_PRIMARY_CONFIG="$TMP_DIR/xray-install-primary.json"
+PROFILE_NAME="primary" \\
+VLESS_URL="$PRIMARY_VLESS" \\
+LISTEN_HOST="$ROUTER_LAN_IP" \\
+LISTEN_PORT="$SOCKS_PORT" \\
+OUTPUT_CONFIG="$TMP_PRIMARY_CONFIG" \\
+"$GENERATOR"
 
-replacements = [
-    (
-        r'(echo "Проверяем config Основного профиля во временном файле\.\.\."\n)'
-        r'\s*if ! generate_profile_config [^\n]*; then',
-        r'\1if ! test_xray_config "$TMP_PRIMARY_CONFIG" >/dev/null; then',
-    ),
-    (
-        r'(echo "Проверяем config Резервного профиля во временном файле\.\.\."\n)'
-        r'\s*if ! generate_profile_config [^\n]*; then',
-        r'\1if ! test_xray_config "$TMP_BACKUP_CONFIG" >/dev/null; then',
-    ),
-]
+test_xray_config "$TMP_PRIMARY_CONFIG"
+'''
 
-for pattern, replacement in replacements:
-    text = re.sub(pattern, replacement, text, flags=re.MULTILINE)
+primary_new = '''echo "Проверяем config Основного профиля во временном файле..."
+TMP_PRIMARY_CONFIG="$TMP_DIR/xray-install-primary.json"
+[ -s "$TMP_PRIMARY_CONFIG" ] || { echo "ОШИБКА: временный config Основного профиля не найден: $TMP_PRIMARY_CONFIG"; exit 1; }
+test_xray_config "$TMP_PRIMARY_CONFIG"
+'''
 
-# Fallback for older/newer variable names used in the monolithic installer.
-# Match a small block after the exact Russian marker and replace only the if line.
-def replace_after_marker(text: str, marker: str, config_expr: str) -> str:
-    idx = text.find(marker)
-    if idx == -1:
-        return text
+backup_old = '''    echo "Проверяем config Резервного профиля во временном файле..."
+    TMP_BACKUP_CONFIG="$TMP_DIR/xray-install-backup.json"
+    PROFILE_NAME="backup" \\
+    VLESS_URL="$BACKUP_VLESS" \\
+    LISTEN_HOST="127.0.0.1" \\
+    LISTEN_PORT="$TEMP_BACKUP_PORT" \\
+    OUTPUT_CONFIG="$TMP_BACKUP_CONFIG" \\
+    "$GENERATOR"
 
-    next_marker = text.find('\necho "Проверяем config ', idx + len(marker))
-    if next_marker == -1:
-        next_marker = text.find('\nconfigure_proxy0', idx + len(marker))
-    if next_marker == -1:
-        next_marker = text.find('\n#', idx + len(marker))
-    if next_marker == -1:
-        next_marker = len(text)
+    test_xray_config "$TMP_BACKUP_CONFIG"
+'''
 
-    block = text[idx:next_marker]
-    new_block = re.sub(
-        r'if ! generate_profile_config [^\n]*; then',
-        f'if ! test_xray_config "{config_expr}" >/dev/null; then',
-        block,
-        count=1,
-    )
-    return text[:idx] + new_block + text[next_marker:]
+backup_new = '''    echo "Проверяем config Резервного профиля во временном файле..."
+    TMP_BACKUP_CONFIG="$TMP_DIR/xray-install-backup.json"
+    [ -s "$TMP_BACKUP_CONFIG" ] || { echo "ОШИБКА: временный config Резервного профиля не найден: $TMP_BACKUP_CONFIG"; exit 1; }
+    test_xray_config "$TMP_BACKUP_CONFIG"
+'''
 
-text = replace_after_marker(
-    text,
-    'echo "Проверяем config Основного профиля во временном файле..."',
-    '$TMP_PRIMARY_CONFIG',
-)
-text = replace_after_marker(
-    text,
-    'echo "Проверяем config Резервного профиля во временном файле..."',
-    '$TMP_BACKUP_CONFIG',
-)
+text = text.replace(primary_old, primary_new)
+text = text.replace(backup_old, backup_new)
 
 if text == original:
-    print('No install config validation pattern changed.')
+    print('No direct generator validation block changed.')
     print('Show the relevant lines with:')
-    print('  grep -n -A12 -B6 "Проверяем config" src/full/xray_vless_failover.sh')
+    print('  grep -n -A16 -B6 "Проверяем config" src/full/xray_vless_failover.sh')
     raise SystemExit(2)
 
 path.write_text(text)
