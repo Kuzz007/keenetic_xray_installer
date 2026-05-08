@@ -1,0 +1,31 @@
+diff --git a/xray_vless_failover.sh b/xray_vless_failover.sh
+--- a/xray_vless_failover.sh
++++ b/xray_vless_failover.sh
+@@
+-DNS_CHECK_HOST="cloudflare.com"
++DNS_CHECK_URL="https://cp.cloudflare.com/generate_204"
+@@
+-test_dns_through_socks() {
++test_https_healthcheck_through_socks() {
+     HOST="$1"
+     PORT="$2"
+-    curl -k -sS --socks5-hostname "$HOST:$PORT" --connect-timeout 5 --max-time 10 -o /dev/null "https://$DNS_CHECK_HOST" >/dev/null 2>&1
++    curl -k -sS \
++        --socks5-hostname "$HOST:$PORT" \
++        --connect-timeout 5 \
++        --max-time 10 \
++        -o /dev/null \
++        -w '%{http_code}' \
++        "$DNS_CHECK_URL" 2>/dev/null | grep -q '^204$'
+ }
+@@
+-        if test_dns_through_socks "$HOST" "$PORT"; then
+-            echo "DNS/HTTPS через туннель: OK"
++        if test_https_healthcheck_through_socks "$HOST" "$PORT"; then
++            echo "Дополнительная HTTPS-проверка через туннель: OK"
+         else
+-            echo "DNS/HTTPS через туннель: предупреждение"
++            echo "Дополнительная HTTPS-проверка через туннель: нестабильна"
+         fi
+         return 0
+     fi
