@@ -7,6 +7,7 @@ INIT_SCRIPT="/opt/etc/init.d/S24xray"
 FAILOVER_INIT="/opt/etc/init.d/S25xray-failover"
 
 GENERATOR="/opt/bin/xray-vless-generate-config"
+RESOLVER="/opt/bin/xray-vless-resolve-input"
 FAILOVER_DAEMON="/opt/bin/xray-vless-failover-daemon"
 FAILOVER_STATUS="/opt/bin/vless-failover-status"
 FAILOVER_MENU_CMD="/opt/bin/failover"
@@ -22,6 +23,10 @@ PRIMARY_STORE="$XRAY_DIR/vless-primary.url"
 BACKUP_STORE="$XRAY_DIR/vless-backup.url"
 ACTIVE_STORE="$XRAY_DIR/active-profile"
 ROUTER_IP_STORE="$XRAY_DIR/router-lan-ip"
+FAILOVER_CONF="$XRAY_DIR/failover.conf"
+
+LOCK_DIR="/opt/var/run/xray-failover.lock"
+BACKUP_DIR="/opt/backup/xray-failover"
 
 SOCKS_PORT="10808"
 PROXY_IFACE="Proxy0"
@@ -31,6 +36,7 @@ CHECK_INTERVAL="10"
 FAILOVER_FAILURES_REQUIRED="2"
 RECOVERY_SUCCESSES_REQUIRED="2"
 CHECK_URL="https://www.gstatic.com/generate_204"
+LOG_MAX_SIZE="1048576"
 
 TMP_DIR="/opt/tmp"
 TEMP_HOST="127.0.0.1"
@@ -90,6 +96,48 @@ test_xray_config() {
     "$XRAY_BIN" test -config "$CONFIG_FILE"
 }
 
+create_default_settings() {
+    mkdir -p "$XRAY_DIR"
+
+    if [ ! -s "$FAILOVER_CONF" ]; then
+        cat > "$FAILOVER_CONF" <<CONF
+CHECK_INTERVAL=10
+FAILOVER_FAILURES_REQUIRED=2
+RECOVERY_SUCCESSES_REQUIRED=2
+CHECK_URL=https://www.gstatic.com/generate_204
+LOG_MAX_SIZE=1048576
+CONF
+        chmod 600 "$FAILOVER_CONF"
+    fi
+}
+
+load_settings() {
+    if [ -s "$FAILOVER_CONF" ]; then
+        . "$FAILOVER_CONF"
+    fi
+}
+
+acquire_lock() {
+    LOCK_OWNER="${1:-installer}"
+    mkdir -p /opt/var/run
+
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        echo "$LOCK_OWNER" > "$LOCK_DIR/owner"
+        echo "$$" > "$LOCK_DIR/pid"
+        return 0
+    fi
+
+    echo "ОШИБКА: уже выполняется другая операция failover."
+    if [ -f "$LOCK_DIR/owner" ]; then
+        echo "Владелец блокировки: $(cat "$LOCK_DIR/owner" 2>/dev/null)"
+    fi
+    return 1
+}
+
+release_lock() {
+    rm -rf "$LOCK_DIR" 2>/dev/null || true
+}
+
 ensure_packages() {
     echo "[1/10] Проверяем Entware и пакеты..."
 
@@ -128,6 +176,8 @@ ensure_packages() {
             exit 1
         fi
     fi
+
+    command -v unzip >/dev/null 2>&1 || opkg install unzip >/dev/null 2>&1 || true
 }
 
 detect_router_ip() {
@@ -196,6 +246,156 @@ detect_router_ip() {
     return 1
 }
 
+create_resolver() {
+    echo "Создаём обработчик VLESS/подписок..."
+
+    cat > "$RESOLVER" <<'RESOLVER'
+#!/bin/sh
+set -e
+
+INPUT_VALUE="${1:-}"
+PROFILE_LABEL="${2:-Профиль}"
+MODE="${3:-interactive}"
+
+INPUT_VALUE="$INPUT_VALUE" PROFILE_LABEL="$PROFILE_LABEL" MODE="$MODE" python3 <<'PY'
+import base64
+import os
+import re
+import sys
+import urllib.parse
+import urllib.request
+
+value = os.environ.get("INPUT_VALUE", "").strip()
+label = os.environ.get("PROFILE_LABEL", "Профиль")
+mode = os.environ.get("MODE", "interactive")
+
+VLESS_RE = re.compile(r"vless://[^\s'\"<>]+")
+
+def eprint(*args):
+    print(*args, file=sys.stderr)
+
+def clean_link(link: str) -> str:
+    return link.strip().strip("\r\n\t ")
+
+def validate_vless(link: str) -> str:
+    parsed = urllib.parse.urlparse(link)
+    if parsed.scheme != "vless":
+        raise ValueError("ожидалась ссылка vless://")
+    if not parsed.username:
+        raise ValueError("в VLESS-ссылке отсутствует UUID")
+    if not parsed.hostname:
+        raise ValueError("в VLESS-ссылке отсутствует сервер")
+    return link
+
+def find_links(text: str):
+    return [clean_link(x) for x in VLESS_RE.findall(text or "")]
+
+def try_decode_base64(text: str):
+    raw = re.sub(r"\s+", "", text or "")
+    if not raw:
+        return ""
+    padding = "=" * ((4 - len(raw) % 4) % 4)
+    candidates = [raw + padding]
+    out = []
+    for candidate in candidates:
+        for decoder in (base64.b64decode, base64.urlsafe_b64decode):
+            try:
+                decoded = decoder(candidate.encode("utf-8"))
+                out.append(decoded.decode("utf-8", "ignore"))
+            except Exception:
+                pass
+    return "\n".join(out)
+
+def fetch_subscription(url: str):
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "xray-vless-failover/1.0",
+            "Accept": "text/plain,*/*"
+        },
+    )
+    with urllib.request.urlopen(req, timeout=20) as response:
+        data = response.read()
+    return data.decode("utf-8", "ignore")
+
+def link_name(link: str, idx: int):
+    parsed = urllib.parse.urlparse(link)
+    name = urllib.parse.unquote(parsed.fragment or "").strip()
+    if not name:
+        host = parsed.hostname or "unknown"
+        name = f"{host}:{parsed.port or 443}"
+    return f"{idx}. {name}"
+
+def choose_link(links):
+    if not links:
+        raise ValueError("в подписке не найдена ни одна VLESS-ссылка")
+
+    unique = []
+    seen = set()
+    for link in links:
+        if link not in seen:
+            unique.append(link)
+            seen.add(link)
+
+    if len(unique) == 1 or mode != "interactive":
+        if len(unique) > 1:
+            eprint(f"{label}: найдено {len(unique)} VLESS-профилей, выбран первый.")
+        return validate_vless(unique[0])
+
+    eprint("")
+    eprint(f"{label}: найдено VLESS-профилей: {len(unique)}")
+    for i, link in enumerate(unique, 1):
+        eprint(link_name(link, i))
+    eprint("")
+
+    while True:
+        try:
+            with open("/dev/tty", "r+") as tty:
+                tty.write("Выберите номер профиля: ")
+                tty.flush()
+                answer = tty.readline().strip()
+        except Exception:
+            answer = input("Выберите номер профиля: ").strip()
+
+        if answer.isdigit():
+            number = int(answer)
+            if 1 <= number <= len(unique):
+                return validate_vless(unique[number - 1])
+
+        eprint("Неверный номер. Повторите выбор.")
+
+def resolve(value: str):
+    if not value:
+        raise ValueError("пустая ссылка")
+
+    if value.startswith("vless://"):
+        return validate_vless(value)
+
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme in ("http", "https"):
+        eprint(f"{label}: скачиваем подписку...")
+        text = fetch_subscription(value)
+        links = find_links(text)
+
+        if not links:
+            decoded = try_decode_base64(text)
+            links = find_links(decoded)
+
+        return choose_link(links)
+
+    raise ValueError("поддерживаются только vless://, http:// или https://")
+
+try:
+    print(resolve(value))
+except Exception as exc:
+    eprint(f"ОШИБКА: {exc}")
+    sys.exit(1)
+PY
+RESOLVER
+
+    chmod +x "$RESOLVER"
+}
+
 create_generator() {
     echo "[4/10] Создаём генератор config..."
 
@@ -204,91 +404,69 @@ create_generator() {
 set -e
 
 python3 <<'PY'
-import os
-import json
-import re
 import base64
+import os
+import re
+import json
+import sys
 import urllib.parse
 import urllib.request
 
 profile_name = os.environ.get("PROFILE_NAME", "vless-out")
-source_url = os.environ["VLESS_URL"].strip()
+raw_url = os.environ["VLESS_URL"].strip()
 listen_host = os.environ["LISTEN_HOST"]
 listen_port = int(os.environ["LISTEN_PORT"])
 output_config = os.environ["OUTPUT_CONFIG"]
 
+VLESS_RE = re.compile(r"vless://[^\s'\"<>]+")
 
-def _decode_bytes(data):
-    """Return text variants from raw subscription bytes."""
-    variants = []
+def clean_link(link: str) -> str:
+    return link.strip().strip("\r\n\t ")
 
-    for enc in ("utf-8", "latin-1"):
+def find_links(text: str):
+    return [clean_link(x) for x in VLESS_RE.findall(text or "")]
+
+def try_decode_base64(text: str):
+    raw = re.sub(r"\s+", "", text or "")
+    if not raw:
+        return ""
+    padding = "=" * ((4 - len(raw) % 4) % 4)
+    out = []
+    for decoder in (base64.b64decode, base64.urlsafe_b64decode):
         try:
-            text = data.decode(enc, errors="ignore").strip()
-            if text and text not in variants:
-                variants.append(text)
+            decoded = decoder((raw + padding).encode("utf-8"))
+            out.append(decoded.decode("utf-8", "ignore"))
         except Exception:
             pass
+    return "\n".join(out)
 
-    compact = re.sub(rb"\s+", b"", data)
-    if compact:
-        padding = b"=" * ((4 - len(compact) % 4) % 4)
-        for decoder in (base64.b64decode, base64.urlsafe_b64decode):
-            try:
-                decoded = decoder(compact + padding)
-                text = decoded.decode("utf-8", errors="ignore").strip()
-                if text and text not in variants:
-                    variants.append(text)
-            except Exception:
-                pass
+def fetch_subscription(url: str):
+    req = urllib.request.Request(url, headers={"User-Agent": "xray-vless-failover/1.0"})
+    with urllib.request.urlopen(req, timeout=20) as response:
+        return response.read().decode("utf-8", "ignore")
 
-    return variants
-
-
-def _extract_vless(text):
-    match = re.search(r"vless://[^\s\r\n<>\"']+", text)
-    if match:
-        return match.group(0).strip()
-    return ""
-
-
-def resolve_vless_url(value):
+def resolve_to_vless(value: str):
     value = value.strip()
-
     if value.startswith("vless://"):
         return value
 
     parsed = urllib.parse.urlparse(value)
-    if parsed.scheme not in ("http", "https"):
-        raise SystemExit("ERROR: expected vless:// link or http(s) subscription link")
+    if parsed.scheme in ("http", "https"):
+        text = fetch_subscription(value)
+        links = find_links(text)
+        if not links:
+            links = find_links(try_decode_base64(text))
+        if not links:
+            raise SystemExit("ERROR: subscription does not contain vless:// links")
+        return links[0]
 
-    req = urllib.request.Request(
-        value,
-        headers={
-            "User-Agent": "Keenetic-Xray-Failover/1.0",
-            "Accept": "text/plain,*/*",
-        },
-    )
+    raise SystemExit("ERROR: only vless://, http:// and https:// links are supported")
 
-    try:
-        with urllib.request.urlopen(req, timeout=20) as response:
-            payload = response.read()
-    except Exception as exc:
-        raise SystemExit(f"ERROR: failed to download subscription: {exc}")
-
-    for text in _decode_bytes(payload):
-        found = _extract_vless(text)
-        if found:
-            return found
-
-    raise SystemExit("ERROR: subscription does not contain vless:// links")
-
-
-url = resolve_vless_url(source_url)
+url = resolve_to_vless(raw_url)
 u = urllib.parse.urlparse(url)
 
 if u.scheme != "vless":
-    raise SystemExit("ERROR: only vless:// links are supported after subscription resolving")
+    raise SystemExit("ERROR: only vless:// links are supported")
 
 uuid = urllib.parse.unquote(u.username or "")
 server = u.hostname
@@ -406,7 +584,6 @@ with open(output_config, "w") as f:
 
 print("Создан config:", output_config)
 print("Профиль:", profile_name)
-print("Источник:", "подписка" if source_url != url else "прямая VLESS-ссылка")
 print("Сервер:", server)
 print("Порт:", port)
 print("Транспорт:", network)
@@ -475,6 +652,7 @@ PRIMARY_STORE="$XRAY_DIR/vless-primary.url"
 BACKUP_STORE="$XRAY_DIR/vless-backup.url"
 ACTIVE_STORE="$XRAY_DIR/active-profile"
 ROUTER_IP_STORE="$XRAY_DIR/router-lan-ip"
+FAILOVER_CONF="$XRAY_DIR/failover.conf"
 
 SOCKS_PORT="10808"
 PROXY_IFACE="Proxy0"
@@ -488,6 +666,7 @@ TMP_DIR="/opt/tmp"
 TEMP_HOST="127.0.0.1"
 TEMP_PRIMARY_PORT="19080"
 TEMP_BACKUP_PORT="19081"
+LOCK_DIR="/opt/var/run/xray-failover.lock"
 
 TMP_TEST_PIDS=""
 
@@ -499,11 +678,33 @@ profile_display_name() {
     esac
 }
 
+load_settings() {
+    if [ -s "$FAILOVER_CONF" ]; then
+        . "$FAILOVER_CONF"
+    fi
+}
+
+acquire_lock() {
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        echo "daemon" > "$LOCK_DIR/owner"
+        echo "$$" > "$LOCK_DIR/pid"
+        return 0
+    fi
+
+    echo "Операция пропущена: занята блокировка failover."
+    return 1
+}
+
+release_lock() {
+    rm -rf "$LOCK_DIR" 2>/dev/null || true
+}
+
 cleanup_children() {
     for p in $TMP_TEST_PIDS; do
         kill "$p" 2>/dev/null || true
         wait "$p" 2>/dev/null || true
     done
+    release_lock
 }
 
 trap 'cleanup_children; exit 0' INT TERM
@@ -539,6 +740,8 @@ ROUTER_LAN_IP="$(cat "$ROUTER_IP_STORE")"
 test_socks_endpoint() {
     HOST="$1"
     PORT="$2"
+
+    load_settings
 
     RESULT="$(curl -k -sS \
         --socks5-hostname "$HOST:$PORT" \
@@ -656,9 +859,9 @@ switch_to_profile() {
         return 1
     fi
 
-    TARGET_LABEL="$(profile_display_name "$TARGET")"
     TMP_SWITCH_CONFIG="$TMP_DIR/xray-switch-$TARGET.json"
     OLD_CONFIG="$TMP_DIR/xray-config-before-switch.json"
+    TARGET_LABEL="$(profile_display_name "$TARGET")"
 
     echo "======================================"
     echo "ПЕРЕКЛЮЧЕНИЕ ПРОФИЛЯ -> $TARGET_LABEL"
@@ -719,9 +922,11 @@ PRIMARY_RECOVERY_COUNT="0"
 BACKUP_FAIL_COUNT="0"
 
 while true; do
+    load_settings
+
     ACTIVE="$(cat "$ACTIVE_STORE" 2>/dev/null || echo primary)"
-    ACTIVE_LABEL="$(profile_display_name "$ACTIVE")"
     NOW="$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date)"
+    ACTIVE_LABEL="$(profile_display_name "$ACTIVE")"
 
     echo
     echo "[$NOW] Активный профиль: $ACTIVE_LABEL"
@@ -741,12 +946,15 @@ while true; do
             elif [ -s "$BACKUP_STORE" ]; then
                 echo "Проверяем Резервный профиль перед переключением..."
                 if test_vless_temp "backup" "$(cat "$BACKUP_STORE")" "$TEMP_BACKUP_PORT"; then
-                    if switch_to_profile "backup"; then
-                        PRIMARY_FAIL_COUNT="0"
-                        PRIMARY_RECOVERY_COUNT="0"
-                        BACKUP_FAIL_COUNT="0"
-                    else
-                        echo "Переключение на Резервный профиль не удалось."
+                    if acquire_lock; then
+                        if switch_to_profile "backup"; then
+                            PRIMARY_FAIL_COUNT="0"
+                            PRIMARY_RECOVERY_COUNT="0"
+                            BACKUP_FAIL_COUNT="0"
+                        else
+                            echo "Переключение на Резервный профиль не удалось."
+                        fi
+                        release_lock
                     fi
                 else
                     echo "Резервный профиль тоже недоступен. Остаёмся на config Основного профиля."
@@ -775,12 +983,15 @@ while true; do
 
             if [ "$PRIMARY_RECOVERY_COUNT" -ge "$RECOVERY_SUCCESSES_REQUIRED" ]; then
                 echo "Основной профиль стабильно доступен. Возвращаемся на Основной профиль."
-                if switch_to_profile "primary"; then
-                    PRIMARY_FAIL_COUNT="0"
-                    PRIMARY_RECOVERY_COUNT="0"
-                    BACKUP_FAIL_COUNT="0"
-                else
-                    echo "Переключение на Основной профиль не удалось."
+                if acquire_lock; then
+                    if switch_to_profile "primary"; then
+                        PRIMARY_FAIL_COUNT="0"
+                        PRIMARY_RECOVERY_COUNT="0"
+                        BACKUP_FAIL_COUNT="0"
+                    else
+                        echo "Переключение на Основной профиль не удалось."
+                    fi
+                    release_lock
                 fi
             else
                 echo "Ждём ещё одну успешную проверку Основного профиля."
@@ -791,7 +1002,10 @@ while true; do
         fi
     else
         echo "Неизвестное значение active-profile. Пробуем вернуться на Основной профиль."
-        switch_to_profile "primary" || echo "Переключение на Основной профиль не удалось."
+        if acquire_lock; then
+            switch_to_profile "primary" || echo "Переключение на Основной профиль не удалось."
+            release_lock
+        fi
     fi
 
     sleep "$CHECK_INTERVAL"
@@ -812,8 +1026,21 @@ DESC="Xray VLESS Failover"
 DAEMON="$FAILOVER_DAEMON"
 PIDFILE="/opt/var/run/xray-vless-failover.pid"
 LOGFILE="/opt/var/log/xray-vless-failover.log"
+CONF="$FAILOVER_CONF"
 
 mkdir -p /opt/var/run /opt/var/log
+
+LOG_MAX_SIZE=1048576
+[ -s "\$CONF" ] && . "\$CONF"
+
+rotate_log() {
+    [ -f "\$LOGFILE" ] || return 0
+    SIZE="\$(wc -c < "\$LOGFILE" 2>/dev/null || echo 0)"
+    if [ "\$SIZE" -gt "\$LOG_MAX_SIZE" ]; then
+        mv "\$LOGFILE" "\$LOGFILE.1" 2>/dev/null || true
+        : > "\$LOGFILE"
+    fi
+}
 
 is_running() {
     [ -f "\$PIDFILE" ] || return 1
@@ -835,6 +1062,8 @@ start() {
         echo "Daemon не найден: \$DAEMON"
         exit 1
     fi
+
+    rotate_log
 
     "\$DAEMON" >> "\$LOGFILE" 2>&1 &
     echo "\$!" > "\$PIDFILE"
@@ -897,7 +1126,8 @@ case "\$1" in
     stop) stop ;;
     restart) restart ;;
     status) status ;;
-    *) echo "Использование: \$0 {start|stop|restart|status}"; exit 1 ;;
+    rotate-log) rotate_log ;;
+    *) echo "Использование: \$0 {start|stop|restart|status|rotate-log}"; exit 1 ;;
 esac
 INIT
 
@@ -910,8 +1140,34 @@ create_status_command() {
     cat > "$FAILOVER_STATUS" <<'STATUS'
 #!/bin/sh
 
+XRAY_DIR="/opt/etc/xray"
+XRAY_CONFIG="$XRAY_DIR/config.json"
+ACTIVE_STORE="$XRAY_DIR/active-profile"
+ROUTER_IP_STORE="$XRAY_DIR/router-lan-ip"
+FAILOVER_CONF="$XRAY_DIR/failover.conf"
+SOCKS_PORT="10808"
+CHECK_URL="https://www.gstatic.com/generate_204"
+
+[ -s "$FAILOVER_CONF" ] && . "$FAILOVER_CONF"
+
+ROUTER_LAN_IP="$(cat "$ROUTER_IP_STORE" 2>/dev/null || echo 192.168.1.1)"
+
+get_xray_bin() {
+    if command -v xray >/dev/null 2>&1; then command -v xray
+    elif [ -x /opt/bin/xray ]; then echo "/opt/bin/xray"
+    else echo ""
+    fi
+}
+
+XRAY_BIN="$(get_xray_bin)"
+
+echo "======================================"
+echo " Диагностика Xray VLESS Failover"
+echo "======================================"
+echo
+
 echo "Активный профиль:"
-ACTIVE="$(cat /opt/etc/xray/active-profile 2>/dev/null || echo unknown)"
+ACTIVE="$(cat "$ACTIVE_STORE" 2>/dev/null || echo unknown)"
 case "$ACTIVE" in
     primary) echo "Основной" ;;
     backup) echo "Резервный" ;;
@@ -919,20 +1175,70 @@ case "$ACTIVE" in
 esac
 
 echo
+echo "Настройки failover:"
+echo "CHECK_INTERVAL=${CHECK_INTERVAL:-10}"
+echo "FAILOVER_FAILURES_REQUIRED=${FAILOVER_FAILURES_REQUIRED:-2}"
+echo "RECOVERY_SUCCESSES_REQUIRED=${RECOVERY_SUCCESSES_REQUIRED:-2}"
+echo "CHECK_URL=${CHECK_URL:-https://www.gstatic.com/generate_204}"
+echo "LOG_MAX_SIZE=${LOG_MAX_SIZE:-1048576}"
+
+echo
+echo "Компоненты:"
+command -v curl >/dev/null 2>&1 && echo "[OK] curl" || echo "[FAIL] curl не найден"
+command -v python3 >/dev/null 2>&1 && echo "[OK] python3" || echo "[FAIL] python3 не найден"
+command -v unzip >/dev/null 2>&1 && echo "[OK] unzip" || echo "[WARN] unzip не найден"
+[ -n "$XRAY_BIN" ] && echo "[OK] xray: $XRAY_BIN" || echo "[FAIL] xray не найден"
+
+echo
+echo "Версия Xray:"
+if [ -n "$XRAY_BIN" ]; then
+    "$XRAY_BIN" version 2>/dev/null | head -n 2 || true
+fi
+
+echo
 echo "Статус Xray:"
-/opt/etc/init.d/S24xray status
+/opt/etc/init.d/S24xray status 2>/dev/null || true
 
 echo
 echo "Статус failover:"
-/opt/etc/init.d/S25xray-failover status
+/opt/etc/init.d/S25xray-failover status 2>/dev/null || true
+
+echo
+echo "Проверка config.json:"
+if [ -n "$XRAY_BIN" ] && [ -s "$XRAY_CONFIG" ]; then
+    if "$XRAY_BIN" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1 || "$XRAY_BIN" test -config "$XRAY_CONFIG" >/dev/null 2>&1; then
+        echo "[OK] config.json валиден"
+    else
+        echo "[FAIL] config.json не прошёл проверку"
+    fi
+else
+    echo "[FAIL] Xray или config.json не найден"
+fi
 
 echo
 echo "SOCKS5 port:"
-netstat -lntp 2>/dev/null | grep 10808 || netstat -lnt 2>/dev/null | grep 10808 || true
+netstat -lntp 2>/dev/null | grep 10808 || netstat -lnt 2>/dev/null | grep 10808 || echo "[WARN] порт 10808 не найден"
+
+echo
+echo "Проверка TCP/HTTP через SOCKS5:"
+curl -k -sS --socks5-hostname "$ROUTER_LAN_IP:$SOCKS_PORT" \
+    --connect-timeout 5 \
+    --max-time 10 \
+    -o /dev/null \
+    -w 'http_code=%{http_code} time_total=%{time_total}\n' \
+    "${CHECK_URL:-https://www.gstatic.com/generate_204}" 2>&1 || true
+
+echo
+echo "Проверка внешнего IP через SOCKS5:"
+curl -k -sS --socks5-hostname "$ROUTER_LAN_IP:$SOCKS_PORT" \
+    --connect-timeout 5 \
+    --max-time 10 \
+    https://api.ipify.org 2>&1 || true
+echo
 
 echo
 echo "Proxy0:"
-ndmc -c "show running-config" 2>/dev/null | grep -A12 -i "interface Proxy0" || true
+ndmc -c "show running-config" 2>/dev/null | grep -A12 -i "interface Proxy0" || echo "[WARN] Proxy0 не найден или ndmc недоступен"
 
 echo
 echo "Последние строки failover-лога:"
@@ -942,7 +1248,6 @@ STATUS
     chmod +x "$FAILOVER_STATUS"
 }
 
-
 create_xray_core_update_command() {
     echo "Создаём команду обновления ядра Xray..."
 
@@ -950,15 +1255,12 @@ create_xray_core_update_command() {
 #!/bin/sh
 set -e
 
-XRAY_DIR="/opt/etc/xray"
-XRAY_CONFIG="$XRAY_DIR/config.json"
-XRAY_BIN="/opt/bin/xray"
-INIT_SCRIPT="/opt/etc/init.d/S24xray"
+XRAY_CONFIG="/opt/etc/xray/config.json"
 FAILOVER_INIT="/opt/etc/init.d/S25xray-failover"
-BACKUP_DIR="$XRAY_DIR/backups"
-TMP_DIR="/opt/tmp/xray-core-update"
-RELEASES_API="https://api.github.com/repos/XTLS/Xray-core/releases"
-LATEST_API="https://api.github.com/repos/XTLS/Xray-core/releases/latest"
+XRAY_INIT="/opt/etc/init.d/S24xray"
+LOCK_DIR="/opt/var/run/xray-failover.lock"
+WORK_DIR="/opt/tmp/xray-core-update"
+BACKUP_ROOT="/opt/backup/xray-core"
 
 read_tty() {
     prompt="$1"
@@ -971,245 +1273,209 @@ read_tty() {
     fi
 }
 
-get_xray_bin() {
-    if command -v xray >/dev/null 2>&1; then
-        command -v xray
-    elif [ -x /opt/bin/xray ]; then
-        echo "/opt/bin/xray"
-    else
-        echo ""
+acquire_lock() {
+    mkdir -p /opt/var/run
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        echo "xray-core-update" > "$LOCK_DIR/owner"
+        echo "$$" > "$LOCK_DIR/pid"
+        return 0
     fi
+    echo "ОШИБКА: другая операция failover уже выполняется."
+    return 1
+}
+
+release_lock() {
+    rm -rf "$LOCK_DIR" 2>/dev/null || true
+}
+
+trap 'release_lock' EXIT INT TERM
+
+get_xray_bin() {
+    if command -v xray >/dev/null 2>&1; then command -v xray
+    elif [ -x /opt/bin/xray ]; then echo "/opt/bin/xray"
+    else echo "/opt/bin/xray"
+    fi
+}
+
+test_xray_config_with_bin() {
+    BIN="$1"
+    CONFIG="$2"
+
+    if "$BIN" run -test -config "$CONFIG" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    "$BIN" test -config "$CONFIG"
 }
 
 detect_asset_name() {
     ARCH="$(uname -m 2>/dev/null || echo unknown)"
+
     case "$ARCH" in
         x86_64|amd64) echo "Xray-linux-64.zip" ;;
-        i386|i486|i586|i686) echo "Xray-linux-32.zip" ;;
+        i386|i686) echo "Xray-linux-32.zip" ;;
         aarch64|arm64) echo "Xray-linux-arm64-v8a.zip" ;;
-        armv7l|armv7*|armv8l) echo "Xray-linux-arm32-v7a.zip" ;;
+        armv7l|armv7*) echo "Xray-linux-arm32-v7a.zip" ;;
         armv6l|armv6*) echo "Xray-linux-arm32-v6.zip" ;;
         armv5*|arm) echo "Xray-linux-arm32-v5.zip" ;;
         mips64el|mips64le) echo "Xray-linux-mips64le.zip" ;;
         mips64) echo "Xray-linux-mips64.zip" ;;
         mipsel|mipsle) echo "Xray-linux-mips32le.zip" ;;
         mips) echo "Xray-linux-mips32.zip" ;;
-        riscv64) echo "Xray-linux-riscv64.zip" ;;
         *) echo "" ;;
     esac
 }
 
-choose_release_json() {
-    MODE="$1"
-    OUT_JSON="$2"
-
-    if [ "$MODE" = "stable" ]; then
-        curl -fsSL -H "User-Agent: xray-core-update" -o "$OUT_JSON" "$LATEST_API"
-    else
-        ALL_JSON="$TMP_DIR/releases.json"
-        curl -fsSL -H "User-Agent: xray-core-update" -o "$ALL_JSON" "$RELEASES_API"
-        python3 - "$ALL_JSON" "$OUT_JSON" <<'PY'
-import json
-import sys
-
-src, dst = sys.argv[1], sys.argv[2]
-with open(src, 'r', encoding='utf-8') as f:
-    releases = json.load(f)
-for release in releases:
-    if release.get('prerelease'):
-        with open(dst, 'w', encoding='utf-8') as out:
-            json.dump(release, out)
-        break
-else:
-    raise SystemExit('Не найден pre-release Xray-core в GitHub releases')
-PY
-    fi
-}
-
-extract_release_field() {
-    JSON_FILE="$1"
-    FIELD="$2"
-    python3 - "$JSON_FILE" "$FIELD" <<'PY'
-import json
-import sys
-path, field = sys.argv[1], sys.argv[2]
-with open(path, 'r', encoding='utf-8') as f:
-    data = json.load(f)
-print(data.get(field, ''))
-PY
-}
-
-extract_asset_url() {
-    JSON_FILE="$1"
+find_release_asset() {
+    CHANNEL="$1"
     ASSET_NAME="$2"
-    python3 - "$JSON_FILE" "$ASSET_NAME" <<'PY'
+
+    CHANNEL="$CHANNEL" ASSET_NAME="$ASSET_NAME" python3 <<'PY'
 import json
+import os
 import sys
-path, asset_name = sys.argv[1], sys.argv[2]
-with open(path, 'r', encoding='utf-8') as f:
-    data = json.load(f)
-for asset in data.get('assets', []):
-    if asset.get('name') == asset_name:
-        print(asset.get('browser_download_url', ''))
-        break
+import urllib.request
+
+channel = os.environ["CHANNEL"]
+asset_name = os.environ["ASSET_NAME"]
+
+headers = {
+    "User-Agent": "xray-core-update/1.0",
+    "Accept": "application/vnd.github+json"
+}
+
+def fetch(url):
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+if channel == "stable":
+    releases = [fetch("https://api.github.com/repos/XTLS/Xray-core/releases/latest")]
+else:
+    releases = fetch("https://api.github.com/repos/XTLS/Xray-core/releases")
+    releases = [r for r in releases if r.get("prerelease")]
+
+if not releases:
+    raise SystemExit("ERROR: release not found")
+
+release = releases[0]
+for asset in release.get("assets", []):
+    if asset.get("name") == asset_name:
+        print(release.get("tag_name", "unknown"))
+        print(asset.get("browser_download_url"))
+        sys.exit(0)
+
+print("ERROR: asset not found: " + asset_name, file=sys.stderr)
+sys.exit(1)
 PY
 }
 
-make_backup() {
-    TS="$(date '+%Y%m%d-%H%M%S' 2>/dev/null || date +%s)"
-    DEST="$BACKUP_DIR/$TS"
-    mkdir -p "$DEST"
-    [ -x "$XRAY_BIN" ] && cp "$XRAY_BIN" "$DEST/xray" || true
-    [ -s "$XRAY_CONFIG" ] && cp "$XRAY_CONFIG" "$DEST/config.json" || true
-    if [ -d "$XRAY_DIR" ]; then
-        cp "$XRAY_DIR"/vless-*.url "$DEST" 2>/dev/null || true
-        cp "$XRAY_DIR"/active-profile "$DEST" 2>/dev/null || true
-        cp "$XRAY_DIR"/router-lan-ip "$DEST" 2>/dev/null || true
-    fi
-    echo "$DEST"
-}
+acquire_lock
 
-install_unzip_if_needed() {
-    if command -v unzip >/dev/null 2>&1; then
-        return 0
-    fi
-    echo "unzip не найден. Пробуем установить unzip через opkg..."
-    if command -v opkg >/dev/null 2>&1; then
-        opkg update
-        opkg install unzip
-    else
-        echo "ОШИБКА: unzip не найден и opkg недоступен."
-        exit 1
-    fi
-}
-
-echo
 echo "======================================"
-echo " Обновление ядра Xray-core"
+echo " Обновление ядра Xray"
 echo "======================================"
-echo
 
-command -v curl >/dev/null 2>&1 || { echo "ОШИБКА: curl не найден."; exit 1; }
-command -v python3 >/dev/null 2>&1 || { echo "ОШИБКА: python3 не найден."; exit 1; }
-install_unzip_if_needed
-
-CURRENT_XRAY="$(get_xray_bin)"
-[ -n "$CURRENT_XRAY" ] && XRAY_BIN="$CURRENT_XRAY"
-
-echo "Текущий xray: ${XRAY_BIN:-не найден}"
-if [ -x "$XRAY_BIN" ]; then
-    "$XRAY_BIN" version 2>/dev/null | head -n 3 || true
-fi
-
-echo
-while true; do
-    read_tty "Сделать бэкап текущего ядра и config? [Y/n]: "
-    case "$REPLY" in
-        ""|y|Y|yes|YES|д|Д|да|ДА) DO_BACKUP="1"; break ;;
-        n|N|no|NO|н|Н|нет|НЕТ) DO_BACKUP="0"; break ;;
-        *) echo "Введите y или n." ;;
-    esac
-done
-
-echo
-while true; do
-    echo "Выберите канал обновления:"
-    echo "1 Stable"
-    echo "2 Pre-release"
-    read_tty "Ваш выбор [1/2]: "
-    case "$REPLY" in
-        1) RELEASE_MODE="stable"; break ;;
-        2) RELEASE_MODE="prerelease"; break ;;
-        *) echo "Введите 1 или 2." ;;
-    esac
-done
-
+TARGET_XRAY="$(get_xray_bin)"
 ASSET_NAME="$(detect_asset_name)"
+
 if [ -z "$ASSET_NAME" ]; then
-    echo "ОШИБКА: не удалось определить asset для архитектуры: $(uname -m 2>/dev/null || echo unknown)"
-    echo "Поддерживаемые архитектуры: x86_64, aarch64, armv7, armv6, mips/mipsel/mips64, riscv64."
+    echo "ОШИБКА: неподдерживаемая архитектура: $(uname -m)"
     exit 1
 fi
+
+echo "Текущий бинарник: $TARGET_XRAY"
+echo "Архитектура: $(uname -m)"
+echo "Asset GitHub: $ASSET_NAME"
+echo
+
+read_tty "Сделать бэкап текущего Xray и config? [Y/n]: "
+case "$REPLY" in
+    n|N|no|NO|нет|Нет) DO_BACKUP="0" ;;
+    *) DO_BACKUP="1" ;;
+esac
 
 echo
-echo "Архитектура: $(uname -m 2>/dev/null || echo unknown)"
-echo "Asset Xray-core: $ASSET_NAME"
-echo "Канал: $RELEASE_MODE"
+echo "Выберите канал:"
+echo "1 Stable"
+echo "2 Pre-release"
+read_tty "Ваш выбор [1]: "
 
-rm -rf "$TMP_DIR"
-mkdir -p "$TMP_DIR" "$BACKUP_DIR"
-RELEASE_JSON="$TMP_DIR/release.json"
-ZIP_FILE="$TMP_DIR/$ASSET_NAME"
-choose_release_json "$RELEASE_MODE" "$RELEASE_JSON"
-TAG_NAME="$(extract_release_field "$RELEASE_JSON" tag_name)"
-RELEASE_NAME="$(extract_release_field "$RELEASE_JSON" name)"
-ASSET_URL="$(extract_asset_url "$RELEASE_JSON" "$ASSET_NAME")"
+case "$REPLY" in
+    2) CHANNEL="prerelease" ;;
+    *) CHANNEL="stable" ;;
+esac
 
-if [ -z "$ASSET_URL" ]; then
-    echo "ОШИБКА: в релизе $TAG_NAME не найден asset $ASSET_NAME."
-    exit 1
+mkdir -p "$WORK_DIR"
+rm -rf "$WORK_DIR"/*
+mkdir -p "$WORK_DIR"
+
+if ! command -v unzip >/dev/null 2>&1; then
+    opkg update
+    opkg install unzip
 fi
 
-echo "Релиз: ${RELEASE_NAME:-$TAG_NAME}"
-echo "Скачиваем Xray-core..."
-curl -fL -H "User-Agent: xray-core-update" -o "$ZIP_FILE" "$ASSET_URL"
+echo "Получаем ссылку на релиз Xray-core..."
+RELEASE_INFO="$(find_release_asset "$CHANNEL" "$ASSET_NAME")"
+TAG="$(printf "%s\n" "$RELEASE_INFO" | sed -n '1p')"
+DOWNLOAD_URL="$(printf "%s\n" "$RELEASE_INFO" | sed -n '2p')"
 
-echo "Распаковываем..."
-unzip -oq "$ZIP_FILE" -d "$TMP_DIR/extract"
+[ -n "$DOWNLOAD_URL" ] || { echo "ОШИБКА: не удалось получить download URL."; exit 1; }
 
-if [ ! -f "$TMP_DIR/extract/xray" ]; then
-    echo "ОШИБКА: в архиве не найден бинарник xray."
-    exit 1
-fi
+echo "Релиз: $TAG"
+echo "Скачиваем: $DOWNLOAD_URL"
 
-chmod +x "$TMP_DIR/extract/xray"
-echo "Проверяем новый бинарник..."
-"$TMP_DIR/extract/xray" version | head -n 3
+curl -fL -o "$WORK_DIR/xray.zip" "$DOWNLOAD_URL"
+unzip -o "$WORK_DIR/xray.zip" -d "$WORK_DIR/unpack" >/dev/null
 
-if [ "$DO_BACKUP" = "1" ]; then
-    BACKUP_PATH="$(make_backup)"
-    echo "Бэкап создан: $BACKUP_PATH"
-else
-    echo "Бэкап пропущен по выбору пользователя."
-fi
+NEW_XRAY="$WORK_DIR/unpack/xray"
+[ -x "$NEW_XRAY" ] || chmod +x "$NEW_XRAY" 2>/dev/null || true
+[ -x "$NEW_XRAY" ] || { echo "ОШИБКА: xray не найден в архиве."; exit 1; }
 
-if [ -x "$FAILOVER_INIT" ]; then
-    echo "Останавливаем failover..."
-    "$FAILOVER_INIT" stop >/dev/null 2>&1 || true
-fi
-
-if [ -x "$INIT_SCRIPT" ]; then
-    echo "Останавливаем Xray..."
-    "$INIT_SCRIPT" stop >/dev/null 2>&1 || true
-fi
-
-TARGET_BIN="/opt/bin/xray"
-mkdir -p /opt/bin
-cp "$TMP_DIR/extract/xray" "$TARGET_BIN"
-chmod +x "$TARGET_BIN"
-
-echo "Новое ядро установлено: $TARGET_BIN"
-"$TARGET_BIN" version | head -n 3
+echo "Проверяем новый бинарник:"
+"$NEW_XRAY" version | head -n 2
 
 if [ -s "$XRAY_CONFIG" ]; then
     echo "Проверяем текущий config новым ядром..."
-    if ! "$TARGET_BIN" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1; then
-        "$TARGET_BIN" test -config "$XRAY_CONFIG"
+    test_xray_config_with_bin "$NEW_XRAY" "$XRAY_CONFIG"
+fi
+
+BACKUP_DIR=""
+if [ "$DO_BACKUP" = "1" ]; then
+    TS="$(date '+%Y%m%d-%H%M%S' 2>/dev/null || date +%s)"
+    BACKUP_DIR="$BACKUP_ROOT/$TS"
+    mkdir -p "$BACKUP_DIR"
+    [ -f "$TARGET_XRAY" ] && cp "$TARGET_XRAY" "$BACKUP_DIR/xray"
+    [ -f "$XRAY_CONFIG" ] && cp "$XRAY_CONFIG" "$BACKUP_DIR/config.json"
+    echo "Бэкап сохранён: $BACKUP_DIR"
+fi
+
+OLD_XRAY="$WORK_DIR/xray.old"
+[ -f "$TARGET_XRAY" ] && cp "$TARGET_XRAY" "$OLD_XRAY" || true
+
+[ -x "$FAILOVER_INIT" ] && "$FAILOVER_INIT" stop >/dev/null 2>&1 || true
+[ -x "$XRAY_INIT" ] && "$XRAY_INIT" stop >/dev/null 2>&1 || true
+
+cp "$NEW_XRAY" "$TARGET_XRAY"
+chmod +x "$TARGET_XRAY"
+
+if [ -s "$XRAY_CONFIG" ]; then
+    if ! test_xray_config_with_bin "$TARGET_XRAY" "$XRAY_CONFIG"; then
+        echo "ОШИБКА: новый Xray не принимает текущий config. Откатываем бинарник."
+        [ -s "$OLD_XRAY" ] && cp "$OLD_XRAY" "$TARGET_XRAY"
+        chmod +x "$TARGET_XRAY"
+        [ -x "$XRAY_INIT" ] && "$XRAY_INIT" start >/dev/null 2>&1 || true
+        [ -x "$FAILOVER_INIT" ] && "$FAILOVER_INIT" start >/dev/null 2>&1 || true
+        exit 1
     fi
 fi
 
-if [ -x "$INIT_SCRIPT" ]; then
-    echo "Запускаем Xray..."
-    "$INIT_SCRIPT" start
-fi
-
-if [ -x "$FAILOVER_INIT" ]; then
-    echo "Запускаем failover..."
-    "$FAILOVER_INIT" start
-fi
+[ -x "$XRAY_INIT" ] && "$XRAY_INIT" start
+[ -x "$FAILOVER_INIT" ] && "$FAILOVER_INIT" start
 
 echo
-echo "Обновление ядра Xray-core завершено."
+echo "Готово. Ядро Xray обновлено до: $TAG"
+"$TARGET_XRAY" version | head -n 2
 COREUPDATE
 
     chmod +x "$XRAY_CORE_UPDATE_CMD"
@@ -1221,172 +1487,166 @@ create_menu_command() {
     cat > "$FAILOVER_MENU_CMD" <<'MENU'
 #!/bin/sh
 
-STATUS_CMD="/opt/bin/vless-failover-status"
-UPDATE_CMD="/opt/bin/vless-failover-update"
-XRAY_CORE_UPDATE_CMD="/opt/bin/xray-core-update"
-XRAY_INIT="/opt/etc/init.d/S24xray"
+FAILOVER_UPDATE="/opt/bin/vless-failover-update"
+FAILOVER_STATUS="/opt/bin/vless-failover-status"
+XRAY_CORE_UPDATE="/opt/bin/xray-core-update"
 FAILOVER_INIT="/opt/etc/init.d/S25xray-failover"
-XRAY_CONFIG="/opt/etc/xray/config.json"
-ACTIVE_STORE="/opt/etc/xray/active-profile"
-ROUTER_IP_STORE="/opt/etc/xray/router-lan-ip"
-SOCKS_PORT="10808"
-CHECK_URL="https://www.gstatic.com/generate_204"
+XRAY_INIT="/opt/etc/init.d/S24xray"
+FAILOVER_CONF="/opt/etc/xray/failover.conf"
 LOGFILE="/opt/var/log/xray-vless-failover.log"
 
-profile_display_name() {
-    case "$1" in
-        primary) echo "Основной" ;;
-        backup) echo "Резервный" ;;
-        *) echo "$1" ;;
+read_tty() {
+    prompt="$1"
+    if [ -r /dev/tty ]; then
+        printf "%s" "$prompt" >/dev/tty
+        IFS= read -r REPLY </dev/tty
+    else
+        printf "%s" "$prompt" >&2
+        IFS= read -r REPLY
+    fi
+}
+
+show_settings() {
+    echo
+    echo "Текущие настройки:"
+    if [ -s "$FAILOVER_CONF" ]; then
+        cat "$FAILOVER_CONF"
+    else
+        echo "Файл настроек не найден: $FAILOVER_CONF"
+    fi
+}
+
+edit_settings() {
+    CHECK_INTERVAL="10"
+    FAILOVER_FAILURES_REQUIRED="2"
+    RECOVERY_SUCCESSES_REQUIRED="2"
+    CHECK_URL="https://www.gstatic.com/generate_204"
+    LOG_MAX_SIZE="1048576"
+
+    [ -s "$FAILOVER_CONF" ] && . "$FAILOVER_CONF"
+
+    show_settings
+    echo
+
+    read_tty "Интервал проверки в секундах [$CHECK_INTERVAL]: "
+    [ -n "$REPLY" ] && CHECK_INTERVAL="$REPLY"
+
+    read_tty "Ошибок до перехода на Резервный [$FAILOVER_FAILURES_REQUIRED]: "
+    [ -n "$REPLY" ] && FAILOVER_FAILURES_REQUIRED="$REPLY"
+
+    read_tty "Успешных проверок до возврата на Основной [$RECOVERY_SUCCESSES_REQUIRED]: "
+    [ -n "$REPLY" ] && RECOVERY_SUCCESSES_REQUIRED="$REPLY"
+
+    read_tty "URL проверки [$CHECK_URL]: "
+    [ -n "$REPLY" ] && CHECK_URL="$REPLY"
+
+    read_tty "Размер лога для ротации в байтах [$LOG_MAX_SIZE]: "
+    [ -n "$REPLY" ] && LOG_MAX_SIZE="$REPLY"
+
+    mkdir -p "$(dirname "$FAILOVER_CONF")"
+    cat > "$FAILOVER_CONF" <<CONF
+CHECK_INTERVAL=$CHECK_INTERVAL
+FAILOVER_FAILURES_REQUIRED=$FAILOVER_FAILURES_REQUIRED
+RECOVERY_SUCCESSES_REQUIRED=$RECOVERY_SUCCESSES_REQUIRED
+CHECK_URL=$CHECK_URL
+LOG_MAX_SIZE=$LOG_MAX_SIZE
+CONF
+    chmod 600 "$FAILOVER_CONF"
+
+    echo "Настройки сохранены."
+    read_tty "Перезапустить failover-daemon сейчас? [Y/n]: "
+    case "$REPLY" in
+        n|N|no|NO|нет|Нет) ;;
+        *) [ -x "$FAILOVER_INIT" ] && "$FAILOVER_INIT" restart ;;
     esac
 }
 
-get_xray_bin() {
-    if command -v xray >/dev/null 2>&1; then
-        command -v xray
-    elif [ -x /opt/bin/xray ]; then
-        echo "/opt/bin/xray"
-    else
-        echo ""
-    fi
-}
+uninstall_failover() {
+    echo
+    echo "Будут удалены команды и сервисы failover."
+    echo "Xray binary удаляться не будет."
+    read_tty "Для подтверждения введите ДА: "
 
-pause_menu() {
-    echo
-    printf "Нажмите Enter для возврата в меню..."
-    IFS= read -r _
-}
+    [ "$REPLY" = "ДА" ] || {
+        echo "Отменено."
+        return 0
+    }
 
-show_header() {
-    clear 2>/dev/null || true
-    echo "======================================"
-    echo " Xray VLESS Failover"
-    echo "======================================"
-    ACTIVE="$(cat "$ACTIVE_STORE" 2>/dev/null || echo unknown)"
-    ACTIVE_LABEL="$(profile_display_name "$ACTIVE")"
-    echo "Активный профиль: $ACTIVE_LABEL"
-    if [ -s "$ROUTER_IP_STORE" ]; then
-        ROUTER_LAN_IP="$(cat "$ROUTER_IP_STORE")"
-        echo "SOCKS5: $ROUTER_LAN_IP:$SOCKS_PORT"
-    fi
-    echo
-}
+    read_tty "Сохранить /opt/etc/xray с config и ссылками? [Y/n]: "
+    case "$REPLY" in
+        n|N|no|NO|нет|Нет) KEEP_CONFIG="0" ;;
+        *) KEEP_CONFIG="1" ;;
+    esac
 
-show_realtime_log() {
-    echo "Лог failover в реальном времени: $LOGFILE"
-    echo "Для выхода нажмите Ctrl+C."
-    echo
-    if [ -f "$LOGFILE" ]; then
-        tail -f "$LOGFILE"
-    else
-        echo "Лог пока не найден: $LOGFILE"
-        pause_menu
-    fi
-}
+    [ -x "$FAILOVER_INIT" ] && "$FAILOVER_INIT" stop >/dev/null 2>&1 || true
 
-run_diagnostics() {
-    echo "======================================"
-    echo " Диагностика Xray VLESS Failover"
-    echo "======================================"
-    echo
-    echo "Активный профиль:"
-    ACTIVE="$(cat "$ACTIVE_STORE" 2>/dev/null || echo unknown)"
-    profile_display_name "$ACTIVE"
-    echo
-    echo "Статус Xray:"
-    [ -x "$XRAY_INIT" ] && "$XRAY_INIT" status || echo "Init-скрипт Xray не найден: $XRAY_INIT"
-    echo
-    echo "Статус failover:"
-    [ -x "$FAILOVER_INIT" ] && "$FAILOVER_INIT" status || echo "Init-скрипт failover не найден: $FAILOVER_INIT"
-    echo
-    echo "Проверка shell-команд:"
-    command -v curl >/dev/null 2>&1 && echo "curl: найден" || echo "curl: НЕ найден"
-    command -v python3 >/dev/null 2>&1 && echo "python3: найден" || echo "python3: НЕ найден"
-    XRAY_BIN="$(get_xray_bin)"
-    if [ -n "$XRAY_BIN" ]; then
-        echo "xray: $XRAY_BIN"
-        "$XRAY_BIN" version 2>/dev/null | head -n 3 || true
-    else
-        echo "xray: НЕ найден"
+    rm -f /opt/bin/xray-vless-failover-daemon
+    rm -f /opt/bin/xray-vless-generate-config
+    rm -f /opt/bin/xray-vless-resolve-input
+    rm -f /opt/bin/vless-failover-update
+    rm -f /opt/bin/xray-failover-update
+    rm -f /opt/bin/xray-core-update
+    rm -f /opt/bin/xray-failover-installer-update
+    rm -f /opt/bin/failover-installer-update
+    rm -f /opt/etc/init.d/S25xray-failover
+    rm -f /opt/var/run/xray-vless-failover.pid
+    rm -rf /opt/var/run/xray-failover.lock
+
+    if [ "$KEEP_CONFIG" = "0" ]; then
+        rm -rf /opt/etc/xray
     fi
-    echo
-    echo "Проверка Xray config:"
-    if [ -n "$XRAY_BIN" ] && [ -s "$XRAY_CONFIG" ]; then
-        if "$XRAY_BIN" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1 || "$XRAY_BIN" test -config "$XRAY_CONFIG" >/dev/null 2>&1; then
-            echo "config.json: OK"
-        else
-            echo "config.json: ОШИБКА"
-        fi
-    else
-        echo "config.json не найден или xray недоступен."
-    fi
-    echo
-    echo "SOCKS5 port:"
-    netstat -lntp 2>/dev/null | grep "$SOCKS_PORT" || netstat -lnt 2>/dev/null | grep "$SOCKS_PORT" || echo "Порт $SOCKS_PORT не найден в LISTEN."
-    echo
-    if [ -s "$ROUTER_IP_STORE" ]; then
-        ROUTER_LAN_IP="$(cat "$ROUTER_IP_STORE")"
-        echo "Проверка выхода через SOCKS5 $ROUTER_LAN_IP:$SOCKS_PORT:"
-        if command -v curl >/dev/null 2>&1; then
-            RESULT="$(curl -k -sS \
-                --socks5-hostname "$ROUTER_LAN_IP:$SOCKS_PORT" \
-                --connect-timeout 5 \
-                --max-time 10 \
-                -o /dev/null \
-                -w 'http_code=%{http_code} time_total=%{time_total}' \
-                "$CHECK_URL" 2>&1)" && STATUS="0" || STATUS="$?"
-            echo "$RESULT"
-            HTTP_CODE="$(printf "%s\n" "$RESULT" | sed -n 's/.*http_code=\([0-9][0-9][0-9]\).*/\1/p')"
-            if [ "$STATUS" = "0" ] && [ "$HTTP_CODE" = "204" ]; then
-                echo "SOCKS5-проверка: OK"
-            else
-                echo "SOCKS5-проверка: ОШИБКА"
-            fi
-        else
-            echo "curl не найден."
-        fi
-    else
-        echo "Файл LAN-IP не найден: $ROUTER_IP_STORE"
-    fi
-    echo
-    echo "Proxy0:"
-    if command -v ndmc >/dev/null 2>&1; then
-        ndmc -c "show running-config" 2>/dev/null | grep -A12 -i "interface Proxy0" || echo "Proxy0 не найден в running-config."
-    else
-        echo "ndmc не найден."
-    fi
-    echo
-    echo "Последние строки failover-лога:"
-    tail -n 30 "$LOGFILE" 2>/dev/null || echo "Лог пока не найден: $LOGFILE"
-    pause_menu
+
+    echo "Failover удалён."
+    echo "Команда меню /opt/bin/failover будет удалена последней."
+    rm -f /opt/bin/failover
+    exit 0
 }
 
 while true; do
-    show_header
+    echo
+    echo "======================================"
+    echo " Xray VLESS Failover"
+    echo "======================================"
     echo "1 Обновление VLESS"
     echo "2 Лог в реальном времени"
     echo "3 Диагностика"
     echo "4 Обновление ядра Xray"
+    echo "5 Настройки failover"
+    echo "6 Самопроверка установки"
+    echo "7 Удаление / деинсталляция"
     echo "0 Выход"
     echo
-    printf "Выберите пункт: "
-    IFS= read -r MENU_CHOICE
-    case "$MENU_CHOICE" in
+
+    read_tty "Выберите пункт: "
+
+    case "$REPLY" in
         1)
-            [ -x "$UPDATE_CMD" ] && "$UPDATE_CMD" || { echo "Команда обновления не найдена: $UPDATE_CMD"; pause_menu; }
+            "$FAILOVER_UPDATE"
             ;;
-        2) show_realtime_log ;;
-        3) run_diagnostics ;;
+        2)
+            tail -f "$LOGFILE"
+            ;;
+        3)
+            "$FAILOVER_STATUS"
+            ;;
         4)
-            if [ -x "$XRAY_CORE_UPDATE_CMD" ]; then
-                "$XRAY_CORE_UPDATE_CMD"
-            else
-                echo "Команда обновления ядра не найдена: $XRAY_CORE_UPDATE_CMD"
-            fi
-            pause_menu
+            "$XRAY_CORE_UPDATE"
             ;;
-        0) echo "Выход."; exit 0 ;;
-        *) echo "Неизвестный пункт: $MENU_CHOICE"; pause_menu ;;
+        5)
+            edit_settings
+            ;;
+        6)
+            "$FAILOVER_STATUS"
+            ;;
+        7)
+            uninstall_failover
+            ;;
+        0)
+            exit 0
+            ;;
+        *)
+            echo "Неверный пункт меню."
+            ;;
     esac
 done
 MENU
@@ -1408,10 +1668,12 @@ BACKUP_STORE="$XRAY_DIR/vless-backup.url"
 ACTIVE_STORE="$XRAY_DIR/active-profile"
 ROUTER_IP_STORE="$XRAY_DIR/router-lan-ip"
 GENERATOR="/opt/bin/xray-vless-generate-config"
+RESOLVER="/opt/bin/xray-vless-resolve-input"
 INIT_SCRIPT="/opt/etc/init.d/S24xray"
 FAILOVER_INIT="/opt/etc/init.d/S25xray-failover"
 SOCKS_PORT="10808"
 TMP_DIR="/opt/tmp"
+LOCK_DIR="/opt/var/run/xray-failover.lock"
 
 read_tty() {
     prompt="$1"
@@ -1424,6 +1686,23 @@ read_tty() {
         IFS= read -r REPLY
     fi
 }
+
+acquire_lock() {
+    mkdir -p /opt/var/run
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        echo "vless-failover-update" > "$LOCK_DIR/owner"
+        echo "$$" > "$LOCK_DIR/pid"
+        return 0
+    fi
+    echo "ОШИБКА: другая операция failover уже выполняется."
+    return 1
+}
+
+release_lock() {
+    rm -rf "$LOCK_DIR" 2>/dev/null || true
+}
+
+trap 'release_lock' EXIT INT TERM
 
 get_xray_bin() {
     if command -v xray >/dev/null 2>&1; then
@@ -1445,83 +1724,31 @@ test_xray_config() {
     "$XRAY_BIN" test -config "$CONFIG_FILE"
 }
 
-profile_display_name() {
-    case "$1" in
-        primary) echo "Основной" ;;
-        backup) echo "Резервный" ;;
-        *) echo "$1" ;;
-    esac
-}
-
-validate_profile_input() {
-    PROFILE="$1"
-    SOURCE_VALUE="$2"
-    HOST="$3"
-    PORT="$4"
-    OUT_CONFIG="$5"
-    LABEL="$(profile_display_name "$PROFILE")"
-
-    if [ -z "$SOURCE_VALUE" ]; then
-        echo "ОШИБКА: ссылка профиля $LABEL пустая."
-        return 1
-    fi
-
-    PROFILE_NAME="$PROFILE"     VLESS_URL="$SOURCE_VALUE"     LISTEN_HOST="$HOST"     LISTEN_PORT="$PORT"     OUTPUT_CONFIG="$OUT_CONFIG"     "$GENERATOR"
-
-    test_xray_config "$OUT_CONFIG"
-}
-
-ask_required_profile_input() {
-    PROFILE="$1"
-    LABEL="$(profile_display_name "$PROFILE")"
-    HOST="$2"
-    PORT="$3"
-    OUT_CONFIG="$4"
+prompt_profile_link() {
+    LABEL="$1"
+    OPTIONAL="$2"
+    PROMPT="$3"
 
     while true; do
-        read_tty "VLESS-ссылка или ссылка подписки $LABEL профиля: "
-        CANDIDATE="$REPLY"
+        read_tty "$PROMPT"
+        VALUE="$REPLY"
 
-        if validate_profile_input "$PROFILE" "$CANDIDATE" "$HOST" "$PORT" "$OUT_CONFIG"; then
-            PROFILE_INPUT_RESULT="$CANDIDATE"
+        if [ -z "$VALUE" ] && [ "$OPTIONAL" = "1" ]; then
+            echo ""
             return 0
         fi
 
-        echo
-        echo "Ссылка профиля $LABEL неверная или подписка недоступна."
-        echo "Поддерживаются форматы:"
-        echo "- vless://..."
-        echo "- https://... ссылка подписки, внутри которой есть vless://"
-        echo "Попробуйте ввести ссылку заново."
-        echo
-    done
-}
+        if [ -z "$VALUE" ]; then
+            echo "Ссылка пустая. Введите vless:// или http(s) ссылку подписки."
+            continue
+        fi
 
-ask_optional_profile_input() {
-    PROFILE="$1"
-    LABEL="$(profile_display_name "$PROFILE")"
-    HOST="$2"
-    PORT="$3"
-    OUT_CONFIG="$4"
-
-    while true; do
-        read_tty "VLESS-ссылка или ссылка подписки $LABEL профиля, опционально. Enter - пропустить: "
-        CANDIDATE="$REPLY"
-
-        if [ -z "$CANDIDATE" ]; then
-            PROFILE_INPUT_RESULT=""
+        if RESOLVED="$("$RESOLVER" "$VALUE" "$LABEL" interactive)"; then
+            echo "$RESOLVED"
             return 0
         fi
 
-        if validate_profile_input "$PROFILE" "$CANDIDATE" "$HOST" "$PORT" "$OUT_CONFIG"; then
-            PROFILE_INPUT_RESULT="$CANDIDATE"
-            return 0
-        fi
-
-        echo
-        echo "Ссылка профиля $LABEL неверная или подписка недоступна."
-        echo "Введите корректную ссылку заново или нажмите Enter, чтобы пропустить $LABEL профиль."
-        echo
+        echo "Неверная ссылка или подписка. Повторите ввод."
     done
 }
 
@@ -1529,6 +1756,7 @@ XRAY_BIN="$(get_xray_bin)"
 
 [ -n "$XRAY_BIN" ] || { echo "ОШИБКА: xray не найден."; exit 1; }
 [ -x "$GENERATOR" ] || { echo "ОШИБКА: генератор не найден: $GENERATOR"; exit 1; }
+[ -x "$RESOLVER" ] || { echo "ОШИБКА: обработчик подписок не найден: $RESOLVER"; exit 1; }
 [ -s "$ROUTER_IP_STORE" ] || { echo "ОШИБКА: LAN-IP не найден: $ROUTER_IP_STORE"; exit 1; }
 
 ROUTER_LAN_IP="$(cat "$ROUTER_IP_STORE")"
@@ -1541,13 +1769,34 @@ echo " Обновление VLESS-ссылок failover"
 echo "======================================"
 echo "LAN-IP роутера: $ROUTER_LAN_IP"
 
+PRIMARY_VLESS="$(prompt_profile_link "Основной профиль" "0" "Новая VLESS-ссылка или подписка Основного профиля: ")"
+BACKUP_VLESS="$(prompt_profile_link "Резервный профиль" "1" "Новая VLESS-ссылка или подписка Резервного профиля, опционально: ")"
+
 mkdir -p "$XRAY_DIR" "$TMP_DIR"
 
-ask_required_profile_input "primary" "$ROUTER_LAN_IP" "$SOCKS_PORT" "$TMP_PRIMARY_CONFIG"
-PRIMARY_VLESS="$PROFILE_INPUT_RESULT"
+echo "Проверяем новый config Основного профиля во временном файле..."
+PROFILE_NAME="primary" \
+VLESS_URL="$PRIMARY_VLESS" \
+LISTEN_HOST="$ROUTER_LAN_IP" \
+LISTEN_PORT="$SOCKS_PORT" \
+OUTPUT_CONFIG="$TMP_PRIMARY_CONFIG" \
+"$GENERATOR"
 
-ask_optional_profile_input "backup" "127.0.0.1" "19081" "$TMP_BACKUP_CONFIG"
-BACKUP_VLESS="$PROFILE_INPUT_RESULT"
+test_xray_config "$TMP_PRIMARY_CONFIG"
+
+if [ -n "$BACKUP_VLESS" ]; then
+    echo "Проверяем новый config Резервного профиля во временном файле..."
+    PROFILE_NAME="backup" \
+    VLESS_URL="$BACKUP_VLESS" \
+    LISTEN_HOST="127.0.0.1" \
+    LISTEN_PORT="19081" \
+    OUTPUT_CONFIG="$TMP_BACKUP_CONFIG" \
+    "$GENERATOR"
+
+    test_xray_config "$TMP_BACKUP_CONFIG"
+fi
+
+acquire_lock
 
 if [ -x "$FAILOVER_INIT" ]; then
     "$FAILOVER_INIT" stop >/dev/null 2>&1 || true
@@ -1606,7 +1855,7 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 
 [ -s "\$PRIMARY_STORE" ] || {
-    echo "ОШИБКА: сохранённая VLESS-ссылка Основного профиля не найдена: \$PRIMARY_STORE"
+    echo "ОШИБКА: сохранённая Primary VLESS-ссылка не найдена: \$PRIMARY_STORE"
     echo "Сначала выполните установщик или vless-failover-update."
     exit 1
 }
@@ -1625,8 +1874,10 @@ UPDATER
 check_generated_scripts() {
     echo "Проверяем shell-синтаксис созданных скриптов..."
 
+    sh -n "$RESOLVER"
     sh -n "$GENERATOR"
     sh -n "$FAILOVER_DAEMON"
+    sh -n "$FAILOVER_STATUS"
     sh -n "$XRAY_CORE_UPDATE_CMD"
     sh -n "$FAILOVER_MENU_CMD"
     sh -n "$FAILOVER_UPDATE_CMD"
@@ -1635,75 +1886,46 @@ check_generated_scripts() {
     sh -n "$FAILOVER_INIT"
 }
 
-validate_profile_input() {
-    PROFILE="$1"
-    SOURCE_VALUE="$2"
-    HOST="$3"
-    PORT="$4"
-    OUT_CONFIG="$5"
-    LABEL="$(profile_display_name "$PROFILE")"
-
-    if [ -z "$SOURCE_VALUE" ]; then
-        echo "ОШИБКА: ссылка профиля $LABEL пустая."
-        return 1
-    fi
-
-    PROFILE_NAME="$PROFILE"     VLESS_URL="$SOURCE_VALUE"     LISTEN_HOST="$HOST"     LISTEN_PORT="$PORT"     OUTPUT_CONFIG="$OUT_CONFIG"     "$GENERATOR"
-
-    test_xray_config "$OUT_CONFIG"
-}
-
-ask_required_profile_input() {
-    PROFILE="$1"
-    LABEL="$(profile_display_name "$PROFILE")"
-    HOST="$2"
-    PORT="$3"
-    OUT_CONFIG="$4"
+prompt_profile_link_main() {
+    LABEL="$1"
+    OPTIONAL="$2"
+    PROMPT="$3"
+    CONFIG_HOST="$4"
+    CONFIG_PORT="$5"
+    CONFIG_PROFILE="$6"
+    CONFIG_OUT="$7"
 
     while true; do
-        read_tty "VLESS-ссылка или ссылка подписки $LABEL профиля: "
-        CANDIDATE="$REPLY"
+        read_tty "$PROMPT"
+        VALUE="$REPLY"
 
-        if validate_profile_input "$PROFILE" "$CANDIDATE" "$HOST" "$PORT" "$OUT_CONFIG"; then
-            PROFILE_INPUT_RESULT="$CANDIDATE"
+        if [ -z "$VALUE" ] && [ "$OPTIONAL" = "1" ]; then
+            echo ""
             return 0
         fi
 
-        echo
-        echo "Ссылка профиля $LABEL неверная или подписка недоступна."
-        echo "Поддерживаются форматы:"
-        echo "- vless://..."
-        echo "- https://... ссылка подписки, внутри которой есть vless://"
-        echo "Попробуйте ввести ссылку заново."
-        echo
-    done
-}
+        if [ -z "$VALUE" ]; then
+            echo "Ссылка пустая. Введите vless:// или http(s) ссылку подписки."
+            continue
+        fi
 
-ask_optional_profile_input() {
-    PROFILE="$1"
-    LABEL="$(profile_display_name "$PROFILE")"
-    HOST="$2"
-    PORT="$3"
-    OUT_CONFIG="$4"
+        if ! RESOLVED="$("$RESOLVER" "$VALUE" "$LABEL" interactive)"; then
+            echo "Неверная ссылка или подписка. Повторите ввод."
+            continue
+        fi
 
-    while true; do
-        read_tty "VLESS-ссылка или ссылка подписки $LABEL профиля, опционально. Enter - пропустить: "
-        CANDIDATE="$REPLY"
-
-        if [ -z "$CANDIDATE" ]; then
-            PROFILE_INPUT_RESULT=""
+        if PROFILE_NAME="$CONFIG_PROFILE" \
+            VLESS_URL="$RESOLVED" \
+            LISTEN_HOST="$CONFIG_HOST" \
+            LISTEN_PORT="$CONFIG_PORT" \
+            OUTPUT_CONFIG="$CONFIG_OUT" \
+            "$GENERATOR" >/dev/null 2>&1 && test_xray_config "$CONFIG_OUT" >/dev/null 2>&1
+        then
+            echo "$RESOLVED"
             return 0
         fi
 
-        if validate_profile_input "$PROFILE" "$CANDIDATE" "$HOST" "$PORT" "$OUT_CONFIG"; then
-            PROFILE_INPUT_RESULT="$CANDIDATE"
-            return 0
-        fi
-
-        echo
-        echo "Ссылка профиля $LABEL неверная или подписка недоступна."
-        echo "Введите корректную ссылку заново или нажмите Enter, чтобы пропустить $LABEL профиль."
-        echo
+        echo "Ссылка распознана, но Xray config не прошёл проверку. Повторите ввод."
     done
 }
 
@@ -1712,22 +1934,30 @@ echo "======================================"
 echo " Установщик Xray VLESS Failover"
 echo " Entware / Keenetic edition"
 echo "======================================"
-echo "Интервал проверки: $CHECK_INTERVAL секунд"
-echo "Ошибок перед переходом на Резервный профиль: $FAILOVER_FAILURES_REQUIRED"
-echo "Успешных проверок перед возвратом на Основной профиль: $RECOVERY_SUCCESSES_REQUIRED"
-echo
 
 ensure_packages
 
 XRAY_BIN="$(get_xray_bin)"
 [ -n "$XRAY_BIN" ] || { echo "ОШИБКА: xray не найден после установки."; exit 1; }
 
-mkdir -p "$XRAY_DIR" "$TMP_DIR" /opt/var/run /opt/var/log /opt/etc/init.d /opt/bin
+mkdir -p "$XRAY_DIR" "$TMP_DIR" /opt/var/run /opt/var/log /opt/etc/init.d /opt/bin "$BACKUP_DIR"
+
+create_default_settings
+load_settings
+
+echo "Интервал проверки: $CHECK_INTERVAL секунд"
+echo "Попыток перед Резервным профилем: $FAILOVER_FAILURES_REQUIRED"
+echo "Успешных проверок перед возвратом: $RECOVERY_SUCCESSES_REQUIRED"
+echo
 
 if [ -x "$FAILOVER_INIT" ]; then
     echo "Останавливаем старый failover-daemon перед установкой..."
     "$FAILOVER_INIT" stop >/dev/null 2>&1 || true
 fi
+
+create_resolver
+create_generator
+create_xray_init
 
 echo "[2/10] Определяем LAN-IP роутера..."
 ROUTER_LAN_IP="$(detect_router_ip | head -n 1)"
@@ -1749,44 +1979,22 @@ printf "%s\n" "$ROUTER_LAN_IP" > "$ROUTER_IP_STORE"
 echo "LAN-IP роутера: $ROUTER_LAN_IP"
 echo "SOCKS5: $ROUTER_LAN_IP:$SOCKS_PORT"
 
-create_generator
-
-echo "[3/10] Готовим VLESS-ссылки или ссылки подписок..."
 TMP_PRIMARY_CONFIG="$TMP_DIR/xray-install-primary.json"
 TMP_BACKUP_CONFIG="$TMP_DIR/xray-install-backup.json"
 
+echo "[3/10] Готовим VLESS-ссылки..."
 if [ "$REUSE_FAILOVER" = "1" ] && [ -s "$PRIMARY_STORE" ]; then
-    echo "Используем сохранённую ссылку Основного профиля."
     PRIMARY_VLESS="$(cat "$PRIMARY_STORE")"
-
-    if ! validate_profile_input "primary" "$PRIMARY_VLESS" "$ROUTER_LAN_IP" "$SOCKS_PORT" "$TMP_PRIMARY_CONFIG"; then
-        echo "Сохранённая ссылка Основного профиля неверная или подписка недоступна. Нужно ввести заново."
-        ask_required_profile_input "primary" "$ROUTER_LAN_IP" "$SOCKS_PORT" "$TMP_PRIMARY_CONFIG"
-        PRIMARY_VLESS="$PROFILE_INPUT_RESULT"
-    fi
-
     if [ -s "$BACKUP_STORE" ]; then
-        echo "Используем сохранённую ссылку Резервного профиля."
         BACKUP_VLESS="$(cat "$BACKUP_STORE")"
-
-        if ! validate_profile_input "backup" "$BACKUP_VLESS" "127.0.0.1" "$TEMP_BACKUP_PORT" "$TMP_BACKUP_CONFIG"; then
-            echo "Сохранённая ссылка Резервного профиля неверная или подписка недоступна."
-            ask_optional_profile_input "backup" "127.0.0.1" "$TEMP_BACKUP_PORT" "$TMP_BACKUP_CONFIG"
-            BACKUP_VLESS="$PROFILE_INPUT_RESULT"
-        fi
     else
-        echo "VLESS-ссылка Резервного профиля не задана."
         BACKUP_VLESS=""
     fi
 else
-    ask_required_profile_input "primary" "$ROUTER_LAN_IP" "$SOCKS_PORT" "$TMP_PRIMARY_CONFIG"
-    PRIMARY_VLESS="$PROFILE_INPUT_RESULT"
-
-    ask_optional_profile_input "backup" "127.0.0.1" "$TEMP_BACKUP_PORT" "$TMP_BACKUP_CONFIG"
-    BACKUP_VLESS="$PROFILE_INPUT_RESULT"
+    PRIMARY_VLESS="$(prompt_profile_link_main "Основной профиль" "0" "VLESS-ссылка или подписка Основного профиля: " "$ROUTER_LAN_IP" "$SOCKS_PORT" "primary" "$TMP_PRIMARY_CONFIG")"
+    BACKUP_VLESS="$(prompt_profile_link_main "Резервный профиль" "1" "VLESS-ссылка или подписка Резервного профиля, опционально: " "127.0.0.1" "$TEMP_BACKUP_PORT" "backup" "$TMP_BACKUP_CONFIG")"
 fi
 
-create_xray_init
 create_failover_daemon
 create_status_command
 create_xray_core_update_command
@@ -1798,7 +2006,6 @@ create_failover_init
 check_generated_scripts
 
 echo "Проверяем config Основного профиля во временном файле..."
-TMP_PRIMARY_CONFIG="$TMP_DIR/xray-install-primary.json"
 PROFILE_NAME="primary" \
 VLESS_URL="$PRIMARY_VLESS" \
 LISTEN_HOST="$ROUTER_LAN_IP" \
@@ -1810,7 +2017,6 @@ test_xray_config "$TMP_PRIMARY_CONFIG"
 
 if [ -n "$BACKUP_VLESS" ]; then
     echo "Проверяем config Резервного профиля во временном файле..."
-    TMP_BACKUP_CONFIG="$TMP_DIR/xray-install-backup.json"
     PROFILE_NAME="backup" \
     VLESS_URL="$BACKUP_VLESS" \
     LISTEN_HOST="127.0.0.1" \
@@ -1850,6 +2056,10 @@ sleep 1
 "$FAILOVER_INIT" start
 
 echo
+echo "Автопроверка после установки:"
+"$FAILOVER_STATUS" || true
+
+echo
 echo "======================================"
 echo " ГОТОВО"
 echo "======================================"
@@ -1863,10 +2073,10 @@ echo "Failover log: /opt/var/log/xray-vless-failover.log"
 echo
 echo "Команды:"
 echo "failover"
-echo "xray-core-update"
 echo "vless-failover-status"
 echo "vless-failover-update"
 echo "xray-failover-update"
+echo "xray-core-update"
 echo "failover-installer-update"
 echo "xray-failover-installer-update"
 echo "$FAILOVER_INIT status|restart|stop|start"
