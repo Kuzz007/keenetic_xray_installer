@@ -34,13 +34,7 @@ opkg update && opkg install curl ca-bundle && curl -fsSL https://raw.githubuserc
 ### Установка с failover
 
 ```sh
-opkg update && \
-opkg install curl ca-bundle && \
-curl -fsSL -o /opt/tmp/xray_vless_failover_auto.sh \
-  https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto.sh && \
-sh -n /opt/tmp/xray_vless_failover_auto.sh && \
-chmod +x /opt/tmp/xray_vless_failover_auto.sh && \
-/opt/tmp/xray_vless_failover_auto.sh
+opkg update && opkg install curl ca-bundle && curl -fsSL -o /opt/tmp/xray_vless_failover_auto.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto.sh && sh -n /opt/tmp/xray_vless_failover_auto.sh && chmod +x /opt/tmp/xray_vless_failover_auto.sh && /opt/tmp/xray_vless_failover_auto.sh
 ```
 
 ## Как работает failover
@@ -164,6 +158,8 @@ xray-routes-clear
 
 ## Если мало места в `/opt`
 
+Освободить временные файлы и кэш Entware, затем проверить свободное место:
+
 ```sh
-rm -rf /opt/tmp/* /opt/var/opkg-lists/* /opt/var/cache/* && df -h /opt
+df -h /opt
 ```
