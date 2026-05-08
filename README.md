@@ -1,61 +1,37 @@
-# Keenetic Xray VLESS Auto Installer
+# Keenetic Xray VLESS Installer
 
-Автоматическая установка Xray из Entware на роутер Keenetic.
+Минималистичный установщик Xray/VLESS для роутеров Keenetic с Entware.
 
-`Работоспособность проверена на aarch64. На mipsel может потребоваться больше свободного места в /opt для установки xray-core`.
+> Проверено на `aarch64`. На `mipsel` может потребоваться больше свободного места в `/opt` для установки `xray-core`.
 
-Скрипт:
+## Возможности
 
-- устанавливает `xray` / `xray-core` из Entware;
-- запрашивает VLESS-ссылку;
-- парсит VLESS URI;
-- создаёт `/opt/etc/xray/config.json`;
-- создаёт Entware init-скрипт `/opt/etc/init.d/S24xray`;
-- запускает Xray;
-- поднимает локальный SOCKS5 на LAN-IP роутера;
-- создаёт Keenetic Proxy interface `Proxy0`;
-- включает SOCKS5 UDP;
-- сохраняет конфигурацию Keenetic.
-
-Failover-версия нужна, если есть две VLESS-ссылки:
-
-- `Primary` — основная ссылка;
-- `Backup` — резервная ссылка.
-
-Основной сценарий:
-
-- `Primary работает` -> используется Primary;
-- `Primary упал` -> проверяется Backup;
-- `Backup доступен` -> переключение на Backup;
-- `Primary восстановился` -> возврат на Primary.
-
-Скрипт автоматически проверяет активную ссылку и переключает Xray на резервную, если основная перестала работать. Когда основная ссылка снова становится доступной, скрипт возвращает Xray обратно на `Primary`.
+- установка `xray` / `xray-core` из Entware;
+- настройка VLESS по готовой ссылке;
+- генерация `/opt/etc/xray/config.json`;
+- создание init-скрипта `/opt/etc/init.d/S24xray`;
+- запуск локального SOCKS5 на LAN-IP роутера;
+- создание Keenetic Proxy interface `Proxy0`;
+- включение SOCKS5 UDP;
+- сохранение конфигурации Keenetic;
+- failover между основной и резервной VLESS-ссылкой.
 
 ## Требования
 
-- Keenetic router
-- Установленный Entware
-- Установленный компонент KeeneticOS: Proxy client
-- SSH-доступ к роутеру
+- роутер Keenetic;
+- установленный Entware;
+- компонент KeeneticOS `Proxy client`;
+- SSH-доступ к роутеру.
 
-## Рекомендация: сторонние DoT DNS
+## Быстрый старт
 
-Эта команда в Entware добавляет DNS-over-TLS upstream-серверы и сохраняет конфигурацию.
-
-```sh
-ndmc -c "dns-proxy tls upstream 9.9.9.9 sni dns.quad9.net" \
-&& ndmc -c "dns-proxy tls upstream 8.8.8.8 sni dns.google" \
-&& ndmc -c "dns-proxy tls upstream 77.88.8.8 sni common.dot.dns.yandex.net" \
-&& ndmc -c "system configuration save"
-```
-
-## Установка Xray
+### Обычная установка
 
 ```sh
 opkg update && opkg install curl ca-bundle && curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-vless-auto-install.sh | sh
 ```
 
-## Установка Xray-Failover
+### Установка с failover
 
 ```sh
 opkg update && \
@@ -67,13 +43,31 @@ chmod +x /opt/tmp/xray_vless_failover_auto.sh && \
 /opt/tmp/xray_vless_failover_auto.sh
 ```
 
-Логи в реальном времени после настройки для проверки переключений:
+## Как работает failover
+
+Failover-версия использует две VLESS-ссылки:
+
+| Профиль | Назначение |
+| --- | --- |
+| `Primary` | основная ссылка |
+| `Backup` | резервная ссылка |
+
+Сценарий переключения:
+
+1. `Primary` работает -> используется основной профиль.
+2. `Primary` недоступен -> проверяется `Backup`.
+3. `Backup` доступен -> Xray переключается на резервный профиль.
+4. `Primary` восстановился -> Xray возвращается на основной профиль.
+
+Логи переключений:
 
 ```sh
 tail -f /opt/var/log/xray-vless-failover.log
 ```
 
-## Управление Xray
+## Управление
+
+### Xray
 
 ```sh
 /opt/etc/init.d/S24xray start
@@ -82,7 +76,7 @@ tail -f /opt/var/log/xray-vless-failover.log
 /opt/etc/init.d/S24xray status
 ```
 
-## Управление Xray-Failover
+### Xray Failover
 
 ```sh
 /opt/etc/init.d/S25xray-failover start
@@ -91,62 +85,85 @@ tail -f /opt/var/log/xray-vless-failover.log
 /opt/etc/init.d/S25xray-failover status
 ```
 
-## Смена VLESS-ссылки Xray без переустановки
+## Смена VLESS-ссылок
+
+Обычный режим:
 
 ```sh
 vless-update
 ```
 
-## Смена VLESS-ссылки Xray-Failover без переустановки
+Failover-режим:
 
 ```sh
 vless-failover-update
 ```
 
-`Прокси подключение` при этом остаётся прежним, меняется только Xray-конфиг.
+Proxy-подключение при этом остаётся прежним, меняется только Xray-конфиг.
 
-## Обновление скрипта Xray
+## Обновления
+
+### Обновить установщик
+
+Обычный режим:
 
 ```sh
 installer-update
 ```
 
-## Обновление скрипта Xray-Failover
+Failover-режим:
 
 ```sh
 failover-installer-update
 ```
 
-При обновлении установщика команда `не просит заново вставлять VLESS-ссылку`.
+Команда обновления установщика не просит заново вставлять VLESS-ссылку.
 
-## Проверить версию Xray
+### Проверить версию Xray
 
 ```sh
 /opt/bin/xray version
 ```
 
-## Обновление Xray-core `stable/latest`
+### Обновить Xray-core до stable/latest
 
 ```sh
 opkg update && opkg install curl ca-bundle unzip && curl -fsSL -o /opt/tmp/xray-core-update.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-core-update.sh && chmod +x /opt/tmp/xray-core-update.sh && /opt/tmp/xray-core-update.sh --stable --no-backup
 ```
 
-## Обновление Xray-core `pre-release`
+### Обновить Xray-core до pre-release
 
 ```sh
 opkg update && opkg install curl ca-bundle unzip && curl -fsSL -o /opt/tmp/xray-core-update.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-core-update.sh && chmod +x /opt/tmp/xray-core-update.sh && /opt/tmp/xray-core-update.sh --prerelease --no-backup
 ```
 
-## Если мало места, может помочь
+## DNS-over-TLS
+
+Опционально можно добавить сторонние DoT upstream-серверы и сохранить конфигурацию:
 
 ```sh
-rm -rf /opt/tmp/* /opt/var/opkg-lists/* /opt/var/cache/* && df -h /opt
+ndmc -c "dns-proxy tls upstream 9.9.9.9 sni dns.quad9.net" \
+&& ndmc -c "dns-proxy tls upstream 8.8.8.8 sni dns.google" \
+&& ndmc -c "dns-proxy tls upstream 77.88.8.8 sni common.dot.dns.yandex.net" \
+&& ndmc -c "system configuration save"
 ```
 
-## Добавить список доменов через Entware для маршрутизации
+## Маршрутизация доменов
+
+Установка списка доменов через Entware:
 
 ```sh
 opkg update && opkg install curl ca-bundle && curl -fsSL -o /opt/tmp/xray-keenetic-routes.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray-keenetic-routes.sh && chmod +x /opt/tmp/xray-keenetic-routes.sh && /opt/tmp/xray-keenetic-routes.sh install && xray-routes-sync
 ```
 
-Для удаления списка команда `xray-routes-clear`.
+Удаление списка:
+
+```sh
+xray-routes-clear
+```
+
+## Если мало места в `/opt`
+
+```sh
+rm -rf /opt/tmp/* /opt/var/opkg-lists/* /opt/var/cache/* && df -h /opt
+```
