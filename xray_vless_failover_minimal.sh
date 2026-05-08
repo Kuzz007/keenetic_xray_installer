@@ -414,7 +414,8 @@ configure_proxy0() {
         && ndmc -c "interface $PROXY_IFACE proxy protocol socks5" \
         && ndmc -c "interface $PROXY_IFACE proxy socks5-udp" \
         && ndmc -c "interface $PROXY_IFACE proxy upstream $ROUTER_LAN_IP $SOCKS_PORT" \
-        && ndmc -c "interface $PROXY_IFACE description Xray-Failover-Minimal" \        && ndmc -c "interface $PROXY_IFACE no ip global" \
+        && ndmc -c "interface $PROXY_IFACE description Xray-Failover-Minimal" \
+        && ndmc -c "interface $PROXY_IFACE no ip global" \
         && ndmc -c "interface $PROXY_IFACE up" \
         && ndmc -c "system configuration save"
     then
