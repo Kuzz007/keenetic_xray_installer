@@ -2733,6 +2733,8 @@ create_status_command
 create_xray_core_update_command
 create_menu_command
 create_failover_update_command
+create_subscription_update_command
+create_subscription_auto_update_command
 create_failover_installer_update_command
 create_failover_init
 
