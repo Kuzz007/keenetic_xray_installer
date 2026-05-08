@@ -2864,25 +2864,13 @@ check_generated_scripts
 
 echo "Проверяем config Основного профиля во временном файле..."
 TMP_PRIMARY_CONFIG="$TMP_DIR/xray-install-primary.json"
-PROFILE_NAME="primary" \
-VLESS_URL="$PRIMARY_VLESS" \
-LISTEN_HOST="$ROUTER_LAN_IP" \
-LISTEN_PORT="$SOCKS_PORT" \
-OUTPUT_CONFIG="$TMP_PRIMARY_CONFIG" \
-"$GENERATOR"
-
+[ -s "$TMP_PRIMARY_CONFIG" ] || { echo "ОШИБКА: временный config Основного профиля не найден: $TMP_PRIMARY_CONFIG"; exit 1; }
 test_xray_config "$TMP_PRIMARY_CONFIG"
 
 if [ -n "$BACKUP_VLESS" ]; then
     echo "Проверяем config Резервного профиля во временном файле..."
     TMP_BACKUP_CONFIG="$TMP_DIR/xray-install-backup.json"
-    PROFILE_NAME="backup" \
-    VLESS_URL="$BACKUP_VLESS" \
-    LISTEN_HOST="127.0.0.1" \
-    LISTEN_PORT="$TEMP_BACKUP_PORT" \
-    OUTPUT_CONFIG="$TMP_BACKUP_CONFIG" \
-    "$GENERATOR"
-
+    [ -s "$TMP_BACKUP_CONFIG" ] || { echo "ОШИБКА: временный config Резервного профиля не найден: $TMP_BACKUP_CONFIG"; exit 1; }
     test_xray_config "$TMP_BACKUP_CONFIG"
 fi
 
