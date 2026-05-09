@@ -8,25 +8,31 @@ BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 FAILOVER_CMD="/opt/bin/vless-go-failover"
 SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
 SOCKS_PORT="${SOCKS_PORT:-10808}"
-CHECK_URL="${CHECK_URL:-https://api.ipify.org}"
-CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-8}"
-MAX_TIME="${MAX_TIME:-15}"
-CHECK_RETRIES="${CHECK_RETRIES:-5}"
+CHECK_URL="${CHECK_URL:-https://www.gstatic.com/generate_204}"
+CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-5}"
+MAX_TIME="${MAX_TIME:-10}"
+CHECK_RETRIES="${CHECK_RETRIES:-2}"
 CHECK_RETRY_DELAY="${CHECK_RETRY_DELAY:-2}"
+WATCHDOG_INTERVAL="${WATCHDOG_INTERVAL:-15}"
+FAILOVER_FAILURES_REQUIRED="${FAILOVER_FAILURES_REQUIRED:-2}"
+RECOVERY_SUCCESSES_REQUIRED="${RECOVERY_SUCCESSES_REQUIRED:-2}"
+AUTO_RECOVER_PRIMARY="${AUTO_RECOVER_PRIMARY:-0}"
 LOG_FILE="${LOG_FILE:-/opt/var/log/vless-go-watchdog.log}"
 DETAIL_LOG_FILE="${DETAIL_LOG_FILE:-/opt/var/log/vless-go-watchdog-detail.log}"
+PID_FILE="${PID_FILE:-/opt/var/run/vless-go-watchdog.pid}"
 MARKER="vless-go-watchdog"
 CRON_FILE="/opt/var/spool/cron/crontabs/root"
 DEFAULT_SCHEDULE="*/5 * * * *"
 
 usage() {
-    echo "Usage: vless-go-watchdog check | status | enable [CRON_SCHEDULE] | disable | run-primary | run-backup"
+    echo "Usage: vless-go-watchdog check | daemon | status | enable [CRON_SCHEDULE] | disable | run-primary | run-backup"
     echo ""
     echo "Commands:"
-    echo "  check        Check current SOCKS. If it fails on primary, switch to backup."
-    echo "  status       Show active slot, backup availability, and cron status."
-    echo "  enable       Add cron entry. Default schedule: */5 * * * *"
-    echo "  disable      Remove cron entry."
+    echo "  daemon       Run continuous watchdog loop. Default interval: 15s."
+    echo "  check        Single check. If it fails on primary, switch to backup."
+    echo "  status       Show active slot, daemon, cron, and health-check settings."
+    echo "  enable       Add legacy cron entry. Default schedule: */5 * * * *"
+    echo "  disable      Remove legacy cron entry."
     echo "  run-primary  Manually switch to primary and test."
     echo "  run-backup   Manually switch to backup and test."
     echo ""
@@ -38,8 +44,13 @@ usage() {
     echo "  MAX_TIME=$MAX_TIME"
     echo "  CHECK_RETRIES=$CHECK_RETRIES"
     echo "  CHECK_RETRY_DELAY=$CHECK_RETRY_DELAY"
+    echo "  WATCHDOG_INTERVAL=$WATCHDOG_INTERVAL"
+    echo "  FAILOVER_FAILURES_REQUIRED=$FAILOVER_FAILURES_REQUIRED"
+    echo "  RECOVERY_SUCCESSES_REQUIRED=$RECOVERY_SUCCESSES_REQUIRED"
+    echo "  AUTO_RECOVER_PRIMARY=$AUTO_RECOVER_PRIMARY"
     echo "  LOG_FILE=$LOG_FILE"
     echo "  DETAIL_LOG_FILE=$DETAIL_LOG_FILE"
+    echo "  PID_FILE=$PID_FILE"
 }
 
 log() {
@@ -163,6 +174,72 @@ check_and_switch() {
     return 1
 }
 
+handle_daemon_primary() {
+    if check_socks; then
+        DAEMON_FAIL_COUNT="0"
+        log "Daemon health OK on primary"
+        return 0
+    fi
+
+    DAEMON_FAIL_COUNT="$((DAEMON_FAIL_COUNT + 1))"
+    log "Daemon health FAIL on primary: $DAEMON_FAIL_COUNT/$FAILOVER_FAILURES_REQUIRED"
+
+    if [ "$DAEMON_FAIL_COUNT" -ge "$FAILOVER_FAILURES_REQUIRED" ]; then
+        if [ -s "$BACKUP_STORE" ]; then
+            log "Failover threshold reached; switching primary -> backup"
+            if switch_to backup && check_socks; then
+                log "Daemon failover to backup OK"
+            else
+                log "Daemon failover to backup did not pass health check"
+            fi
+        else
+            log "Backup is not configured; cannot fail over."
+        fi
+        DAEMON_FAIL_COUNT="0"
+    fi
+}
+
+handle_daemon_backup() {
+    if check_socks; then
+        DAEMON_BACKUP_FAIL_COUNT="0"
+        log "Daemon health OK on backup"
+    else
+        DAEMON_BACKUP_FAIL_COUNT="$((DAEMON_BACKUP_FAIL_COUNT + 1))"
+        log "Daemon health FAIL on backup: $DAEMON_BACKUP_FAIL_COUNT/$FAILOVER_FAILURES_REQUIRED"
+    fi
+
+    if [ "$AUTO_RECOVER_PRIMARY" = "1" ]; then
+        log "AUTO_RECOVER_PRIMARY=1 is configured, but active probing of inactive primary is not implemented in Go edition yet. Staying on backup."
+    fi
+}
+
+run_daemon() {
+    mkdir -p "$(dirname "$PID_FILE")" /opt/var/log
+    echo "$$" > "$PID_FILE"
+    trap 'rm -f "$PID_FILE"; log "Daemon stopped"; exit 0' INT TERM
+
+    DAEMON_FAIL_COUNT="0"
+    DAEMON_BACKUP_FAIL_COUNT="0"
+
+    log "Daemon started: interval=${WATCHDOG_INTERVAL}s failover_failures_required=$FAILOVER_FAILURES_REQUIRED check_retries=$CHECK_RETRIES"
+
+    while true; do
+        SLOT="$(active_slot)"
+        case "$SLOT" in
+            primary)
+                handle_daemon_primary
+                ;;
+            backup)
+                handle_daemon_backup
+                ;;
+            *)
+                log "Daemon active slot is unknown: $SLOT"
+                ;;
+        esac
+        sleep "$WATCHDOG_INTERVAL"
+    done
+}
+
 ensure_cron_files() {
     mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
     touch "$CRON_FILE" "$LOG_FILE" "$DETAIL_LOG_FILE"
@@ -196,15 +273,27 @@ enable_cron() {
     printf '%s %s check >> %s 2>&1 # %s\n' "$SCHEDULE" "/opt/bin/vless-go-watchdog" "$LOG_FILE" "$MARKER" >> "$CRON_FILE"
     chmod 600 "$CRON_FILE" 2>/dev/null || true
     restart_cron_if_needed
-    echo "Enabled VLESS Go watchdog: $SCHEDULE"
+    echo "Enabled VLESS Go watchdog cron: $SCHEDULE"
     echo "Cron file: $CRON_FILE"
     echo "Log file: $LOG_FILE"
     echo "Detail log file: $DETAIL_LOG_FILE"
+    echo "Note: daemon mode is preferred for 15-second checks."
 }
 
 disable_cron() {
     remove_cron
-    echo "Disabled VLESS Go watchdog."
+    echo "Disabled VLESS Go watchdog cron."
+}
+
+daemon_status_line() {
+    if [ -s "$PID_FILE" ]; then
+        PID="$(cat "$PID_FILE" 2>/dev/null || true)"
+        if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+            echo "running pid=$PID"
+            return 0
+        fi
+    fi
+    echo "not running"
 }
 
 status() {
@@ -214,8 +303,14 @@ status() {
     if [ -s "$PRIMARY_STORE" ]; then echo "  primary: configured"; else echo "  primary: not configured"; fi
     if [ -s "$BACKUP_STORE" ]; then echo "  backup: configured"; else echo "  backup: not configured"; fi
     echo "  SOCKS: $SOCKS_HOST:$SOCKS_PORT"
-    echo "  retries: $CHECK_RETRIES"
-    echo "  retry delay: ${CHECK_RETRY_DELAY}s"
+    echo "  check URL: $CHECK_URL"
+    echo "  check retries: $CHECK_RETRIES"
+    echo "  check retry delay: ${CHECK_RETRY_DELAY}s"
+    echo "  daemon interval: ${WATCHDOG_INTERVAL}s"
+    echo "  failover failures required: $FAILOVER_FAILURES_REQUIRED"
+    echo "  recovery successes required: $RECOVERY_SUCCESSES_REQUIRED"
+    echo "  auto recover primary: $AUTO_RECOVER_PRIMARY"
+    echo "  daemon: $(daemon_status_line)"
     echo "  log: $LOG_FILE"
     echo "  detail log: $DETAIL_LOG_FILE"
     if grep "# $MARKER" "$CRON_FILE" >/dev/null 2>&1; then
@@ -234,6 +329,9 @@ status() {
 case "${1:-check}" in
     check)
         check_and_switch
+        ;;
+    daemon)
+        run_daemon
         ;;
     status)
         status
