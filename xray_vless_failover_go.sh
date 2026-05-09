@@ -609,10 +609,10 @@ main() {
     install_go_resolver
 
     mkdir -p "$XRAY_DIR"
-    read_tty "Enter VLESS link or subscription URL: "
+    read_tty "Enter primary VLESS link or subscription URL: "
     INPUT_VALUE="$REPLY"
     if [ -z "$INPUT_VALUE" ]; then
-        echo "ERROR: empty input." >&2
+        echo "ERROR: empty primary input." >&2
         exit 1
     fi
 
@@ -620,6 +620,16 @@ main() {
     printf '%s\n' "$INPUT_VALUE" > "$PRIMARY_STORE"
     printf '%s\n' primary > "$ACTIVE_STORE"
     chmod 600 "$SOURCE_STORE" "$PRIMARY_STORE" "$ACTIVE_STORE" 2>/dev/null || true
+
+    read_tty "Enter backup VLESS link or subscription URL (optional, press Enter to skip): "
+    BACKUP_VALUE="$REPLY"
+    if [ -n "$BACKUP_VALUE" ]; then
+        printf '%s\n' "$BACKUP_VALUE" > "$BACKUP_STORE"
+        chmod 600 "$BACKUP_STORE" 2>/dev/null || true
+        echo "Backup source saved: $BACKUP_STORE"
+    else
+        echo "Backup source skipped. You can add it later with: vless-go-failover set-backup URL_OR_VLESS"
+    fi
 
     echo "[3/9] Resolving subscription and generating Xray config..."
     "$GO_RESOLVER" \
