@@ -1,0 +1,54 @@
+name: Build Go helper
+
+on:
+  pull_request:
+    paths:
+      - 'cmd/xray-failover-go/**'
+      - 'scripts/build-go-installers.sh'
+      - '.github/workflows/build-go.yml'
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+    paths:
+      - 'cmd/xray-failover-go/**'
+      - 'scripts/build-go-installers.sh'
+      - '.github/workflows/build-go.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Run tests
+        env:
+          GO111MODULE: off
+        run: go test ./cmd/xray-failover-go
+
+      - name: Build linux/arm64 binary
+        run: sh scripts/build-go-installers.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xray-failover-go-linux-arm64
+          path: dist/xray-failover-go-linux-arm64
+          if-no-files-found: error
+
+      - name: Attach binary to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/xray-failover-go-linux-arm64
