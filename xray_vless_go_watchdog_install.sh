@@ -34,17 +34,23 @@ chmod +x "$WATCHDOG_CMD"
 if [ ! -f "$WATCHDOG_CONF" ]; then
     cat > "$WATCHDOG_CONF" <<CONF
 # VLESS Go watchdog settings.
-# Keep AUTO_RECOVER_PRIMARY=0 unless you explicitly want backup -> primary recovery.
 WATCHDOG_INTERVAL=15
 FAILOVER_FAILURES_REQUIRED=2
 CHECK_RETRIES=2
 CHECK_RETRY_DELAY=2
+CHECK_URLS="http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204 http://www.gstatic.com/generate_204"
 AUTO_RECOVER_PRIMARY=0
 RECOVERY_SUCCESSES_REQUIRED=2
 RECOVERY_COOLDOWN_CYCLES=2
 RECOVERY_TEST_PORT=18080
+POST_SWITCH_DELAY=5
+PROXY0_REFRESH=0
 CONF
     chmod 600 "$WATCHDOG_CONF" 2>/dev/null || true
+else
+    grep -q '^CHECK_URLS=' "$WATCHDOG_CONF" || echo 'CHECK_URLS="http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204 http://www.gstatic.com/generate_204"' >> "$WATCHDOG_CONF"
+    grep -q '^POST_SWITCH_DELAY=' "$WATCHDOG_CONF" || echo 'POST_SWITCH_DELAY=5' >> "$WATCHDOG_CONF"
+    grep -q '^PROXY0_REFRESH=' "$WATCHDOG_CONF" || echo 'PROXY0_REFRESH=0' >> "$WATCHDOG_CONF"
 fi
 
 cat > "$WATCHDOG_INIT" <<INIT
@@ -82,11 +88,9 @@ start() {
 
     if [ -f "\$CONFIG" ]; then
         . "\$CONFIG"
-        export WATCHDOG_INTERVAL FAILOVER_FAILURES_REQUIRED CHECK_RETRIES CHECK_RETRY_DELAY AUTO_RECOVER_PRIMARY RECOVERY_SUCCESSES_REQUIRED RECOVERY_COOLDOWN_CYCLES RECOVERY_TEST_PORT
+        export WATCHDOG_INTERVAL FAILOVER_FAILURES_REQUIRED CHECK_RETRIES CHECK_RETRY_DELAY CHECK_URL CHECK_URLS AUTO_RECOVER_PRIMARY RECOVERY_SUCCESSES_REQUIRED RECOVERY_COOLDOWN_CYCLES RECOVERY_TEST_PORT POST_SWITCH_DELAY PROXY0_REFRESH PROXY_IFACE
     fi
 
-    # vless-go-watchdog already writes to LOGFILE internally.
-    # Do not redirect stdout to the same file, otherwise log lines are duplicated.
     "\$DAEMON" daemon >/dev/null 2>&1 &
     echo "\$!" > "\$PIDFILE"
 
@@ -170,8 +174,13 @@ echo "Default daemon behavior:"
 echo "  - checks SOCKS 127.0.0.1:10808 every 15 seconds"
 echo "  - requires 2 failed daemon cycles before switching primary -> backup"
 echo "  - each cycle has 2 curl attempts with 2s retry delay"
-echo "  - backup -> primary recovery is disabled by default"
+echo "  - waits 5 seconds after switch before post-switch health check"
+echo "  - backup -> primary recovery is disabled by default in helper installer"
 echo ""
 echo "Enable safe backup -> primary recovery:"
 echo "  sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=1/' $WATCHDOG_CONF"
+echo "  $WATCHDOG_INIT restart"
+echo ""
+echo "Optional Proxy0 refresh after switch:"
+echo "  sed -i 's/^PROXY0_REFRESH=.*/PROXY0_REFRESH=1/' $WATCHDOG_CONF"
 echo "  $WATCHDOG_INIT restart"
