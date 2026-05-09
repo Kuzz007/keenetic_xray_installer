@@ -356,22 +356,27 @@ if len(links) == 1 or mode != "interactive":
 print(f"В подписке для профиля {profile_label} найдено VLESS-профилей: {len(links)}", file=sys.stderr)
 for i, link in enumerate(links, 1):
     print(label_for(link, i), file=sys.stderr)
-tty = None
+tty_in = None
+tty_out = None
 try:
-    tty = open("/dev/tty", "r+", encoding="utf-8", errors="ignore")
+    tty_in = open("/dev/tty", "r", encoding="utf-8", errors="ignore")
 except Exception:
-    tty = None
+    tty_in = None
+try:
+    tty_out = open("/dev/tty", "w", encoding="utf-8", errors="ignore")
+except Exception:
+    tty_out = None
 
 while True:
-    prompt_stream = tty if tty is not None else sys.stderr
+    prompt_stream = tty_out if tty_out is not None else sys.stderr
     print("Выберите номер профиля: ", end="", file=prompt_stream, flush=True)
     try:
-        choice = tty.readline() if tty is not None else sys.stdin.readline()
+        choice = tty_in.readline() if tty_in is not None else sys.stdin.readline()
     except Exception:
         choice = ""
     if not choice:
-        print(links[0])
-        raise SystemExit(0)
+        print("ОШИБКА: не удалось прочитать номер профиля из терминала.", file=sys.stderr)
+        raise SystemExit(1)
     choice = choice.strip()
     if choice.isdigit() and 1 <= int(choice) <= len(links):
         print(links[int(choice)-1])
