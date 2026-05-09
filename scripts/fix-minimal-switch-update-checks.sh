@@ -179,7 +179,8 @@ SWITCH
 '''
 
 switch_re = re.compile(r'create_switch_command\(\) \{.*?\n\}\n\ncreate_failover_update_command\(\) \{', re.S)
-text, count_switch = switch_re.subn(switch_func + '\ncreate_failover_update_command() {', text, count=1)
+replacement = switch_func + '\ncreate_failover_update_command() {'
+text, count_switch = switch_re.subn(lambda _m: replacement, text, count=1)
 if count_switch != 1:
     print('ERROR: create_switch_command block not replaced')
     raise SystemExit(2)
