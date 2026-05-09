@@ -7,11 +7,15 @@ INIT_SCRIPT="/opt/etc/init.d/S24xray"
 GO_RESOLVER="/opt/bin/xray-failover-go"
 GO_UPDATE_CMD="/opt/bin/vless-go-update"
 GO_AUTO_UPDATE_CMD="/opt/bin/vless-go-auto-update"
+GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
 SOCKS_PORT="10808"
 SOCKS_LISTEN="0.0.0.0"
 PROXY_IFACE="Proxy0"
 TMP_DIR="/opt/tmp"
 SOURCE_STORE="$XRAY_DIR/vless-go.source"
+PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
+BACKUP_STORE="$XRAY_DIR/vless-go.backup"
+ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 AUTO_UPDATE_LOG="/opt/var/log/vless-go-auto-update.log"
 CRON_FILE="/opt/var/spool/cron/crontabs/root"
 CRON_MARKER="vless-go-auto-update"
@@ -64,7 +68,7 @@ ensure_cron() {
 }
 
 ensure_packages() {
-    echo "[1/8] Checking Entware packages..."
+    echo "[1/9] Checking Entware packages..."
     if ! command -v opkg >/dev/null 2>&1; then
         echo "ERROR: opkg not found. Entware is required." >&2
         exit 1
@@ -93,7 +97,7 @@ ensure_packages() {
 }
 
 install_go_resolver() {
-    echo "[2/8] Installing experimental Go resolver/generator..."
+    echo "[2/9] Installing experimental Go resolver/generator..."
     mkdir -p "$(dirname "$GO_RESOLVER")" "$TMP_DIR"
 
     if [ -x "$GO_RESOLVER" ]; then
@@ -111,7 +115,7 @@ install_go_resolver() {
 }
 
 create_xray_init() {
-    echo "[6/8] Creating Xray init script..."
+    echo "[7/9] Creating Xray init script..."
     cat > "$INIT_SCRIPT" <<INIT
 #!/bin/sh
 
@@ -127,7 +131,7 @@ INIT
 }
 
 create_update_command() {
-    echo "[4/8] Creating vless-go-update command..."
+    echo "[4/9] Creating vless-go-update command..."
     mkdir -p "$(dirname "$GO_UPDATE_CMD")" "$XRAY_DIR" "$TMP_DIR"
 
     cat > "$GO_UPDATE_CMD" <<'UPDATE'
@@ -259,7 +263,7 @@ UPDATE
 }
 
 create_auto_update_command() {
-    echo "[5/8] Creating vless-go-auto-update command..."
+    echo "[5/9] Creating vless-go-auto-update command..."
     mkdir -p "$(dirname "$GO_AUTO_UPDATE_CMD")" /opt/var/spool/cron/crontabs /opt/var/log
 
     cat > "$GO_AUTO_UPDATE_CMD" <<'AUTO'
@@ -378,8 +382,189 @@ AUTO
     chmod +x "$GO_AUTO_UPDATE_CMD"
 }
 
+create_failover_command() {
+    echo "[6/9] Creating vless-go-failover command..."
+    mkdir -p "$(dirname "$GO_FAILOVER_CMD")" "$XRAY_DIR"
+
+    cat > "$GO_FAILOVER_CMD" <<'FAILOVER'
+#!/bin/sh
+set -e
+
+XRAY_DIR="/opt/etc/xray"
+SOURCE_STORE="$XRAY_DIR/vless-go.source"
+PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
+BACKUP_STORE="$XRAY_DIR/vless-go.backup"
+ACTIVE_STORE="$XRAY_DIR/vless-go.active"
+GO_UPDATE_CMD="/opt/bin/vless-go-update"
+
+usage() {
+    echo "Usage: vless-go-failover COMMAND [ARGS]"
+    echo ""
+    echo "Commands:"
+    echo "  status                         Show active slot and saved primary/backup sources."
+    echo "  set-primary URL_OR_VLESS        Save primary source without switching."
+    echo "  set-backup URL_OR_VLESS         Save backup source without switching."
+    echo "  switch primary|backup [flags]   Switch active source and regenerate Xray config."
+    echo "  update-active [flags]           Regenerate from currently active source."
+    echo "  sync-primary                    Copy current active source to primary slot."
+    echo ""
+    echo "Flags for switch/update-active:"
+    echo "  --first                         Select first profile without prompt."
+    echo "  --no-restart                    Validate config but do not restart Xray."
+}
+
+slot_file() {
+    case "$1" in
+        primary) echo "$PRIMARY_STORE" ;;
+        backup) echo "$BACKUP_STORE" ;;
+        *) return 1 ;;
+    esac
+}
+
+slot_source() {
+    FILE="$(slot_file "$1")" || return 1
+    [ -s "$FILE" ] || return 2
+    sed -n '1p' "$FILE"
+}
+
+save_source() {
+    SLOT="$1"
+    VALUE="$2"
+    FILE="$(slot_file "$SLOT")" || { echo "ERROR: invalid slot: $SLOT" >&2; exit 1; }
+    mkdir -p "$XRAY_DIR"
+    printf '%s\n' "$VALUE" > "$FILE"
+    chmod 600 "$FILE" 2>/dev/null || true
+    echo "Saved $SLOT source: $FILE"
+}
+
+parse_update_flags() {
+    FIRST="0"
+    NO_RESTART="0"
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --first)
+                FIRST="1"
+                shift
+                ;;
+            --no-restart)
+                NO_RESTART="1"
+                shift
+                ;;
+            *)
+                echo "ERROR: unknown flag: $1" >&2
+                usage >&2
+                exit 1
+                ;;
+        esac
+    done
+}
+
+run_update() {
+    SOURCE_VALUE="$1"
+    SLOT="$2"
+    shift 2
+    parse_update_flags "$@"
+
+    [ -x "$GO_UPDATE_CMD" ] || { echo "ERROR: update command not found: $GO_UPDATE_CMD" >&2; exit 1; }
+
+    mkdir -p "$XRAY_DIR"
+    printf '%s\n' "$SOURCE_VALUE" > "$SOURCE_STORE"
+    chmod 600 "$SOURCE_STORE" 2>/dev/null || true
+    printf '%s\n' "$SLOT" > "$ACTIVE_STORE"
+    chmod 600 "$ACTIVE_STORE" 2>/dev/null || true
+
+    ARGS="--source $SOURCE_VALUE"
+    [ "$FIRST" = "0" ] || ARGS="$ARGS --first"
+    [ "$NO_RESTART" = "0" ] || ARGS="$ARGS --no-restart"
+
+    # shellcheck disable=SC2086
+    "$GO_UPDATE_CMD" $ARGS
+    echo "Active VLESS slot: $SLOT"
+}
+
+status() {
+    echo "Failover-lite status:"
+    if [ -s "$ACTIVE_STORE" ]; then
+        echo "  active: $(sed -n '1p' "$ACTIVE_STORE")"
+    else
+        echo "  active: unknown"
+    fi
+    if [ -s "$PRIMARY_STORE" ]; then
+        echo "  primary: configured"
+    else
+        echo "  primary: not configured"
+    fi
+    if [ -s "$BACKUP_STORE" ]; then
+        echo "  backup: configured"
+    else
+        echo "  backup: not configured"
+    fi
+    if [ -s "$SOURCE_STORE" ]; then
+        echo "  current source: configured"
+    else
+        echo "  current source: not configured"
+    fi
+}
+
+case "${1:-status}" in
+    status)
+        status
+        ;;
+    set-primary)
+        shift
+        [ "$#" -ge 1 ] || { echo "ERROR: set-primary requires source" >&2; exit 1; }
+        save_source primary "$1"
+        ;;
+    set-backup)
+        shift
+        [ "$#" -ge 1 ] || { echo "ERROR: set-backup requires source" >&2; exit 1; }
+        save_source backup "$1"
+        ;;
+    switch)
+        shift
+        [ "$#" -ge 1 ] || { echo "ERROR: switch requires primary or backup" >&2; exit 1; }
+        SLOT="$1"
+        shift
+        SOURCE_VALUE="$(slot_source "$SLOT")" || { echo "ERROR: $SLOT source is not configured" >&2; exit 1; }
+        run_update "$SOURCE_VALUE" "$SLOT" "$@"
+        ;;
+    update-active)
+        shift
+        if [ -s "$ACTIVE_STORE" ]; then
+            SLOT="$(sed -n '1p' "$ACTIVE_STORE")"
+            SOURCE_VALUE="$(slot_source "$SLOT" 2>/dev/null || true)"
+            if [ -z "$SOURCE_VALUE" ] && [ -s "$SOURCE_STORE" ]; then
+                SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE")"
+            fi
+        else
+            SLOT="current"
+            SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE" 2>/dev/null || true)"
+        fi
+        [ -n "$SOURCE_VALUE" ] || { echo "ERROR: no active source found" >&2; exit 1; }
+        run_update "$SOURCE_VALUE" "$SLOT" "$@"
+        ;;
+    sync-primary)
+        [ -s "$SOURCE_STORE" ] || { echo "ERROR: current source is not configured" >&2; exit 1; }
+        save_source primary "$(sed -n '1p' "$SOURCE_STORE")"
+        printf '%s\n' primary > "$ACTIVE_STORE"
+        chmod 600 "$ACTIVE_STORE" 2>/dev/null || true
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        echo "ERROR: unknown command: $1" >&2
+        usage >&2
+        exit 1
+        ;;
+esac
+FAILOVER
+
+    chmod +x "$GO_FAILOVER_CMD"
+}
+
 configure_proxy0() {
-    echo "[7/8] Configuring Proxy0..."
+    echo "[8/9] Configuring Proxy0..."
     if ! command -v ndmc >/dev/null 2>&1; then
         echo "WARNING: ndmc not found. Configure Proxy0 manually to SOCKS5 $SOCKS_LISTEN:$SOCKS_PORT."
         return 0
@@ -401,7 +586,7 @@ configure_proxy0() {
 }
 
 start_xray() {
-    echo "[8/8] Testing and starting Xray..."
+    echo "[9/9] Testing and starting Xray..."
     XRAY_BIN="$(get_xray_bin)"
     if [ -z "$XRAY_BIN" ]; then
         echo "ERROR: xray binary not found." >&2
@@ -432,9 +617,11 @@ main() {
     fi
 
     printf '%s\n' "$INPUT_VALUE" > "$SOURCE_STORE"
-    chmod 600 "$SOURCE_STORE" 2>/dev/null || true
+    printf '%s\n' "$INPUT_VALUE" > "$PRIMARY_STORE"
+    printf '%s\n' primary > "$ACTIVE_STORE"
+    chmod 600 "$SOURCE_STORE" "$PRIMARY_STORE" "$ACTIVE_STORE" 2>/dev/null || true
 
-    echo "[3/8] Resolving subscription and generating Xray config..."
+    echo "[3/9] Resolving subscription and generating Xray config..."
     "$GO_RESOLVER" \
         -input "$INPUT_VALUE" \
         -output "$XRAY_CONFIG" \
@@ -444,6 +631,7 @@ main() {
 
     create_update_command
     create_auto_update_command
+    create_failover_command
     create_xray_init
     configure_proxy0
     start_xray
@@ -453,9 +641,14 @@ main() {
     echo "Config: $XRAY_CONFIG"
     echo "Resolver/generator: $GO_RESOLVER"
     echo "Saved source: $SOURCE_STORE"
+    echo "Primary source: $PRIMARY_STORE"
+    echo "Backup source: $BACKUP_STORE"
     echo "Update command: $GO_UPDATE_CMD"
     echo "Auto-update command: $GO_AUTO_UPDATE_CMD"
+    echo "Failover-lite command: $GO_FAILOVER_CMD"
     echo "Enable daily auto-update: vless-go-auto-update enable"
+    echo "Configure backup: vless-go-failover set-backup URL_OR_VLESS"
+    echo "Switch manually: vless-go-failover switch backup --first"
     echo "Note: failover daemon is intentionally not included yet."
 }
 
