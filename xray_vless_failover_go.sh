@@ -10,8 +10,7 @@ SOCKS_LISTEN="0.0.0.0"
 PROXY_IFACE="Proxy0"
 TMP_DIR="/opt/tmp"
 
-REPO_RAW_BASE="${REPO_RAW_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main}"
-GO_BINARY_URL="${GO_BINARY_URL:-$REPO_RAW_BASE/dist/xray-failover-go-linux-arm64}"
+GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/latest/download/xray-failover-go-linux-arm64}"
 
 read_tty() {
     prompt="$1"
@@ -69,9 +68,9 @@ install_go_resolver() {
         return 0
     fi
 
-    if ! curl -fsSL -o "$GO_RESOLVER" "$GO_BINARY_URL"; then
+    if ! curl -fL -o "$GO_RESOLVER" "$GO_BINARY_URL"; then
         echo "ERROR: failed to download Go binary: $GO_BINARY_URL" >&2
-        echo "Build it locally with scripts/build-go-installers.sh and copy it to $GO_RESOLVER" >&2
+        echo "Create a GitHub release with xray-failover-go-linux-arm64 or build it locally with scripts/build-go-installers.sh and copy it to $GO_RESOLVER" >&2
         exit 1
     fi
 
