@@ -356,10 +356,17 @@ if len(links) == 1 or mode != "interactive":
 print(f"В подписке для профиля {profile_label} найдено VLESS-профилей: {len(links)}", file=sys.stderr)
 for i, link in enumerate(links, 1):
     print(label_for(link, i), file=sys.stderr)
+tty = None
+try:
+    tty = open("/dev/tty", "r+", encoding="utf-8", errors="ignore")
+except Exception:
+    tty = None
+
 while True:
-    print("Выберите номер профиля: ", end="", file=sys.stderr, flush=True)
+    prompt_stream = tty if tty is not None else sys.stderr
+    print("Выберите номер профиля: ", end="", file=prompt_stream, flush=True)
     try:
-        choice = sys.stdin.readline()
+        choice = tty.readline() if tty is not None else sys.stdin.readline()
     except Exception:
         choice = ""
     if not choice:
@@ -369,7 +376,7 @@ while True:
     if choice.isdigit() and 1 <= int(choice) <= len(links):
         print(links[int(choice)-1])
         raise SystemExit(0)
-    print("Введите корректный номер профиля.", file=sys.stderr)
+    print("Введите корректный номер профиля.", file=prompt_stream, flush=True)
 PYRESOLVER
 RESOLVE
 
