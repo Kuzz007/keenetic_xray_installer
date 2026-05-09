@@ -14,6 +14,7 @@ MAX_TIME="${MAX_TIME:-15}"
 CHECK_RETRIES="${CHECK_RETRIES:-5}"
 CHECK_RETRY_DELAY="${CHECK_RETRY_DELAY:-2}"
 LOG_FILE="${LOG_FILE:-/opt/var/log/vless-go-watchdog.log}"
+DETAIL_LOG_FILE="${DETAIL_LOG_FILE:-/opt/var/log/vless-go-watchdog-detail.log}"
 MARKER="vless-go-watchdog"
 CRON_FILE="/opt/var/spool/cron/crontabs/root"
 DEFAULT_SCHEDULE="*/5 * * * *"
@@ -38,11 +39,17 @@ usage() {
     echo "  CHECK_RETRIES=$CHECK_RETRIES"
     echo "  CHECK_RETRY_DELAY=$CHECK_RETRY_DELAY"
     echo "  LOG_FILE=$LOG_FILE"
+    echo "  DETAIL_LOG_FILE=$DETAIL_LOG_FILE"
 }
 
 log() {
     mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
     printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE"
+}
+
+log_detail() {
+    mkdir -p "$(dirname "$DETAIL_LOG_FILE")" 2>/dev/null || true
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$DETAIL_LOG_FILE"
 }
 
 active_slot() {
@@ -64,16 +71,20 @@ check_socks_once() {
     TMP_OUT="/tmp/vless-go-watchdog.check.$$"
     TMP_ERR="/tmp/vless-go-watchdog.err.$$"
 
-    if curl -fsS \
+    set +e
+    curl -fsS \
         --socks5-hostname "$SOCKS_HOST:$SOCKS_PORT" \
         --connect-timeout "$CONNECT_TIMEOUT" \
         --max-time "$MAX_TIME" \
-        "$CHECK_URL" >"$TMP_OUT" 2>"$TMP_ERR"; then
+        "$CHECK_URL" >"$TMP_OUT" 2>"$TMP_ERR"
+    RC="$?"
+    set -e
+
+    if [ "$RC" -eq 0 ]; then
         rm -f "$TMP_OUT" "$TMP_ERR" 2>/dev/null || true
         return 0
     fi
 
-    RC="$?"
     ERR_MSG="$(tr '\n' ' ' < "$TMP_ERR" 2>/dev/null | sed 's/[[:space:]][[:space:]]*/ /g')"
     rm -f "$TMP_OUT" "$TMP_ERR" 2>/dev/null || true
     [ -n "$ERR_MSG" ] && log "Health check curl error rc=$RC: $ERR_MSG"
@@ -102,12 +113,28 @@ switch_to() {
     SLOT="$1"
     ensure_failover_cmd
     log "Switching to $SLOT"
-    "$FAILOVER_CMD" switch "$SLOT" --first >> "$LOG_FILE" 2>&1
+
+    TMP_SWITCH="/tmp/vless-go-watchdog.switch.$$"
+    set +e
+    "$FAILOVER_CMD" switch "$SLOT" --first >"$TMP_SWITCH" 2>&1
+    RC="$?"
+    set -e
+
+    cat "$TMP_SWITCH" >> "$DETAIL_LOG_FILE" 2>/dev/null || true
+    rm -f "$TMP_SWITCH" 2>/dev/null || true
+
+    if [ "$RC" -ne 0 ]; then
+        log "ERROR: switch to $SLOT failed; see detail log."
+        return "$RC"
+    fi
+
+    log "Switch to $SLOT completed"
+    return 0
 }
 
 check_and_switch() {
     SLOT="$(active_slot)"
-    log "Checking active slot: $SLOT via SOCKS $SOCKS_HOST:$SOCKS_PORT -> $CHECK_URL"
+    log "Checking active slot: $SLOT via SOCKS $SOCKS_HOST:$SOCKS_PORT"
 
     if check_socks; then
         log "Health check OK on $SLOT"
@@ -138,7 +165,7 @@ check_and_switch() {
 
 ensure_cron_files() {
     mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
-    touch "$CRON_FILE" "$LOG_FILE"
+    touch "$CRON_FILE" "$LOG_FILE" "$DETAIL_LOG_FILE"
     chmod 600 "$CRON_FILE" 2>/dev/null || true
 }
 
@@ -172,6 +199,7 @@ enable_cron() {
     echo "Enabled VLESS Go watchdog: $SCHEDULE"
     echo "Cron file: $CRON_FILE"
     echo "Log file: $LOG_FILE"
+    echo "Detail log file: $DETAIL_LOG_FILE"
 }
 
 disable_cron() {
@@ -185,10 +213,11 @@ status() {
     echo "  active: $(active_slot)"
     if [ -s "$PRIMARY_STORE" ]; then echo "  primary: configured"; else echo "  primary: not configured"; fi
     if [ -s "$BACKUP_STORE" ]; then echo "  backup: configured"; else echo "  backup: not configured"; fi
-    echo "  check URL: $CHECK_URL"
     echo "  SOCKS: $SOCKS_HOST:$SOCKS_PORT"
     echo "  retries: $CHECK_RETRIES"
     echo "  retry delay: ${CHECK_RETRY_DELAY}s"
+    echo "  log: $LOG_FILE"
+    echo "  detail log: $DETAIL_LOG_FILE"
     if grep "# $MARKER" "$CRON_FILE" >/dev/null 2>&1; then
         echo "  cron: enabled"
         grep "# $MARKER" "$CRON_FILE"
