@@ -17,7 +17,7 @@ mkdir -p "$OUT_DIR"
 cd "$ROOT_DIR"
 
 echo "Building $BIN_NAME for $GOOS_TARGET/$GOARCH_TARGET..."
-CGO_ENABLED=0 GOOS="$GOOS_TARGET" GOARCH="$GOARCH_TARGET" \
+CGO_ENABLED=0 GO111MODULE=off GOOS="$GOOS_TARGET" GOARCH="$GOARCH_TARGET" \
     go build -trimpath -ldflags "-s -w" -o "$OUT_DIR/$BIN_NAME-$GOOS_TARGET-$GOARCH_TARGET" ./cmd/xray-failover-go
 
 chmod +x "$OUT_DIR/$BIN_NAME-$GOOS_TARGET-$GOARCH_TARGET"
