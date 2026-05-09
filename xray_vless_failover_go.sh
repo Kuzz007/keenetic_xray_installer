@@ -19,6 +19,8 @@ BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/latest/download/xray-failover-go-linux-arm64}"
 
+REUSE_SAVED="0"
+
 read_tty() {
     prompt="$1"
     if [ -r /dev/tty ]; then
@@ -28,6 +30,33 @@ read_tty() {
         printf "%s" "$prompt" >&2
         IFS= read -r REPLY
     fi
+}
+
+usage() {
+    echo "Usage: sh xray_vless_failover_go.sh [--reuse-saved]"
+    echo ""
+    echo "Options:"
+    echo "  --reuse-saved  Use saved primary/backup sources from /opt/etc/xray without prompting."
+}
+
+parse_args() {
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --reuse-saved)
+                REUSE_SAVED="1"
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                echo "ERROR: unknown argument: $1" >&2
+                usage >&2
+                exit 1
+                ;;
+        esac
+    done
 }
 
 get_xray_bin() {
@@ -466,7 +495,6 @@ detect_lan_router_ip() {
         return 0
     fi
 
-    # Prefer explicit Keenetic Home/bridge interfaces, but never auto-pick 10.x.
     {
         ndmc -c "show interface Home" 2>/dev/null | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' || true
         ndmc -c "show interface Bridge0" 2>/dev/null | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' || true
@@ -514,15 +542,33 @@ start_xray() {
     "$INIT_SCRIPT" restart || "$INIT_SCRIPT" start
 }
 
-main() {
-    echo "Experimental Xray VLESS Go installer for Keenetic"
-    echo "This does not replace the full failover installer."
-    echo
+load_saved_sources() {
+    if [ -s "$PRIMARY_STORE" ]; then
+        INPUT_VALUE="$(sed -n '1p' "$PRIMARY_STORE")"
+    elif [ -s "$SOURCE_STORE" ]; then
+        INPUT_VALUE="$(sed -n '1p' "$SOURCE_STORE")"
+        printf '%s\n' "$INPUT_VALUE" > "$PRIMARY_STORE"
+    else
+        echo "ERROR: --reuse-saved requested, but no saved primary/source exists." >&2
+        echo "Run interactive install once or set primary with vless-go-failover set-primary URL_OR_VLESS." >&2
+        exit 1
+    fi
 
-    ensure_packages
-    install_go_resolver
+    [ -n "$INPUT_VALUE" ] || { echo "ERROR: saved primary/source is empty." >&2; exit 1; }
+    printf '%s\n' "$INPUT_VALUE" > "$SOURCE_STORE"
+    [ -s "$ACTIVE_STORE" ] || printf '%s\n' primary > "$ACTIVE_STORE"
+    chmod 600 "$SOURCE_STORE" "$PRIMARY_STORE" "$ACTIVE_STORE" 2>/dev/null || true
 
-    mkdir -p "$XRAY_DIR"
+    if [ -s "$BACKUP_STORE" ]; then
+        echo "Reusing saved backup source: $BACKUP_STORE"
+    else
+        echo "No saved backup source found. You can add it later with: vless-go-failover set-backup URL_OR_VLESS"
+    fi
+
+    echo "Reusing saved primary source: $PRIMARY_STORE"
+}
+
+prompt_sources() {
     read_tty "Enter primary VLESS link or subscription URL: "
     INPUT_VALUE="$REPLY"
     if [ -z "$INPUT_VALUE" ]; then
@@ -544,6 +590,24 @@ main() {
     else
         echo "Backup source skipped. You can add it later with: vless-go-failover set-backup URL_OR_VLESS"
     fi
+}
+
+main() {
+    parse_args "$@"
+
+    echo "Experimental Xray VLESS Go installer for Keenetic"
+    echo "This does not replace the full failover installer."
+    echo
+
+    ensure_packages
+    install_go_resolver
+
+    mkdir -p "$XRAY_DIR"
+    if [ "$REUSE_SAVED" = "1" ]; then
+        load_saved_sources
+    else
+        prompt_sources
+    fi
 
     echo "[3/9] Resolving subscription and generating Xray config..."
     "$GO_RESOLVER" \
@@ -551,7 +615,8 @@ main() {
         -output "$XRAY_CONFIG" \
         -listen "$SOCKS_LISTEN" \
         -port "$SOCKS_PORT" \
-        -profile "vless-out"
+        -profile "vless-out" \
+        -first
 
     create_update_command
     create_auto_update_command
