@@ -2195,6 +2195,26 @@ if ! "$INIT_SCRIPT" restart; then
     exit 1
 fi
 
+sleep 3
+
+if ! "$INIT_SCRIPT" status; then
+    echo "ОШИБКА: Xray не запустился после обновления ссылок. Откатываем старый config."
+    [ -s "$OLD_CONFIG" ] && cp "$OLD_CONFIG" "$XRAY_CONFIG"
+    "$INIT_SCRIPT" restart >/dev/null 2>&1 || true
+    [ -x "$FAILOVER_INIT" ] && "$FAILOVER_INIT" start >/dev/null 2>&1 || true
+    exit 1
+fi
+
+if ! netstat -lnt 2>/dev/null | grep -q "$ROUTER_LAN_IP:$SOCKS_PORT" && ! netstat -lnt 2>/dev/null | grep -q ":$SOCKS_PORT"; then
+    echo "ОШИБКА: SOCKS5 $ROUTER_LAN_IP:$SOCKS_PORT не слушает после обновления ссылок. Откатываем старый config."
+    [ -s "$OLD_CONFIG" ] && cp "$OLD_CONFIG" "$XRAY_CONFIG"
+    "$INIT_SCRIPT" restart >/dev/null 2>&1 || true
+    [ -x "$FAILOVER_INIT" ] && "$FAILOVER_INIT" start >/dev/null 2>&1 || true
+    exit 1
+fi
+
+echo "Xray post-update check OK: SOCKS5 $ROUTER_LAN_IP:$SOCKS_PORT"
+
 if [ -x "$FAILOVER_INIT" ]; then
     "$FAILOVER_INIT" start
 fi
