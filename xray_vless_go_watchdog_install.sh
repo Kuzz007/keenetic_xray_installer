@@ -62,7 +62,9 @@ start() {
         exit 1
     fi
 
-    "\$DAEMON" daemon >> "\$LOGFILE" 2>&1 &
+    # vless-go-watchdog already writes to LOGFILE internally.
+    # Do not redirect stdout to the same file, otherwise log lines are duplicated.
+    "\$DAEMON" daemon >/dev/null 2>&1 &
     echo "\$!" > "\$PIDFILE"
 
     sleep 2
