@@ -6,6 +6,7 @@ ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
 BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 FAILOVER_CMD="/opt/bin/vless-go-failover"
+GO_RESOLVER="/opt/bin/xray-failover-go"
 SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
 SOCKS_PORT="${SOCKS_PORT:-10808}"
 CHECK_URL="${CHECK_URL:-https://www.gstatic.com/generate_204}"
@@ -17,6 +18,8 @@ WATCHDOG_INTERVAL="${WATCHDOG_INTERVAL:-15}"
 FAILOVER_FAILURES_REQUIRED="${FAILOVER_FAILURES_REQUIRED:-2}"
 RECOVERY_SUCCESSES_REQUIRED="${RECOVERY_SUCCESSES_REQUIRED:-2}"
 AUTO_RECOVER_PRIMARY="${AUTO_RECOVER_PRIMARY:-0}"
+RECOVERY_TEST_PORT="${RECOVERY_TEST_PORT:-18080}"
+RECOVERY_COOLDOWN_CYCLES="${RECOVERY_COOLDOWN_CYCLES:-2}"
 LOG_FILE="${LOG_FILE:-/opt/var/log/vless-go-watchdog.log}"
 DETAIL_LOG_FILE="${DETAIL_LOG_FILE:-/opt/var/log/vless-go-watchdog-detail.log}"
 PID_FILE="${PID_FILE:-/opt/var/run/vless-go-watchdog.pid}"
@@ -25,16 +28,17 @@ CRON_FILE="/opt/var/spool/cron/crontabs/root"
 DEFAULT_SCHEDULE="*/5 * * * *"
 
 usage() {
-    echo "Usage: vless-go-watchdog check | daemon | status | enable [CRON_SCHEDULE] | disable | run-primary | run-backup"
+    echo "Usage: vless-go-watchdog check | daemon | status | enable [CRON_SCHEDULE] | disable | run-primary | run-backup | probe-primary"
     echo ""
     echo "Commands:"
-    echo "  daemon       Run continuous watchdog loop. Default interval: 15s."
-    echo "  check        Single check. If it fails on primary, switch to backup."
-    echo "  status       Show active slot, daemon, cron, and health-check settings."
-    echo "  enable       Add legacy cron entry. Default schedule: */5 * * * *"
-    echo "  disable      Remove legacy cron entry."
-    echo "  run-primary  Manually switch to primary and test."
-    echo "  run-backup   Manually switch to backup and test."
+    echo "  daemon         Run continuous watchdog loop. Default interval: 15s."
+    echo "  check          Single check. If it fails on primary, switch to backup."
+    echo "  status         Show active slot, daemon, cron, and health-check settings."
+    echo "  enable         Add legacy cron entry. Default schedule: */5 * * * *"
+    echo "  disable        Remove legacy cron entry."
+    echo "  run-primary    Manually switch to primary and test."
+    echo "  run-backup     Manually switch to backup and test."
+    echo "  probe-primary  Test saved primary through a temporary local Xray instance."
     echo ""
     echo "Environment:"
     echo "  CHECK_URL=$CHECK_URL"
@@ -48,6 +52,8 @@ usage() {
     echo "  FAILOVER_FAILURES_REQUIRED=$FAILOVER_FAILURES_REQUIRED"
     echo "  RECOVERY_SUCCESSES_REQUIRED=$RECOVERY_SUCCESSES_REQUIRED"
     echo "  AUTO_RECOVER_PRIMARY=$AUTO_RECOVER_PRIMARY"
+    echo "  RECOVERY_TEST_PORT=$RECOVERY_TEST_PORT"
+    echo "  RECOVERY_COOLDOWN_CYCLES=$RECOVERY_COOLDOWN_CYCLES"
     echo "  LOG_FILE=$LOG_FILE"
     echo "  DETAIL_LOG_FILE=$DETAIL_LOG_FILE"
     echo "  PID_FILE=$PID_FILE"
@@ -71,6 +77,16 @@ active_slot() {
     fi
 }
 
+get_xray_bin() {
+    if command -v xray >/dev/null 2>&1; then
+        command -v xray
+    elif [ -x /opt/bin/xray ]; then
+        echo "/opt/bin/xray"
+    else
+        echo ""
+    fi
+}
+
 ensure_failover_cmd() {
     if [ ! -x "$FAILOVER_CMD" ]; then
         log "ERROR: failover command not found: $FAILOVER_CMD"
@@ -78,13 +94,15 @@ ensure_failover_cmd() {
     fi
 }
 
-check_socks_once() {
+check_socks_target_once() {
+    TARGET_HOST="$1"
+    TARGET_PORT="$2"
     TMP_OUT="/tmp/vless-go-watchdog.check.$$"
     TMP_ERR="/tmp/vless-go-watchdog.err.$$"
 
     set +e
     curl -fsS \
-        --socks5-hostname "$SOCKS_HOST:$SOCKS_PORT" \
+        --socks5-hostname "$TARGET_HOST:$TARGET_PORT" \
         --connect-timeout "$CONNECT_TIMEOUT" \
         --max-time "$MAX_TIME" \
         "$CHECK_URL" >"$TMP_OUT" 2>"$TMP_ERR"
@@ -102,10 +120,12 @@ check_socks_once() {
     return "$RC"
 }
 
-check_socks() {
+check_socks_target() {
+    TARGET_HOST="$1"
+    TARGET_PORT="$2"
     ATTEMPT="1"
     while [ "$ATTEMPT" -le "$CHECK_RETRIES" ]; do
-        if check_socks_once; then
+        if check_socks_target_once "$TARGET_HOST" "$TARGET_PORT"; then
             [ "$ATTEMPT" = "1" ] || log "Health check OK on retry $ATTEMPT/$CHECK_RETRIES"
             return 0
         fi
@@ -118,6 +138,10 @@ check_socks() {
     done
 
     return 1
+}
+
+check_socks() {
+    check_socks_target "$SOCKS_HOST" "$SOCKS_PORT"
 }
 
 switch_to() {
@@ -141,6 +165,90 @@ switch_to() {
 
     log "Switch to $SLOT completed"
     return 0
+}
+
+probe_primary() {
+    if [ ! -s "$PRIMARY_STORE" ]; then
+        log "Primary source is not configured; cannot probe primary."
+        return 1
+    fi
+
+    if [ ! -x "$GO_RESOLVER" ]; then
+        log "Go resolver/generator not found: $GO_RESOLVER"
+        return 1
+    fi
+
+    XRAY_BIN="$(get_xray_bin)"
+    if [ -z "$XRAY_BIN" ]; then
+        log "Xray binary not found; cannot probe primary."
+        return 1
+    fi
+
+    PRIMARY_VALUE="$(sed -n '1p' "$PRIMARY_STORE")"
+    TMP_CONFIG="/opt/tmp/vless-go-recovery-primary.$$.$RANDOM.json"
+    TMP_RESOLVER_LOG="/tmp/vless-go-recovery-resolver.$$"
+    TMP_XRAY_LOG="/tmp/vless-go-recovery-xray.$$"
+    TEST_PID=""
+
+    mkdir -p /opt/tmp /opt/var/log
+
+    cleanup_probe() {
+        if [ -n "$TEST_PID" ] && kill -0 "$TEST_PID" 2>/dev/null; then
+            kill "$TEST_PID" 2>/dev/null || true
+            sleep 1
+            kill -9 "$TEST_PID" 2>/dev/null || true
+        fi
+        rm -f "$TMP_CONFIG" "$TMP_RESOLVER_LOG" "$TMP_XRAY_LOG" 2>/dev/null || true
+    }
+
+    set +e
+    "$GO_RESOLVER" \
+        -input "$PRIMARY_VALUE" \
+        -output "$TMP_CONFIG" \
+        -listen "127.0.0.1" \
+        -port "$RECOVERY_TEST_PORT" \
+        -profile "vless-recovery-test" \
+        -first >"$TMP_RESOLVER_LOG" 2>&1
+    RC="$?"
+    set -e
+
+    cat "$TMP_RESOLVER_LOG" >> "$DETAIL_LOG_FILE" 2>/dev/null || true
+    if [ "$RC" -ne 0 ]; then
+        log "Primary recovery probe config generation failed; see detail log."
+        cleanup_probe
+        return 1
+    fi
+
+    set +e
+    "$XRAY_BIN" run -test -config "$TMP_CONFIG" >> "$DETAIL_LOG_FILE" 2>&1
+    RC="$?"
+    set -e
+    if [ "$RC" -ne 0 ]; then
+        log "Primary recovery probe config validation failed; see detail log."
+        cleanup_probe
+        return 1
+    fi
+
+    "$XRAY_BIN" run -config "$TMP_CONFIG" >"$TMP_XRAY_LOG" 2>&1 &
+    TEST_PID="$!"
+    sleep 2
+
+    if ! kill -0 "$TEST_PID" 2>/dev/null; then
+        cat "$TMP_XRAY_LOG" >> "$DETAIL_LOG_FILE" 2>/dev/null || true
+        log "Primary recovery probe Xray did not start; see detail log."
+        cleanup_probe
+        return 1
+    fi
+
+    if check_socks_target "127.0.0.1" "$RECOVERY_TEST_PORT"; then
+        cat "$TMP_XRAY_LOG" >> "$DETAIL_LOG_FILE" 2>/dev/null || true
+        cleanup_probe
+        return 0
+    fi
+
+    cat "$TMP_XRAY_LOG" >> "$DETAIL_LOG_FILE" 2>/dev/null || true
+    cleanup_probe
+    return 1
 }
 
 check_and_switch() {
@@ -175,6 +283,9 @@ check_and_switch() {
 }
 
 handle_daemon_primary() {
+    DAEMON_RECOVERY_SUCCESS_COUNT="0"
+    DAEMON_RECOVERY_COOLDOWN="0"
+
     if check_socks; then
         DAEMON_FAIL_COUNT="0"
         log "Daemon health OK on primary"
@@ -189,6 +300,7 @@ handle_daemon_primary() {
             log "Failover threshold reached; switching primary -> backup"
             if switch_to backup && check_socks; then
                 log "Daemon failover to backup OK"
+                DAEMON_RECOVERY_COOLDOWN="$RECOVERY_COOLDOWN_CYCLES"
             else
                 log "Daemon failover to backup did not pass health check"
             fi
@@ -208,8 +320,35 @@ handle_daemon_backup() {
         log "Daemon health FAIL on backup: $DAEMON_BACKUP_FAIL_COUNT/$FAILOVER_FAILURES_REQUIRED"
     fi
 
-    if [ "$AUTO_RECOVER_PRIMARY" = "1" ]; then
-        log "AUTO_RECOVER_PRIMARY=1 is configured, but active probing of inactive primary is not implemented in Go edition yet. Staying on backup."
+    if [ "$AUTO_RECOVER_PRIMARY" != "1" ]; then
+        return 0
+    fi
+
+    if [ "$DAEMON_RECOVERY_COOLDOWN" -gt 0 ]; then
+        log "Primary recovery probe cooldown: $DAEMON_RECOVERY_COOLDOWN cycles remaining"
+        DAEMON_RECOVERY_COOLDOWN="$((DAEMON_RECOVERY_COOLDOWN - 1))"
+        return 0
+    fi
+
+    log "Probing primary recovery on temporary SOCKS port $RECOVERY_TEST_PORT"
+    if probe_primary; then
+        DAEMON_RECOVERY_SUCCESS_COUNT="$((DAEMON_RECOVERY_SUCCESS_COUNT + 1))"
+        log "Primary recovery probe OK: $DAEMON_RECOVERY_SUCCESS_COUNT/$RECOVERY_SUCCESSES_REQUIRED"
+    else
+        DAEMON_RECOVERY_SUCCESS_COUNT="0"
+        log "Primary recovery probe FAILED"
+        return 0
+    fi
+
+    if [ "$DAEMON_RECOVERY_SUCCESS_COUNT" -ge "$RECOVERY_SUCCESSES_REQUIRED" ]; then
+        log "Recovery threshold reached; switching backup -> primary"
+        if switch_to primary && check_socks; then
+            log "Daemon recovery to primary OK"
+        else
+            log "Daemon recovery to primary did not pass health check"
+        fi
+        DAEMON_RECOVERY_SUCCESS_COUNT="0"
+        DAEMON_RECOVERY_COOLDOWN="$RECOVERY_COOLDOWN_CYCLES"
     fi
 }
 
@@ -220,8 +359,10 @@ run_daemon() {
 
     DAEMON_FAIL_COUNT="0"
     DAEMON_BACKUP_FAIL_COUNT="0"
+    DAEMON_RECOVERY_SUCCESS_COUNT="0"
+    DAEMON_RECOVERY_COOLDOWN="0"
 
-    log "Daemon started: interval=${WATCHDOG_INTERVAL}s failover_failures_required=$FAILOVER_FAILURES_REQUIRED check_retries=$CHECK_RETRIES"
+    log "Daemon started: interval=${WATCHDOG_INTERVAL}s failover_failures_required=$FAILOVER_FAILURES_REQUIRED check_retries=$CHECK_RETRIES auto_recover_primary=$AUTO_RECOVER_PRIMARY"
 
     while true; do
         SLOT="$(active_slot)"
@@ -310,6 +451,8 @@ status() {
     echo "  failover failures required: $FAILOVER_FAILURES_REQUIRED"
     echo "  recovery successes required: $RECOVERY_SUCCESSES_REQUIRED"
     echo "  auto recover primary: $AUTO_RECOVER_PRIMARY"
+    echo "  recovery test port: $RECOVERY_TEST_PORT"
+    echo "  recovery cooldown cycles: $RECOVERY_COOLDOWN_CYCLES"
     echo "  daemon: $(daemon_status_line)"
     echo "  log: $LOG_FILE"
     echo "  detail log: $DETAIL_LOG_FILE"
@@ -350,6 +493,9 @@ case "${1:-check}" in
     run-backup)
         switch_to backup
         check_socks && log "Health check OK on backup" || { log "Health check FAILED on backup"; exit 1; }
+        ;;
+    probe-primary)
+        probe_primary && log "Primary recovery probe OK" || { log "Primary recovery probe FAILED"; exit 1; }
         ;;
     -h|--help|help)
         usage
