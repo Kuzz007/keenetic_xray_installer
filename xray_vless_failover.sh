@@ -357,11 +357,15 @@ print(f"В подписке для профиля {profile_label} найдено
 for i, link in enumerate(links, 1):
     print(label_for(link, i), file=sys.stderr)
 while True:
+    print("Выберите номер профиля: ", end="", file=sys.stderr, flush=True)
     try:
-        choice = input("Выберите номер профиля: ").strip()
-    except EOFError:
+        choice = sys.stdin.readline()
+    except Exception:
+        choice = ""
+    if not choice:
         print(links[0])
         raise SystemExit(0)
+    choice = choice.strip()
     if choice.isdigit() and 1 <= int(choice) <= len(links):
         print(links[int(choice)-1])
         raise SystemExit(0)
