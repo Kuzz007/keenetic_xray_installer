@@ -9,23 +9,14 @@ TARGET="src/full/xray_vless_failover.sh"
 
 python3 - "$TARGET" <<'PY'
 from pathlib import Path
+import re
 import sys
 
 path = Path(sys.argv[1])
 text = path.read_text()
 original = text
 
-old = '''echo
-
-echo "Перезапускаем Xray..."
-"$INIT_SCRIPT" restart
-
-echo
-
-echo "Перезапускаем failover-сервис..."
-'''
-
-new = '''echo
+new_restart = '''echo
 
 echo "Перезапускаем Xray и проверяем SOCKS5..."
 "$INIT_SCRIPT" restart
@@ -51,12 +42,34 @@ echo
 echo "Перезапускаем failover-сервис..."
 '''
 
-text = text.replace(old, new)
+heredoc_re = re.compile(r'(cat > "\$FAILOVER_UPDATE_CMD" <<\'VUPDATE\'\n)(.*?)(\nVUPDATE\n\n    chmod \+x "\$FAILOVER_UPDATE_CMD")', re.S)
+match = heredoc_re.search(text)
+if not match:
+    print('No FAILOVER_UPDATE_CMD heredoc found.')
+    raise SystemExit(2)
+
+prefix, body, suffix = match.groups()
+
+if 'Перезапускаем Xray и проверяем SOCKS5' in body:
+    print('Update command already contains Xray restart/status/SOCKS check.')
+    raise SystemExit(0)
+
+restart_re = re.compile(
+    r'echo\s*\n\s*echo "Перезапускаем Xray\.\.\."\s*\n\s*"\$INIT_SCRIPT" restart\s*\n\s*echo\s*\n\s*echo "Перезапускаем failover-сервис\.\.\."',
+    re.S,
+)
+
+new_body, count = restart_re.subn(new_restart.rstrip(), body, count=1)
+if count != 1:
+    print('No Xray restart block found inside FAILOVER_UPDATE_CMD heredoc.')
+    print('Show the relevant lines with:')
+    print('  grep -n -A35 -B10 "Перезапускаем Xray" src/full/xray_vless_failover.sh')
+    raise SystemExit(2)
+
+text = text[:match.start()] + prefix + new_body + suffix + text[match.end():]
 
 if text == original:
-    print('No vless-failover-update Xray restart block changed.')
-    print('Show the relevant lines with:')
-    print('  grep -n -A28 -B10 "Перезапускаем Xray" src/full/xray_vless_failover.sh')
+    print('No changes made.')
     raise SystemExit(2)
 
 path.write_text(text)
