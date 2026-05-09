@@ -25,7 +25,7 @@ WATCHDOG_BRANCH="${WATCHDOG_BRANCH:-main}"
 WATCHDOG_INSTALL_URL="${WATCHDOG_INSTALL_URL:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${WATCHDOG_BRANCH}/xray_vless_go_watchdog_install.sh}"
 INSTALL_WATCHDOG="${INSTALL_WATCHDOG:-1}"
 START_WATCHDOG="${START_WATCHDOG:-1}"
-AUTO_RECOVER_PRIMARY="${AUTO_RECOVER_PRIMARY:-0}"
+AUTO_RECOVER_PRIMARY="${AUTO_RECOVER_PRIMARY:-1}"
 
 read_tty() {
     prompt="$1"
@@ -614,7 +614,7 @@ main() {
     echo "Watchdog init: $GO_WATCHDOG_INIT"
     echo "Watchdog config: $GO_WATCHDOG_CONF"
     echo "Enable daily subscription auto-update: vless-go-auto-update enable"
-    echo "Enable backup -> primary recovery: sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=1/' $GO_WATCHDOG_CONF && $GO_WATCHDOG_INIT restart"
+    echo "Backup -> primary recovery is enabled by default. Disable it with: sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=0/' $GO_WATCHDOG_CONF && $GO_WATCHDOG_INIT restart"
     echo "Switch manually: vless-go-failover switch backup --first"
     echo "Watchdog status: vless-go-watchdog status"
     echo "Override Proxy0 upstream host if needed: PROXY_UPSTREAM_HOST=192.168.1.1 sh xray_vless_failover_go.sh"
