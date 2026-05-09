@@ -8,6 +8,9 @@ GO_RESOLVER="/opt/bin/xray-failover-go"
 GO_UPDATE_CMD="/opt/bin/vless-go-update"
 GO_AUTO_UPDATE_CMD="/opt/bin/vless-go-auto-update"
 GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
+GO_WATCHDOG_CMD="/opt/bin/vless-go-watchdog"
+GO_WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
+GO_WATCHDOG_CONF="$XRAY_DIR/vless-go-watchdog.conf"
 SOCKS_PORT="10808"
 SOCKS_LISTEN="0.0.0.0"
 PROXY_IFACE="Proxy0"
@@ -18,6 +21,11 @@ PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
 BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/latest/download/xray-failover-go-linux-arm64}"
+WATCHDOG_BRANCH="${WATCHDOG_BRANCH:-main}"
+WATCHDOG_INSTALL_URL="${WATCHDOG_INSTALL_URL:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${WATCHDOG_BRANCH}/xray_vless_go_watchdog_install.sh}"
+INSTALL_WATCHDOG="${INSTALL_WATCHDOG:-1}"
+START_WATCHDOG="${START_WATCHDOG:-1}"
+AUTO_RECOVER_PRIMARY="${AUTO_RECOVER_PRIMARY:-0}"
 
 read_tty() {
     prompt="$1"
@@ -65,7 +73,7 @@ ensure_cron() {
 }
 
 ensure_packages() {
-    echo "[1/9] Checking Entware packages..."
+    echo "[1/10] Checking Entware packages..."
     if ! command -v opkg >/dev/null 2>&1; then
         echo "ERROR: opkg not found. Entware is required." >&2
         exit 1
@@ -94,7 +102,7 @@ ensure_packages() {
 }
 
 install_go_resolver() {
-    echo "[2/9] Installing experimental Go resolver/generator..."
+    echo "[2/10] Installing experimental Go resolver/generator..."
     mkdir -p "$(dirname "$GO_RESOLVER")" "$TMP_DIR"
 
     if [ -x "$GO_RESOLVER" ]; then
@@ -112,7 +120,7 @@ install_go_resolver() {
 }
 
 create_xray_init() {
-    echo "[7/9] Creating Xray init script..."
+    echo "[7/10] Creating Xray init script..."
     cat > "$INIT_SCRIPT" <<INIT
 #!/bin/sh
 
@@ -128,7 +136,7 @@ INIT
 }
 
 create_update_command() {
-    echo "[4/9] Creating vless-go-update command..."
+    echo "[4/10] Creating vless-go-update command..."
     mkdir -p "$(dirname "$GO_UPDATE_CMD")" "$XRAY_DIR" "$TMP_DIR"
 
     cat > "$GO_UPDATE_CMD" <<'UPDATE'
@@ -260,7 +268,7 @@ UPDATE
 }
 
 create_auto_update_command() {
-    echo "[5/9] Creating vless-go-auto-update command..."
+    echo "[5/10] Creating vless-go-auto-update command..."
     mkdir -p "$(dirname "$GO_AUTO_UPDATE_CMD")" /opt/var/spool/cron/crontabs /opt/var/log
 
     cat > "$GO_AUTO_UPDATE_CMD" <<'AUTO'
@@ -355,7 +363,7 @@ AUTO
 }
 
 create_failover_command() {
-    echo "[6/9] Creating vless-go-failover command..."
+    echo "[6/10] Creating vless-go-failover command..."
     mkdir -p "$(dirname "$GO_FAILOVER_CMD")" "$XRAY_DIR"
 
     cat > "$GO_FAILOVER_CMD" <<'FAILOVER'
@@ -456,6 +464,37 @@ FAILOVER
     chmod +x "$GO_FAILOVER_CMD"
 }
 
+install_watchdog() {
+    echo "[9/10] Installing watchdog daemon and recovery support..."
+
+    if [ "$INSTALL_WATCHDOG" = "0" ]; then
+        echo "Watchdog installation skipped because INSTALL_WATCHDOG=0."
+        return 0
+    fi
+
+    mkdir -p "$TMP_DIR" "$XRAY_DIR"
+    TMP_WATCHDOG_INSTALLER="$TMP_DIR/xray_vless_go_watchdog_install.$$"
+    trap 'rm -f "$TMP_WATCHDOG_INSTALLER" 2>/dev/null || true' EXIT INT TERM
+
+    if ! curl -fL -o "$TMP_WATCHDOG_INSTALLER" "$WATCHDOG_INSTALL_URL"; then
+        echo "ERROR: failed to download watchdog installer: $WATCHDOG_INSTALL_URL" >&2
+        exit 1
+    fi
+
+    chmod +x "$TMP_WATCHDOG_INSTALLER"
+    WATCHDOG_BRANCH="$WATCHDOG_BRANCH" sh "$TMP_WATCHDOG_INSTALLER"
+
+    if [ "$AUTO_RECOVER_PRIMARY" = "1" ] && [ -f "$GO_WATCHDOG_CONF" ]; then
+        sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=1/' "$GO_WATCHDOG_CONF"
+    fi
+
+    if [ "$START_WATCHDOG" = "1" ] && [ -x "$GO_WATCHDOG_INIT" ]; then
+        "$GO_WATCHDOG_INIT" restart || "$GO_WATCHDOG_INIT" start || true
+    else
+        echo "Watchdog daemon not started. Start it with: $GO_WATCHDOG_INIT start"
+    fi
+}
+
 valid_auto_lan_ip() {
     awk 'NF && ($1 ~ /^192\.168\./ || $1 ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./) { print; exit }'
 }
@@ -478,7 +517,7 @@ detect_lan_router_ip() {
 }
 
 configure_proxy0() {
-    echo "[8/9] Configuring Proxy0..."
+    echo "[8/10] Configuring Proxy0..."
     if ! command -v ndmc >/dev/null 2>&1; then
         echo "WARNING: ndmc not found. Configure Proxy0 manually to SOCKS5 $SOCKS_LISTEN:$SOCKS_PORT."
         return 0
@@ -500,7 +539,7 @@ configure_proxy0() {
 }
 
 start_xray() {
-    echo "[9/9] Testing and starting Xray..."
+    echo "[10/10] Testing and starting Xray..."
     XRAY_BIN="$(get_xray_bin)"
     if [ -z "$XRAY_BIN" ]; then
         echo "ERROR: xray binary not found." >&2
@@ -545,7 +584,7 @@ main() {
         echo "Backup source skipped. You can add it later with: vless-go-failover set-backup URL_OR_VLESS"
     fi
 
-    echo "[3/9] Resolving subscription and generating Xray config..."
+    echo "[3/10] Resolving subscription and generating Xray config..."
     "$GO_RESOLVER" \
         -input "$INPUT_VALUE" \
         -output "$XRAY_CONFIG" \
@@ -558,6 +597,7 @@ main() {
     create_failover_command
     create_xray_init
     configure_proxy0
+    install_watchdog
     start_xray
 
     echo
@@ -569,12 +609,15 @@ main() {
     echo "Backup source: $BACKUP_STORE"
     echo "Update command: $GO_UPDATE_CMD"
     echo "Auto-update command: $GO_AUTO_UPDATE_CMD"
-    echo "Failover-lite command: $GO_FAILOVER_CMD"
-    echo "Enable daily auto-update: vless-go-auto-update enable"
-    echo "Configure backup: vless-go-failover set-backup URL_OR_VLESS"
+    echo "Failover command: $GO_FAILOVER_CMD"
+    echo "Watchdog command: $GO_WATCHDOG_CMD"
+    echo "Watchdog init: $GO_WATCHDOG_INIT"
+    echo "Watchdog config: $GO_WATCHDOG_CONF"
+    echo "Enable daily subscription auto-update: vless-go-auto-update enable"
+    echo "Enable backup -> primary recovery: sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=1/' $GO_WATCHDOG_CONF && $GO_WATCHDOG_INIT restart"
     echo "Switch manually: vless-go-failover switch backup --first"
+    echo "Watchdog status: vless-go-watchdog status"
     echo "Override Proxy0 upstream host if needed: PROXY_UPSTREAM_HOST=192.168.1.1 sh xray_vless_failover_go.sh"
-    echo "Note: failover daemon is intentionally not included yet."
 }
 
 main "$@"
