@@ -17,7 +17,9 @@ text = path.read_text()
 original = text
 
 switch_func = r'''create_switch_command() {
-    echo "Создаём команду ручного переключения профиля..."
+    FAILOVER_SWITCH_CMD="${FAILOVER_SWITCH_CMD:-/opt/bin/xray-failover-switch}"
+    mkdir -p "$(dirname "$FAILOVER_SWITCH_CMD")"
+
     cat > "$FAILOVER_SWITCH_CMD" <<'SWITCH'
 #!/bin/sh
 set -e
@@ -178,11 +180,13 @@ SWITCH
 }
 '''
 
-switch_re = re.compile(r'create_switch_command\(\) \{.*?\n\}\n\ncreate_failover_update_command\(\) \{', re.S)
-replacement = switch_func + '\ncreate_failover_update_command() {'
+switch_re = re.compile(r'create_switch_command\(\) \{.*?\n\}\n\ncreate_menu_command\(\) \{', re.S)
+replacement = switch_func + '\ncreate_menu_command() {'
 text, count_switch = switch_re.subn(lambda _m: replacement, text, count=1)
 if count_switch != 1:
     print('ERROR: create_switch_command block not replaced')
+    print('Show relevant lines with:')
+    print('  grep -n -A80 -B10 "create_switch_command" src/minimal/xray_vless_failover_minimal.sh')
     raise SystemExit(2)
 
 update_heredoc_re = re.compile(r'(cat > "\$FAILOVER_UPDATE_CMD" <<\'VUPDATE\'\n)(.*?)(\nVUPDATE\n\s*chmod \+x "\$FAILOVER_UPDATE_CMD")', re.S)
