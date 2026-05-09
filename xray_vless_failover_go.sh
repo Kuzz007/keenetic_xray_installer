@@ -17,10 +17,6 @@ SOURCE_STORE="$XRAY_DIR/vless-go.source"
 PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
 BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 ACTIVE_STORE="$XRAY_DIR/vless-go.active"
-AUTO_UPDATE_LOG="/opt/var/log/vless-go-auto-update.log"
-CRON_FILE="/opt/var/spool/cron/crontabs/root"
-CRON_MARKER="vless-go-auto-update"
-
 GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/latest/download/xray-failover-go-linux-arm64}"
 
 read_tty() {
@@ -46,8 +42,8 @@ get_xray_bin() {
 
 ensure_cron() {
     mkdir -p /opt/var/spool/cron/crontabs /opt/var/log 2>/dev/null || true
-    touch "$CRON_FILE" 2>/dev/null || true
-    chmod 600 "$CRON_FILE" 2>/dev/null || true
+    touch /opt/var/spool/cron/crontabs/root 2>/dev/null || true
+    chmod 600 /opt/var/spool/cron/crontabs/root 2>/dev/null || true
 
     if ! command -v crond >/dev/null 2>&1; then
         echo "Installing cron for optional auto-update..."
@@ -279,13 +275,6 @@ DEFAULT_SCHEDULE="17 4 * * *"
 
 usage() {
     echo "Usage: vless-go-auto-update enable [CRON_SCHEDULE] | disable | status | run"
-    echo ""
-    echo "Examples:"
-    echo "  vless-go-auto-update enable"
-    echo "  vless-go-auto-update enable '17 4 * * *'"
-    echo "  vless-go-auto-update disable"
-    echo "  vless-go-auto-update status"
-    echo "  vless-go-auto-update run"
 }
 
 ensure_cron_files() {
@@ -348,35 +337,17 @@ status_auto() {
 }
 
 run_now() {
-    if [ ! -x "$GO_UPDATE_CMD" ]; then
-        echo "ERROR: update command not found: $GO_UPDATE_CMD" >&2
-        exit 1
-    fi
+    [ -x "$GO_UPDATE_CMD" ] || { echo "ERROR: update command not found: $GO_UPDATE_CMD" >&2; exit 1; }
     "$GO_UPDATE_CMD" --first
 }
 
 case "${1:-status}" in
-    enable)
-        shift
-        enable_auto "${1:-}"
-        ;;
-    disable)
-        disable_auto
-        ;;
-    status)
-        status_auto
-        ;;
-    run)
-        run_now
-        ;;
-    -h|--help|help)
-        usage
-        ;;
-    *)
-        echo "ERROR: unknown command: $1" >&2
-        usage >&2
-        exit 1
-        ;;
+    enable) shift; enable_auto "${1:-}" ;;
+    disable) disable_auto ;;
+    status) status_auto ;;
+    run) run_now ;;
+    -h|--help|help) usage ;;
+    *) echo "ERROR: unknown command: $1" >&2; usage >&2; exit 1 ;;
 esac
 AUTO
 
@@ -400,18 +371,7 @@ GO_UPDATE_CMD="/opt/bin/vless-go-update"
 
 usage() {
     echo "Usage: vless-go-failover COMMAND [ARGS]"
-    echo ""
-    echo "Commands:"
-    echo "  status                         Show active slot and saved primary/backup sources."
-    echo "  set-primary URL_OR_VLESS        Save primary source without switching."
-    echo "  set-backup URL_OR_VLESS         Save backup source without switching."
-    echo "  switch primary|backup [flags]   Switch active source and regenerate Xray config."
-    echo "  update-active [flags]           Regenerate from currently active source."
-    echo "  sync-primary                    Copy current active source to primary slot."
-    echo ""
-    echo "Flags for switch/update-active:"
-    echo "  --first                         Select first profile without prompt."
-    echo "  --no-restart                    Validate config but do not restart Xray."
+    echo "Commands: status | set-primary SRC | set-backup SRC | switch primary|backup [--first] [--no-restart] | update-active [--first] [--no-restart] | sync-primary"
 }
 
 slot_file() {
@@ -443,19 +403,9 @@ parse_update_flags() {
     NO_RESTART="0"
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            --first)
-                FIRST="1"
-                shift
-                ;;
-            --no-restart)
-                NO_RESTART="1"
-                shift
-                ;;
-            *)
-                echo "ERROR: unknown flag: $1" >&2
-                usage >&2
-                exit 1
-                ;;
+            --first) FIRST="1"; shift ;;
+            --no-restart) NO_RESTART="1"; shift ;;
+            *) echo "ERROR: unknown flag: $1" >&2; usage >&2; exit 1 ;;
         esac
     done
 }
@@ -485,83 +435,29 @@ run_update() {
 
 status() {
     echo "Failover-lite status:"
-    if [ -s "$ACTIVE_STORE" ]; then
-        echo "  active: $(sed -n '1p' "$ACTIVE_STORE")"
-    else
-        echo "  active: unknown"
-    fi
-    if [ -s "$PRIMARY_STORE" ]; then
-        echo "  primary: configured"
-    else
-        echo "  primary: not configured"
-    fi
-    if [ -s "$BACKUP_STORE" ]; then
-        echo "  backup: configured"
-    else
-        echo "  backup: not configured"
-    fi
-    if [ -s "$SOURCE_STORE" ]; then
-        echo "  current source: configured"
-    else
-        echo "  current source: not configured"
-    fi
+    [ -s "$ACTIVE_STORE" ] && echo "  active: $(sed -n '1p' "$ACTIVE_STORE")" || echo "  active: unknown"
+    [ -s "$PRIMARY_STORE" ] && echo "  primary: configured" || echo "  primary: not configured"
+    [ -s "$BACKUP_STORE" ] && echo "  backup: configured" || echo "  backup: not configured"
+    [ -s "$SOURCE_STORE" ] && echo "  current source: configured" || echo "  current source: not configured"
 }
 
 case "${1:-status}" in
-    status)
-        status
-        ;;
-    set-primary)
-        shift
-        [ "$#" -ge 1 ] || { echo "ERROR: set-primary requires source" >&2; exit 1; }
-        save_source primary "$1"
-        ;;
-    set-backup)
-        shift
-        [ "$#" -ge 1 ] || { echo "ERROR: set-backup requires source" >&2; exit 1; }
-        save_source backup "$1"
-        ;;
-    switch)
-        shift
-        [ "$#" -ge 1 ] || { echo "ERROR: switch requires primary or backup" >&2; exit 1; }
-        SLOT="$1"
-        shift
-        SOURCE_VALUE="$(slot_source "$SLOT")" || { echo "ERROR: $SLOT source is not configured" >&2; exit 1; }
-        run_update "$SOURCE_VALUE" "$SLOT" "$@"
-        ;;
-    update-active)
-        shift
-        if [ -s "$ACTIVE_STORE" ]; then
-            SLOT="$(sed -n '1p' "$ACTIVE_STORE")"
-            SOURCE_VALUE="$(slot_source "$SLOT" 2>/dev/null || true)"
-            if [ -z "$SOURCE_VALUE" ] && [ -s "$SOURCE_STORE" ]; then
-                SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE")"
-            fi
-        else
-            SLOT="current"
-            SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE" 2>/dev/null || true)"
-        fi
-        [ -n "$SOURCE_VALUE" ] || { echo "ERROR: no active source found" >&2; exit 1; }
-        run_update "$SOURCE_VALUE" "$SLOT" "$@"
-        ;;
-    sync-primary)
-        [ -s "$SOURCE_STORE" ] || { echo "ERROR: current source is not configured" >&2; exit 1; }
-        save_source primary "$(sed -n '1p' "$SOURCE_STORE")"
-        printf '%s\n' primary > "$ACTIVE_STORE"
-        chmod 600 "$ACTIVE_STORE" 2>/dev/null || true
-        ;;
-    -h|--help|help)
-        usage
-        ;;
-    *)
-        echo "ERROR: unknown command: $1" >&2
-        usage >&2
-        exit 1
-        ;;
+    status) status ;;
+    set-primary) shift; [ "$#" -ge 1 ] || { echo "ERROR: set-primary requires source" >&2; exit 1; }; save_source primary "$1" ;;
+    set-backup) shift; [ "$#" -ge 1 ] || { echo "ERROR: set-backup requires source" >&2; exit 1; }; save_source backup "$1" ;;
+    switch) shift; [ "$#" -ge 1 ] || { echo "ERROR: switch requires primary or backup" >&2; exit 1; }; SLOT="$1"; shift; SOURCE_VALUE="$(slot_source "$SLOT")" || { echo "ERROR: $SLOT source is not configured" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "$@" ;;
+    update-active) shift; if [ -s "$ACTIVE_STORE" ]; then SLOT="$(sed -n '1p' "$ACTIVE_STORE")"; SOURCE_VALUE="$(slot_source "$SLOT" 2>/dev/null || true)"; else SLOT="current"; SOURCE_VALUE=""; fi; [ -n "$SOURCE_VALUE" ] || SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE" 2>/dev/null || true)"; [ -n "$SOURCE_VALUE" ] || { echo "ERROR: no active source found" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "$@" ;;
+    sync-primary) [ -s "$SOURCE_STORE" ] || { echo "ERROR: current source is not configured" >&2; exit 1; }; save_source primary "$(sed -n '1p' "$SOURCE_STORE")"; printf '%s\n' primary > "$ACTIVE_STORE"; chmod 600 "$ACTIVE_STORE" 2>/dev/null || true ;;
+    -h|--help|help) usage ;;
+    *) echo "ERROR: unknown command: $1" >&2; usage >&2; exit 1 ;;
 esac
 FAILOVER
 
     chmod +x "$GO_FAILOVER_CMD"
+}
+
+valid_auto_lan_ip() {
+    awk 'NF && ($1 ~ /^192\.168\./ || $1 ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./) { print; exit }'
 }
 
 detect_lan_router_ip() {
@@ -570,27 +466,15 @@ detect_lan_router_ip() {
         return 0
     fi
 
-    # Prefer common Linux bridge/LAN interface names first.
-    for dev in br0 br-lan bridge0 Bridge0 lan0 lan1 home Home; do
-        ip -4 addr show dev "$dev" 2>/dev/null \
-            | awk '/inet / { gsub(/\/.*/, "", $2); print $2; exit }'
-    done | awk 'NF { print; exit }'
-
-    # Then inspect connected routes and prefer interfaces that look like LAN/Home/bridge.
-    ip -4 route show scope link 2>/dev/null \
-        | awk '
-            / src / {
-                src=""; dev="";
-                for (i=1; i<=NF; i++) {
-                    if ($i == "dev") dev=$(i+1);
-                    if ($i == "src") src=$(i+1);
-                }
-                if (src != "" && dev ~ /(br|bridge|lan|home|switch)/) {
-                    print src;
-                    exit;
-                }
-            }
-        '
+    # Prefer explicit Keenetic Home/bridge interfaces, but never auto-pick 10.x.
+    {
+        ndmc -c "show interface Home" 2>/dev/null | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' || true
+        ndmc -c "show interface Bridge0" 2>/dev/null | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' || true
+        for dev in Home home Bridge0 bridge0 br0 br-lan lan0 lan1; do
+            ip -4 addr show dev "$dev" 2>/dev/null | awk '/inet / { gsub(/\/.*/, "", $2); print $2 }'
+        done
+        ip -4 route show scope link 2>/dev/null | awk '/ src / { for (i=1; i<=NF; i++) if ($i == "src") print $(i+1) }'
+    } | valid_auto_lan_ip
 }
 
 configure_proxy0() {
