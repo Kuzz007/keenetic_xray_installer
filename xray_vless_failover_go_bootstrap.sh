@@ -50,7 +50,7 @@ clone_or_update_repo() {
     fi
 }
 
-run_installer() {
+run_installer_interactive() {
     echo "[3/4] Running local experimental Go installer..."
     cd "$REPO_DIR"
 
@@ -69,8 +69,11 @@ print_summary() {
     echo "Branch: $REPO_BRANCH"
     echo "Installer: $REPO_DIR/$INSTALLER_SCRIPT"
     echo ""
-    echo "Update repo and rerun installer later:"
+    echo "Update repo and rerun installer without re-entering VLESS/subscription sources:"
     echo "  xray-go-repo-update"
+    echo ""
+    echo "Force an interactive reinstall later:"
+    echo "  xray-go-repo-update --interactive"
 }
 
 create_update_command() {
@@ -81,6 +84,26 @@ REPO_URL="${REPO_URL}"
 REPO_BRANCH="${REPO_BRANCH}"
 REPO_DIR="${REPO_DIR}"
 INSTALLER_SCRIPT="${INSTALLER_SCRIPT}"
+INTERACTIVE="0"
+
+case "\${1:-}" in
+    --interactive)
+        INTERACTIVE="1"
+        shift
+        ;;
+    -h|--help)
+        echo "Usage: xray-go-repo-update [--interactive]"
+        echo "  default: update repository and run installer with --reuse-saved"
+        echo "  --interactive: ask for primary/backup sources again"
+        exit 0
+        ;;
+    "")
+        ;;
+    *)
+        echo "ERROR: unknown argument: \$1" >&2
+        exit 1
+        ;;
+esac
 
 if ! command -v git >/dev/null 2>&1; then
     opkg update
@@ -100,7 +123,11 @@ fi
 
 cd "\$REPO_DIR"
 chmod +x "\$INSTALLER_SCRIPT"
-sh "\$INSTALLER_SCRIPT"
+if [ "\$INTERACTIVE" = "1" ]; then
+    sh "\$INSTALLER_SCRIPT"
+else
+    sh "\$INSTALLER_SCRIPT" --reuse-saved
+fi
 UPDATE
     chmod +x /opt/bin/xray-go-repo-update
 }
@@ -110,7 +137,7 @@ main() {
     ensure_packages
     clone_or_update_repo
     create_update_command
-    run_installer
+    run_installer_interactive
     print_summary
 }
 
