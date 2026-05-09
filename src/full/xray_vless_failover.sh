@@ -265,20 +265,29 @@ set -e
 MODE="${1:-interactive}"
 SOURCE_VALUE="${2:-}"
 PROFILE_LABEL="${3:-профиль}"
+TMP_LINKS="/opt/tmp/xray-resolver-links.$$"
+
+cleanup() {
+    rm -f "$TMP_LINKS" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
 if [ -z "$SOURCE_VALUE" ]; then
     echo "ОШИБКА: пустая ссылка." >&2
     exit 1
 fi
 
-python3 - "$MODE" "$SOURCE_VALUE" "$PROFILE_LABEL" <<'PYRESOLVER'
+mkdir -p /opt/tmp 2>/dev/null || true
+
+set +e
+python3 - "$MODE" "$SOURCE_VALUE" "$PROFILE_LABEL" "$TMP_LINKS" <<'PYRESOLVER'
 import base64
 import re
 import sys
 import urllib.parse
 import urllib.request
 
-mode, value, profile_label = sys.argv[1], sys.argv[2].strip(), sys.argv[3]
+mode, value, profile_label, links_path = sys.argv[1], sys.argv[2].strip(), sys.argv[3], sys.argv[4]
 
 def decode_variants(data):
     variants = []
@@ -333,56 +342,78 @@ if value.startswith("vless://"):
 
 parsed = urllib.parse.urlparse(value)
 if parsed.scheme not in ("http", "https"):
-    raise SystemExit("ОШИБКА: нужен формат vless:// или http(s) ссылка подписки")
+    print("ОШИБКА: нужен формат vless:// или http(s) ссылка подписки", file=sys.stderr)
+    raise SystemExit(1)
 
 try:
     payload = download_subscription(value)
 except Exception as exc:
-    raise SystemExit(f"ОШИБКА: не удалось скачать подписку: {exc}")
+    print(f"ОШИБКА: не удалось скачать подписку: {exc}", file=sys.stderr)
+    raise SystemExit(1)
 
 links = []
-for text in decode_variants(payload):
-    for link in extract_vless_links(text):
+for text_variant in decode_variants(payload):
+    for link in extract_vless_links(text_variant):
         if link not in links:
             links.append(link)
 
 if not links:
-    raise SystemExit("ОШИБКА: в подписке не найдено vless:// ссылок")
+    print("ОШИБКА: в подписке не найдено vless:// ссылок", file=sys.stderr)
+    raise SystemExit(1)
 
 if len(links) == 1 or mode != "interactive":
     print(links[0])
     raise SystemExit(0)
 
+with open(links_path, "w", encoding="utf-8") as f:
+    for link in links:
+        f.write(link + "\n")
+
 print(f"В подписке для профиля {profile_label} найдено VLESS-профилей: {len(links)}", file=sys.stderr)
 for i, link in enumerate(links, 1):
     print(label_for(link, i), file=sys.stderr)
-tty_in = None
-tty_out = None
-try:
-    tty_in = open("/dev/tty", "r", encoding="utf-8", errors="ignore")
-except Exception:
-    tty_in = None
-try:
-    tty_out = open("/dev/tty", "w", encoding="utf-8", errors="ignore")
-except Exception:
-    tty_out = None
 
-while True:
-    prompt_stream = tty_out if tty_out is not None else sys.stderr
-    print("Выберите номер профиля: ", end="", file=prompt_stream, flush=True)
-    try:
-        choice = tty_in.readline() if tty_in is not None else sys.stdin.readline()
-    except Exception:
-        choice = ""
-    if not choice:
-        print("ОШИБКА: не удалось прочитать номер профиля из терминала.", file=sys.stderr)
-        raise SystemExit(1)
-    choice = choice.strip()
-    if choice.isdigit() and 1 <= int(choice) <= len(links):
-        print(links[int(choice)-1])
-        raise SystemExit(0)
-    print("Введите корректный номер профиля.", file=prompt_stream, flush=True)
+raise SystemExit(20)
 PYRESOLVER
+STATUS="$?"
+set -e
+
+if [ "$STATUS" -eq 0 ]; then
+    exit 0
+fi
+
+if [ "$STATUS" -ne 20 ]; then
+    exit "$STATUS"
+fi
+
+COUNT="$(wc -l < "$TMP_LINKS" | tr -d ' ')"
+
+while true; do
+    if [ -r /dev/tty ]; then
+        printf "Выберите номер профиля: " >/dev/tty
+        IFS= read -r CHOICE </dev/tty || CHOICE=""
+    else
+        printf "Выберите номер профиля: " >&2
+        IFS= read -r CHOICE || CHOICE=""
+    fi
+
+    case "$CHOICE" in
+        '' )
+            echo "ОШИБКА: номер профиля не введён." >&2
+            exit 1
+            ;;
+        *[!0-9]* )
+            echo "Введите корректный номер профиля." >&2
+            ;;
+        * )
+            if [ "$CHOICE" -ge 1 ] 2>/dev/null && [ "$CHOICE" -le "$COUNT" ] 2>/dev/null; then
+                sed -n "${CHOICE}p" "$TMP_LINKS"
+                exit 0
+            fi
+            echo "Введите номер от 1 до $COUNT." >&2
+            ;;
+    esac
+done
 RESOLVE
 
     chmod +x "$RESOLVER"
