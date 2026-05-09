@@ -5,6 +5,7 @@ WATCHDOG_BRANCH="${WATCHDOG_BRANCH:-main}"
 WATCHDOG_URL="${WATCHDOG_URL:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${WATCHDOG_BRANCH}/scripts/vless-go-watchdog.sh}"
 WATCHDOG_CMD="/opt/bin/vless-go-watchdog"
 WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
+WATCHDOG_CONF="/opt/etc/xray/vless-go-watchdog.conf"
 WATCHDOG_LOG="/opt/var/log/vless-go-watchdog.log"
 WATCHDOG_PID="/opt/var/run/vless-go-watchdog.pid"
 
@@ -20,7 +21,7 @@ else
     opkg install ca-bundle >/dev/null 2>&1 || true
 fi
 
-mkdir -p /opt/bin /opt/etc/init.d /opt/var/log /opt/var/run /opt/var/spool/cron/crontabs
+mkdir -p /opt/bin /opt/etc/init.d /opt/etc/xray /opt/var/log /opt/var/run /opt/var/spool/cron/crontabs
 
 echo "Installing VLESS Go watchdog from: $WATCHDOG_URL"
 if ! curl -fL -o "$WATCHDOG_CMD" "$WATCHDOG_URL"; then
@@ -30,12 +31,29 @@ fi
 
 chmod +x "$WATCHDOG_CMD"
 
+if [ ! -f "$WATCHDOG_CONF" ]; then
+    cat > "$WATCHDOG_CONF" <<CONF
+# VLESS Go watchdog settings.
+# Keep AUTO_RECOVER_PRIMARY=0 unless you explicitly want backup -> primary recovery.
+WATCHDOG_INTERVAL=15
+FAILOVER_FAILURES_REQUIRED=2
+CHECK_RETRIES=2
+CHECK_RETRY_DELAY=2
+AUTO_RECOVER_PRIMARY=0
+RECOVERY_SUCCESSES_REQUIRED=2
+RECOVERY_COOLDOWN_CYCLES=2
+RECOVERY_TEST_PORT=18080
+CONF
+    chmod 600 "$WATCHDOG_CONF" 2>/dev/null || true
+fi
+
 cat > "$WATCHDOG_INIT" <<INIT
 #!/bin/sh
 
 ENABLED=yes
 DESC="VLESS Go Watchdog"
 DAEMON="$WATCHDOG_CMD"
+CONFIG="$WATCHDOG_CONF"
 PIDFILE="$WATCHDOG_PID"
 LOGFILE="$WATCHDOG_LOG"
 
@@ -60,6 +78,11 @@ start() {
         echo "error."
         echo "Daemon not found or not executable: \$DAEMON"
         exit 1
+    fi
+
+    if [ -f "\$CONFIG" ]; then
+        . "\$CONFIG"
+        export WATCHDOG_INTERVAL FAILOVER_FAILURES_REQUIRED CHECK_RETRIES CHECK_RETRY_DELAY AUTO_RECOVER_PRIMARY RECOVERY_SUCCESSES_REQUIRED RECOVERY_COOLDOWN_CYCLES RECOVERY_TEST_PORT
     fi
 
     # vless-go-watchdog already writes to LOGFILE internally.
@@ -130,12 +153,14 @@ chmod +x "$WATCHDOG_INIT"
 
 echo "Installed: $WATCHDOG_CMD"
 echo "Installed init service: $WATCHDOG_INIT"
+echo "Config file: $WATCHDOG_CONF"
 echo ""
 echo "Commands:"
 echo "  vless-go-watchdog status"
 echo "  vless-go-watchdog check"
 echo "  vless-go-watchdog run-backup"
 echo "  vless-go-watchdog run-primary"
+echo "  vless-go-watchdog probe-primary"
 echo "  vless-go-watchdog daemon"
 echo "  $WATCHDOG_INIT start"
 echo "  $WATCHDOG_INIT stop"
@@ -145,4 +170,8 @@ echo "Default daemon behavior:"
 echo "  - checks SOCKS 127.0.0.1:10808 every 15 seconds"
 echo "  - requires 2 failed daemon cycles before switching primary -> backup"
 echo "  - each cycle has 2 curl attempts with 2s retry delay"
-echo "  - does not automatically switch from backup back to primary yet"
+echo "  - backup -> primary recovery is disabled by default"
+echo ""
+echo "Enable safe backup -> primary recovery:"
+echo "  sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=1/' $WATCHDOG_CONF"
+echo "  $WATCHDOG_INIT restart"
