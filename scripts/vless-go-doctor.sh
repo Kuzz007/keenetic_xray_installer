@@ -16,6 +16,28 @@ SOCKS_PORT="${SOCKS_PORT:-10808}"
 CHECK_URL="${CHECK_URL:-http://connectivitycheck.gstatic.com/generate_204}"
 CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-5}"
 MAX_TIME="${MAX_TIME:-10}"
+VERBOSE="0"
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --verbose|-v)
+            VERBOSE="1"
+            shift
+            ;;
+        -h|--help|help)
+            echo "Usage: vless-go-doctor [--verbose]"
+            echo ""
+            echo "Default mode avoids printing verbose detail logs that can contain profile/server metadata."
+            echo "Use --verbose only for local debugging."
+            exit 0
+            ;;
+        *)
+            echo "ERROR: unknown argument: $1" >&2
+            echo "Usage: vless-go-doctor [--verbose]" >&2
+            exit 2
+            ;;
+    esac
+done
 
 OK_COUNT=0
 WARN_COUNT=0
@@ -200,7 +222,14 @@ show_watchdog_summary
 
 section "Logs"
 show_tail_safe "$WATCHDOG_LOG" "watchdog main log"
-show_tail_safe "$WATCHDOG_DETAIL_LOG" "watchdog detail log"
+if [ "$VERBOSE" = "1" ]; then
+    echo "-- watchdog detail log --"
+    echo "  WARNING: verbose detail log may contain profile/server metadata."
+    show_tail_safe "$WATCHDOG_DETAIL_LOG" "watchdog detail log"
+else
+    echo "-- watchdog detail log skipped --"
+    echo "  Use: vless-go-doctor --verbose"
+fi
 
 section "Summary"
 printf 'OK=%s WARN=%s FAIL=%s\n' "$OK_COUNT" "$WARN_COUNT" "$FAIL_COUNT"
