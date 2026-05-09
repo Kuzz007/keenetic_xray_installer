@@ -98,101 +98,101 @@ ip_route_parts() {
 
 domain_data() {
 cat <<'DATA'
-D|domain-list80|xray-ai-domains|chat.com
-D|domain-list80|xray-ai-domains|chatgpt.com
-D|domain-list80|xray-ai-domains|oaistatic.com
-D|domain-list80|xray-ai-domains|oaiusercontent.com
-D|domain-list80|xray-ai-domains|openai.com
-D|domain-list80|xray-ai-domains|sora.com
-D|domain-list81|xray-apple-domains|aaplimg.com
-D|domain-list81|xray-apple-domains|apple-cloudkit.com
-D|domain-list81|xray-apple-domains|apple-dns.com
-D|domain-list81|xray-apple-domains|apple-dns.net
-D|domain-list81|xray-apple-domains|apple.com
-D|domain-list81|xray-apple-domains|appstore.com
-D|domain-list81|xray-apple-domains|cdn-apple.com
-D|domain-list81|xray-apple-domains|icloud.com
-D|domain-list81|xray-apple-domains|icloud-content.com
-D|domain-list81|xray-apple-domains|itunes.apple.com
-D|domain-list81|xray-apple-domains|mzstatic.com
-D|domain-list81|xray-apple-domains|shazam.com
-D|domain-list82|xray-discord-domains|dis.gd
-D|domain-list82|xray-discord-domains|discord.com
-D|domain-list82|xray-discord-domains|discord.gg
-D|domain-list82|xray-discord-domains|discord.media
-D|domain-list82|xray-discord-domains|discordapp.com
-D|domain-list82|xray-discord-domains|discordapp.net
-D|domain-list82|xray-discord-domains|discordcdn.com
-D|domain-list83|xray-gemini-domains|ai.google.dev
-D|domain-list83|xray-gemini-domains|ai.studio
-D|domain-list83|xray-gemini-domains|aistudio.google.com
-D|domain-list83|xray-gemini-domains|bard.google.com
-D|domain-list83|xray-gemini-domains|deepmind.com
-D|domain-list83|xray-gemini-domains|deepmind.google
-D|domain-list83|xray-gemini-domains|gemini.google
-D|domain-list83|xray-gemini-domains|gemini.google.com
-D|domain-list83|xray-gemini-domains|generativeai.google
-D|domain-list83|xray-gemini-domains|jules.google
-D|domain-list83|xray-gemini-domains|jules.google.com
-D|domain-list83|xray-gemini-domains|labs.google
-D|domain-list83|xray-gemini-domains|labs.google.com
-D|domain-list83|xray-gemini-domains|notebooklm.google
-D|domain-list83|xray-gemini-domains|notebooklm.google.com
-D|domain-list83|xray-gemini-domains|opal.google
-D|domain-list83|xray-gemini-domains|opal.google.com
-D|domain-list83|xray-gemini-domains|stitch.withgoogle.com
-D|domain-list84|xray-meta-domains|aboutfacebook.com
-D|domain-list84|xray-meta-domains|facebook.com
-D|domain-list84|xray-meta-domains|facebook.net
-D|domain-list84|xray-meta-domains|fb.com
-D|domain-list84|xray-meta-domains|fbcdn.com
-D|domain-list84|xray-meta-domains|fbcdn.net
-D|domain-list84|xray-meta-domains|instagram.com
-D|domain-list84|xray-meta-domains|cdninstagram.com
-D|domain-list84|xray-meta-domains|ig.me
-D|domain-list84|xray-meta-domains|igcdn.com
-D|domain-list84|xray-meta-domains|messenger.com
-D|domain-list84|xray-meta-domains|m.me
-D|domain-list84|xray-meta-domains|meta.ai
-D|domain-list84|xray-meta-domains|meta.com
-D|domain-list84|xray-meta-domains|threads.com
-D|domain-list84|xray-meta-domains|threads.net
-D|domain-list84|xray-meta-domains|wa.me
-D|domain-list84|xray-meta-domains|whatsapp.com
-D|domain-list84|xray-meta-domains|whatsapp.net
-D|domain-list85|xray-telegram-domains|cdn-telegram.org
-D|domain-list85|xray-telegram-domains|comments.app
-D|domain-list85|xray-telegram-domains|contest.com
-D|domain-list85|xray-telegram-domains|fragment.com
-D|domain-list85|xray-telegram-domains|graph.org
-D|domain-list85|xray-telegram-domains|t.me
-D|domain-list85|xray-telegram-domains|tdesktop.com
-D|domain-list85|xray-telegram-domains|telegra.ph
-D|domain-list85|xray-telegram-domains|telegram-cdn.org
-D|domain-list85|xray-telegram-domains|telegram.dog
-D|domain-list85|xray-telegram-domains|telegram.me
-D|domain-list85|xray-telegram-domains|telegram.org
-D|domain-list85|xray-telegram-domains|telegram.space
-D|domain-list85|xray-telegram-domains|telesco.pe
-D|domain-list85|xray-telegram-domains|tg.dev
-D|domain-list85|xray-telegram-domains|ton.org
-D|domain-list86|xray-youtube-domains|googlevideo.com
-D|domain-list86|xray-youtube-domains|i.ytimg.com
-D|domain-list86|xray-youtube-domains|manifest.googlevideo.com
-D|domain-list86|xray-youtube-domains|m.youtube.com
-D|domain-list86|xray-youtube-domains|music.youtube.com
-D|domain-list86|xray-youtube-domains|s.youtube.com
-D|domain-list86|xray-youtube-domains|studio.youtube.com
-D|domain-list86|xray-youtube-domains|tv.youtube.com
-D|domain-list86|xray-youtube-domains|wide-youtube.l.google.com
-D|domain-list86|xray-youtube-domains|www.youtube.com
-D|domain-list86|xray-youtube-domains|youtu.be
-D|domain-list86|xray-youtube-domains|youtube-nocookie.com
-D|domain-list86|xray-youtube-domains|youtube.com
-D|domain-list86|xray-youtube-domains|youtube.googleapis.com
-D|domain-list86|xray-youtube-domains|youtubei.googleapis.com
-D|domain-list86|xray-youtube-domains|ytimg.com
-D|domain-list86|xray-youtube-domains|ytimg.googleusercontent.com
+D|domain-list10|xray-ai-domains|chat.com
+D|domain-list10|xray-ai-domains|chatgpt.com
+D|domain-list10|xray-ai-domains|oaistatic.com
+D|domain-list10|xray-ai-domains|oaiusercontent.com
+D|domain-list10|xray-ai-domains|openai.com
+D|domain-list10|xray-ai-domains|sora.com
+D|domain-list11|xray-apple-domains|aaplimg.com
+D|domain-list11|xray-apple-domains|apple-cloudkit.com
+D|domain-list11|xray-apple-domains|apple-dns.com
+D|domain-list11|xray-apple-domains|apple-dns.net
+D|domain-list11|xray-apple-domains|apple.com
+D|domain-list11|xray-apple-domains|appstore.com
+D|domain-list11|xray-apple-domains|cdn-apple.com
+D|domain-list11|xray-apple-domains|icloud.com
+D|domain-list11|xray-apple-domains|icloud-content.com
+D|domain-list11|xray-apple-domains|itunes.apple.com
+D|domain-list11|xray-apple-domains|mzstatic.com
+D|domain-list11|xray-apple-domains|shazam.com
+D|domain-list12|xray-discord-domains|dis.gd
+D|domain-list12|xray-discord-domains|discord.com
+D|domain-list12|xray-discord-domains|discord.gg
+D|domain-list12|xray-discord-domains|discord.media
+D|domain-list12|xray-discord-domains|discordapp.com
+D|domain-list12|xray-discord-domains|discordapp.net
+D|domain-list12|xray-discord-domains|discordcdn.com
+D|domain-list13|xray-gemini-domains|ai.google.dev
+D|domain-list13|xray-gemini-domains|ai.studio
+D|domain-list13|xray-gemini-domains|aistudio.google.com
+D|domain-list13|xray-gemini-domains|bard.google.com
+D|domain-list13|xray-gemini-domains|deepmind.com
+D|domain-list13|xray-gemini-domains|deepmind.google
+D|domain-list13|xray-gemini-domains|gemini.google
+D|domain-list13|xray-gemini-domains|gemini.google.com
+D|domain-list13|xray-gemini-domains|generativeai.google
+D|domain-list13|xray-gemini-domains|jules.google
+D|domain-list13|xray-gemini-domains|jules.google.com
+D|domain-list13|xray-gemini-domains|labs.google
+D|domain-list13|xray-gemini-domains|labs.google.com
+D|domain-list13|xray-gemini-domains|notebooklm.google
+D|domain-list13|xray-gemini-domains|notebooklm.google.com
+D|domain-list13|xray-gemini-domains|opal.google
+D|domain-list13|xray-gemini-domains|opal.google.com
+D|domain-list13|xray-gemini-domains|stitch.withgoogle.com
+D|domain-list14|xray-meta-domains|aboutfacebook.com
+D|domain-list14|xray-meta-domains|facebook.com
+D|domain-list14|xray-meta-domains|facebook.net
+D|domain-list14|xray-meta-domains|fb.com
+D|domain-list14|xray-meta-domains|fbcdn.com
+D|domain-list14|xray-meta-domains|fbcdn.net
+D|domain-list14|xray-meta-domains|instagram.com
+D|domain-list14|xray-meta-domains|cdninstagram.com
+D|domain-list14|xray-meta-domains|ig.me
+D|domain-list14|xray-meta-domains|igcdn.com
+D|domain-list14|xray-meta-domains|messenger.com
+D|domain-list14|xray-meta-domains|m.me
+D|domain-list14|xray-meta-domains|meta.ai
+D|domain-list14|xray-meta-domains|meta.com
+D|domain-list14|xray-meta-domains|threads.com
+D|domain-list14|xray-meta-domains|threads.net
+D|domain-list14|xray-meta-domains|wa.me
+D|domain-list14|xray-meta-domains|whatsapp.com
+D|domain-list14|xray-meta-domains|whatsapp.net
+D|domain-list15|xray-telegram-domains|cdn-telegram.org
+D|domain-list15|xray-telegram-domains|comments.app
+D|domain-list15|xray-telegram-domains|contest.com
+D|domain-list15|xray-telegram-domains|fragment.com
+D|domain-list15|xray-telegram-domains|graph.org
+D|domain-list15|xray-telegram-domains|t.me
+D|domain-list15|xray-telegram-domains|tdesktop.com
+D|domain-list15|xray-telegram-domains|telegra.ph
+D|domain-list15|xray-telegram-domains|telegram-cdn.org
+D|domain-list15|xray-telegram-domains|telegram.dog
+D|domain-list15|xray-telegram-domains|telegram.me
+D|domain-list15|xray-telegram-domains|telegram.org
+D|domain-list15|xray-telegram-domains|telegram.space
+D|domain-list15|xray-telegram-domains|telesco.pe
+D|domain-list15|xray-telegram-domains|tg.dev
+D|domain-list15|xray-telegram-domains|ton.org
+D|domain-list16|xray-youtube-domains|googlevideo.com
+D|domain-list16|xray-youtube-domains|i.ytimg.com
+D|domain-list16|xray-youtube-domains|manifest.googlevideo.com
+D|domain-list16|xray-youtube-domains|m.youtube.com
+D|domain-list16|xray-youtube-domains|music.youtube.com
+D|domain-list16|xray-youtube-domains|s.youtube.com
+D|domain-list16|xray-youtube-domains|studio.youtube.com
+D|domain-list16|xray-youtube-domains|tv.youtube.com
+D|domain-list16|xray-youtube-domains|wide-youtube.l.google.com
+D|domain-list16|xray-youtube-domains|www.youtube.com
+D|domain-list16|xray-youtube-domains|youtu.be
+D|domain-list16|xray-youtube-domains|youtube-nocookie.com
+D|domain-list16|xray-youtube-domains|youtube.com
+D|domain-list16|xray-youtube-domains|youtube.googleapis.com
+D|domain-list16|xray-youtube-domains|youtubei.googleapis.com
+D|domain-list16|xray-youtube-domains|ytimg.com
+D|domain-list16|xray-youtube-domains|ytimg.googleusercontent.com
 DATA
 }
 
@@ -393,7 +393,7 @@ DATA
 for_each_domain_group() {
     # FQDN object groups. In Keenetic web UI these are shown in "Списки доменных имен".
     # They can contain both domains and IPv4/CIDR entries.
-    for group in domain-list80 domain-list81 domain-list82 domain-list83 domain-list84 domain-list85 domain-list86 domain-list87 domain-list88 domain-list89 domain-list90; do
+    for group in domain-list10 domain-list11 domain-list12 domain-list13 domain-list14 domain-list15 domain-list16 domain-list17 domain-list18 domain-list19 domain-list20; do
         echo "$group"
     done
 }
@@ -408,14 +408,14 @@ for_each_ip_group() {
 ip_to_fqdn_group() {
     ip_group="$1"
     case "$ip_group" in
-        ip-list80) echo "domain-list87|xray-akamai-mixed" ;;
-        ip-list81) echo "domain-list81|xray-apple-domains-ips" ;;
-        ip-list82) echo "domain-list88|xray-amazon-mixed" ;;
-        ip-list83) echo "domain-list89|xray-cloudflare-mixed" ;;
-        ip-list84) echo "domain-list90|xray-fastly-mixed" ;;
-        ip-list85) echo "domain-list84|xray-meta-domains-ips" ;;
-        ip-list86) echo "domain-list85|xray-telegram-domains-ips" ;;
-        ip-list87) echo "domain-list86|xray-youtube-domains-ips" ;;
+        ip-list80) echo "domain-list17|xray-akamai-mixed" ;;
+        ip-list81) echo "domain-list11|xray-apple-domains-ips" ;;
+        ip-list82) echo "domain-list18|xray-amazon-mixed" ;;
+        ip-list83) echo "domain-list19|xray-cloudflare-mixed" ;;
+        ip-list84) echo "domain-list20|xray-fastly-mixed" ;;
+        ip-list85) echo "domain-list14|xray-meta-domains-ips" ;;
+        ip-list86) echo "domain-list15|xray-telegram-domains-ips" ;;
+        ip-list87) echo "domain-list16|xray-youtube-domains-ips" ;;
         *) echo "" ;;
     esac
 }
@@ -436,7 +436,7 @@ remove_policy_route() {
 }
 
 clear_routes_nosave() {
-    echo "Удаляем наши FQDN routes и domain-list80..86..."
+    echo "Удаляем наши FQDN routes и domain-list10..86..."
     for_each_domain_group | while read -r group; do
         quiet_ndmc "dns-proxy no route object-group $group $PROXY_IFACE auto"
         quiet_ndmc "no dns-proxy route object-group $group $PROXY_IFACE auto"
@@ -469,7 +469,7 @@ sync_routes() {
     echo "Policy: $POLICY_NAME"
     echo
 
-    echo "Создаём FQDN mixed groups: domain-list80..90..."
+    echo "Создаём FQDN mixed groups: domain-list10..90..."
 
     # 1. Domain entries.
     domain_data | while IFS='|' read -r kind group desc domain; do
@@ -503,7 +503,7 @@ sync_routes() {
     done
 
     # 3. Route all FQDN/mixed groups through Proxy0 for domain DNS routing.
-    echo "Добавляем dns-proxy routes для domain-list80..90..."
+    echo "Добавляем dns-proxy routes для domain-list10..90..."
     for_each_domain_group | while read -r group; do
         quiet_ndmc "dns-proxy route object-group $group $PROXY_IFACE auto"
     done
@@ -524,7 +524,7 @@ reinstall_routes() {
     echo "======================================"
     echo " Xray Keenetic Routes reinstall"
     echo "======================================"
-    echo "Будет выполнена полная очистка domain-list80..90, ip-list80..87 и наших Policy0 routes, затем повторное добавление."
+    echo "Будет выполнена полная очистка domain-list10..90, ip-list80..87 и наших Policy0 routes, затем повторное добавление."
     echo
 
     backup_config
@@ -556,12 +556,12 @@ status_routes() {
     need_ndmc
 
     echo
-    echo "FQDN groups domain-list80..86:"
-    ndmc -c "show running-config" | grep -E "object-group fqdn domain-list(8[0-9]|90)|description xray-.*|route object-group domain-list(8[0-9]|90)" || true
+    echo "FQDN groups domain-list10..86:"
+    ndmc -c "show running-config" | grep -E "object-group fqdn domain-list(1[0-9]|20)|description xray-.*|route object-group domain-list(1[0-9]|20)" || true
 
     echo
-    echo "Mixed FQDN groups with IPv4/CIDR, domain-list80..90:"
-    ndmc -c "show running-config" | grep -E "object-group fqdn domain-list(8[0-9]|90)|description xray-.*|include [0-9]+\." | head -n 160 || true
+    echo "Mixed FQDN groups with IPv4/CIDR, domain-list10..90:"
+    ndmc -c "show running-config" | grep -E "object-group fqdn domain-list(1[0-9]|20)|description xray-.*|include [0-9]+\." | head -n 160 || true
 
     echo
     echo "Legacy IP object groups ip-list80..87, should be absent:"
