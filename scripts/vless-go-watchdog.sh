@@ -11,6 +11,8 @@ SOCKS_PORT="${SOCKS_PORT:-10808}"
 CHECK_URL="${CHECK_URL:-https://api.ipify.org}"
 CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-8}"
 MAX_TIME="${MAX_TIME:-15}"
+CHECK_RETRIES="${CHECK_RETRIES:-5}"
+CHECK_RETRY_DELAY="${CHECK_RETRY_DELAY:-2}"
 LOG_FILE="${LOG_FILE:-/opt/var/log/vless-go-watchdog.log}"
 MARKER="vless-go-watchdog"
 CRON_FILE="/opt/var/spool/cron/crontabs/root"
@@ -33,6 +35,8 @@ usage() {
     echo "  SOCKS_PORT=$SOCKS_PORT"
     echo "  CONNECT_TIMEOUT=$CONNECT_TIMEOUT"
     echo "  MAX_TIME=$MAX_TIME"
+    echo "  CHECK_RETRIES=$CHECK_RETRIES"
+    echo "  CHECK_RETRY_DELAY=$CHECK_RETRY_DELAY"
     echo "  LOG_FILE=$LOG_FILE"
 }
 
@@ -56,15 +60,42 @@ ensure_failover_cmd() {
     fi
 }
 
-check_socks() {
-    curl -fsS \
+check_socks_once() {
+    TMP_OUT="/tmp/vless-go-watchdog.check.$$"
+    TMP_ERR="/tmp/vless-go-watchdog.err.$$"
+
+    if curl -fsS \
         --socks5-hostname "$SOCKS_HOST:$SOCKS_PORT" \
         --connect-timeout "$CONNECT_TIMEOUT" \
         --max-time "$MAX_TIME" \
-        "$CHECK_URL" >/tmp/vless-go-watchdog.check.$$ 2>/tmp/vless-go-watchdog.err.$$
+        "$CHECK_URL" >"$TMP_OUT" 2>"$TMP_ERR"; then
+        rm -f "$TMP_OUT" "$TMP_ERR" 2>/dev/null || true
+        return 0
+    fi
+
     RC="$?"
-    rm -f /tmp/vless-go-watchdog.check.$$ /tmp/vless-go-watchdog.err.$$ 2>/dev/null || true
+    ERR_MSG="$(tr '\n' ' ' < "$TMP_ERR" 2>/dev/null | sed 's/[[:space:]][[:space:]]*/ /g')"
+    rm -f "$TMP_OUT" "$TMP_ERR" 2>/dev/null || true
+    [ -n "$ERR_MSG" ] && log "Health check curl error rc=$RC: $ERR_MSG"
     return "$RC"
+}
+
+check_socks() {
+    ATTEMPT="1"
+    while [ "$ATTEMPT" -le "$CHECK_RETRIES" ]; do
+        if check_socks_once; then
+            [ "$ATTEMPT" = "1" ] || log "Health check OK on retry $ATTEMPT/$CHECK_RETRIES"
+            return 0
+        fi
+
+        if [ "$ATTEMPT" -lt "$CHECK_RETRIES" ]; then
+            log "Health check attempt $ATTEMPT/$CHECK_RETRIES failed; retrying in ${CHECK_RETRY_DELAY}s"
+            sleep "$CHECK_RETRY_DELAY"
+        fi
+        ATTEMPT="$((ATTEMPT + 1))"
+    done
+
+    return 1
 }
 
 switch_to() {
@@ -156,6 +187,8 @@ status() {
     if [ -s "$BACKUP_STORE" ]; then echo "  backup: configured"; else echo "  backup: not configured"; fi
     echo "  check URL: $CHECK_URL"
     echo "  SOCKS: $SOCKS_HOST:$SOCKS_PORT"
+    echo "  retries: $CHECK_RETRIES"
+    echo "  retry delay: ${CHECK_RETRY_DELAY}s"
     if grep "# $MARKER" "$CRON_FILE" >/dev/null 2>&1; then
         echo "  cron: enabled"
         grep "# $MARKER" "$CRON_FILE"
