@@ -6,11 +6,15 @@ XRAY_CONFIG="$XRAY_DIR/config.json"
 INIT_SCRIPT="/opt/etc/init.d/S24xray"
 GO_RESOLVER="/opt/bin/xray-failover-go"
 GO_UPDATE_CMD="/opt/bin/vless-go-update"
+GO_AUTO_UPDATE_CMD="/opt/bin/vless-go-auto-update"
 SOCKS_PORT="10808"
 SOCKS_LISTEN="0.0.0.0"
 PROXY_IFACE="Proxy0"
 TMP_DIR="/opt/tmp"
 SOURCE_STORE="$XRAY_DIR/vless-go.source"
+AUTO_UPDATE_LOG="/opt/var/log/vless-go-auto-update.log"
+CRON_FILE="/opt/var/spool/cron/crontabs/root"
+CRON_MARKER="vless-go-auto-update"
 
 GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/latest/download/xray-failover-go-linux-arm64}"
 
@@ -35,8 +39,32 @@ get_xray_bin() {
     fi
 }
 
+ensure_cron() {
+    mkdir -p /opt/var/spool/cron/crontabs /opt/var/log 2>/dev/null || true
+    touch "$CRON_FILE" 2>/dev/null || true
+    chmod 600 "$CRON_FILE" 2>/dev/null || true
+
+    if ! command -v crond >/dev/null 2>&1; then
+        echo "Installing cron for optional auto-update..."
+        opkg install cron >/dev/null 2>&1 \
+            || opkg install cronie >/dev/null 2>&1 \
+            || opkg install busybox-cron >/dev/null 2>&1 \
+            || echo "WARNING: cron could not be installed. vless-go-auto-update enable may need manual cron setup."
+    fi
+
+    if command -v crond >/dev/null 2>&1 && ! ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then
+        if [ -x /opt/etc/init.d/S10cron ]; then
+            /opt/etc/init.d/S10cron start >/dev/null 2>&1 || true
+        elif [ -x /opt/etc/init.d/S10crond ]; then
+            /opt/etc/init.d/S10crond start >/dev/null 2>&1 || true
+        else
+            crond -c /opt/var/spool/cron/crontabs >/dev/null 2>&1 || crond >/dev/null 2>&1 || true
+        fi
+    fi
+}
+
 ensure_packages() {
-    echo "[1/7] Checking Entware packages..."
+    echo "[1/8] Checking Entware packages..."
     if ! command -v opkg >/dev/null 2>&1; then
         echo "ERROR: opkg not found. Entware is required." >&2
         exit 1
@@ -44,6 +72,7 @@ ensure_packages() {
 
     NEED_UPDATE="0"
     command -v curl >/dev/null 2>&1 || NEED_UPDATE="1"
+    command -v crond >/dev/null 2>&1 || NEED_UPDATE="1"
     if ! command -v xray >/dev/null 2>&1 && [ ! -x /opt/bin/xray ]; then
         NEED_UPDATE="1"
     fi
@@ -59,10 +88,12 @@ ensure_packages() {
     if ! command -v xray >/dev/null 2>&1 && [ ! -x /opt/bin/xray ]; then
         opkg install xray-core || opkg install xray
     fi
+
+    ensure_cron
 }
 
 install_go_resolver() {
-    echo "[2/7] Installing experimental Go resolver/generator..."
+    echo "[2/8] Installing experimental Go resolver/generator..."
     mkdir -p "$(dirname "$GO_RESOLVER")" "$TMP_DIR"
 
     if [ -x "$GO_RESOLVER" ]; then
@@ -80,7 +111,7 @@ install_go_resolver() {
 }
 
 create_xray_init() {
-    echo "[5/7] Creating Xray init script..."
+    echo "[6/8] Creating Xray init script..."
     cat > "$INIT_SCRIPT" <<INIT
 #!/bin/sh
 
@@ -96,7 +127,7 @@ INIT
 }
 
 create_update_command() {
-    echo "[4/7] Creating vless-go-update command..."
+    echo "[4/8] Creating vless-go-update command..."
     mkdir -p "$(dirname "$GO_UPDATE_CMD")" "$XRAY_DIR" "$TMP_DIR"
 
     cat > "$GO_UPDATE_CMD" <<'UPDATE'
@@ -227,8 +258,128 @@ UPDATE
     chmod +x "$GO_UPDATE_CMD"
 }
 
+create_auto_update_command() {
+    echo "[5/8] Creating vless-go-auto-update command..."
+    mkdir -p "$(dirname "$GO_AUTO_UPDATE_CMD")" /opt/var/spool/cron/crontabs /opt/var/log
+
+    cat > "$GO_AUTO_UPDATE_CMD" <<'AUTO'
+#!/bin/sh
+set -e
+
+GO_UPDATE_CMD="/opt/bin/vless-go-update"
+CRON_FILE="/opt/var/spool/cron/crontabs/root"
+LOG_FILE="/opt/var/log/vless-go-auto-update.log"
+MARKER="vless-go-auto-update"
+DEFAULT_SCHEDULE="17 4 * * *"
+
+usage() {
+    echo "Usage: vless-go-auto-update enable [CRON_SCHEDULE] | disable | status | run"
+    echo ""
+    echo "Examples:"
+    echo "  vless-go-auto-update enable"
+    echo "  vless-go-auto-update enable '17 4 * * *'"
+    echo "  vless-go-auto-update disable"
+    echo "  vless-go-auto-update status"
+    echo "  vless-go-auto-update run"
+}
+
+ensure_cron_files() {
+    mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
+    touch "$CRON_FILE" "$LOG_FILE"
+    chmod 600 "$CRON_FILE" 2>/dev/null || true
+}
+
+restart_cron() {
+    if command -v crond >/dev/null 2>&1 && ! ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then
+        if [ -x /opt/etc/init.d/S10cron ]; then
+            /opt/etc/init.d/S10cron start >/dev/null 2>&1 || true
+        elif [ -x /opt/etc/init.d/S10crond ]; then
+            /opt/etc/init.d/S10crond start >/dev/null 2>&1 || true
+        else
+            crond -c /opt/var/spool/cron/crontabs >/dev/null 2>&1 || crond >/dev/null 2>&1 || true
+        fi
+    fi
+}
+
+remove_existing() {
+    ensure_cron_files
+    TMP_FILE="$CRON_FILE.$$"
+    grep -v "# $MARKER" "$CRON_FILE" > "$TMP_FILE" 2>/dev/null || true
+    mv "$TMP_FILE" "$CRON_FILE"
+    chmod 600 "$CRON_FILE" 2>/dev/null || true
+}
+
+enable_auto() {
+    SCHEDULE="${1:-$DEFAULT_SCHEDULE}"
+    ensure_cron_files
+    remove_existing
+    printf '%s %s --first >> %s 2>&1 # %s\n' "$SCHEDULE" "$GO_UPDATE_CMD" "$LOG_FILE" "$MARKER" >> "$CRON_FILE"
+    chmod 600 "$CRON_FILE" 2>/dev/null || true
+    restart_cron
+    echo "Enabled VLESS Go auto-update: $SCHEDULE"
+    echo "Cron file: $CRON_FILE"
+    echo "Log file: $LOG_FILE"
+}
+
+disable_auto() {
+    remove_existing
+    echo "Disabled VLESS Go auto-update."
+}
+
+status_auto() {
+    ensure_cron_files
+    if grep "# $MARKER" "$CRON_FILE" >/dev/null 2>&1; then
+        echo "VLESS Go auto-update is enabled:"
+        grep "# $MARKER" "$CRON_FILE"
+    else
+        echo "VLESS Go auto-update is disabled."
+    fi
+
+    if ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then
+        echo "crond: running"
+    else
+        echo "crond: not running or not visible"
+    fi
+}
+
+run_now() {
+    if [ ! -x "$GO_UPDATE_CMD" ]; then
+        echo "ERROR: update command not found: $GO_UPDATE_CMD" >&2
+        exit 1
+    fi
+    "$GO_UPDATE_CMD" --first
+}
+
+case "${1:-status}" in
+    enable)
+        shift
+        enable_auto "${1:-}"
+        ;;
+    disable)
+        disable_auto
+        ;;
+    status)
+        status_auto
+        ;;
+    run)
+        run_now
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        echo "ERROR: unknown command: $1" >&2
+        usage >&2
+        exit 1
+        ;;
+esac
+AUTO
+
+    chmod +x "$GO_AUTO_UPDATE_CMD"
+}
+
 configure_proxy0() {
-    echo "[6/7] Configuring Proxy0..."
+    echo "[7/8] Configuring Proxy0..."
     if ! command -v ndmc >/dev/null 2>&1; then
         echo "WARNING: ndmc not found. Configure Proxy0 manually to SOCKS5 $SOCKS_LISTEN:$SOCKS_PORT."
         return 0
@@ -250,7 +401,7 @@ configure_proxy0() {
 }
 
 start_xray() {
-    echo "[7/7] Testing and starting Xray..."
+    echo "[8/8] Testing and starting Xray..."
     XRAY_BIN="$(get_xray_bin)"
     if [ -z "$XRAY_BIN" ]; then
         echo "ERROR: xray binary not found." >&2
@@ -283,7 +434,7 @@ main() {
     printf '%s\n' "$INPUT_VALUE" > "$SOURCE_STORE"
     chmod 600 "$SOURCE_STORE" 2>/dev/null || true
 
-    echo "[3/7] Resolving subscription and generating Xray config..."
+    echo "[3/8] Resolving subscription and generating Xray config..."
     "$GO_RESOLVER" \
         -input "$INPUT_VALUE" \
         -output "$XRAY_CONFIG" \
@@ -292,6 +443,7 @@ main() {
         -profile "vless-out"
 
     create_update_command
+    create_auto_update_command
     create_xray_init
     configure_proxy0
     start_xray
@@ -302,7 +454,9 @@ main() {
     echo "Resolver/generator: $GO_RESOLVER"
     echo "Saved source: $SOURCE_STORE"
     echo "Update command: $GO_UPDATE_CMD"
-    echo "Note: failover daemon and subscription auto-update are intentionally not included yet."
+    echo "Auto-update command: $GO_AUTO_UPDATE_CMD"
+    echo "Enable daily auto-update: vless-go-auto-update enable"
+    echo "Note: failover daemon is intentionally not included yet."
 }
 
 main "$@"
