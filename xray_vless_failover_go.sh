@@ -11,6 +11,7 @@ GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
 SOCKS_PORT="10808"
 SOCKS_LISTEN="0.0.0.0"
 PROXY_IFACE="Proxy0"
+PROXY_UPSTREAM_HOST="${PROXY_UPSTREAM_HOST:-}"
 TMP_DIR="/opt/tmp"
 SOURCE_STORE="$XRAY_DIR/vless-go.source"
 PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
@@ -563,6 +564,35 @@ FAILOVER
     chmod +x "$GO_FAILOVER_CMD"
 }
 
+detect_lan_router_ip() {
+    if [ -n "$PROXY_UPSTREAM_HOST" ]; then
+        echo "$PROXY_UPSTREAM_HOST"
+        return 0
+    fi
+
+    # Prefer common Linux bridge/LAN interface names first.
+    for dev in br0 br-lan bridge0 Bridge0 lan0 lan1 home Home; do
+        ip -4 addr show dev "$dev" 2>/dev/null \
+            | awk '/inet / { gsub(/\/.*/, "", $2); print $2; exit }'
+    done | awk 'NF { print; exit }'
+
+    # Then inspect connected routes and prefer interfaces that look like LAN/Home/bridge.
+    ip -4 route show scope link 2>/dev/null \
+        | awk '
+            / src / {
+                src=""; dev="";
+                for (i=1; i<=NF; i++) {
+                    if ($i == "dev") dev=$(i+1);
+                    if ($i == "src") src=$(i+1);
+                }
+                if (src != "" && dev ~ /(br|bridge|lan|home|switch)/) {
+                    print src;
+                    exit;
+                }
+            }
+        '
+}
+
 configure_proxy0() {
     echo "[8/9] Configuring Proxy0..."
     if ! command -v ndmc >/dev/null 2>&1; then
@@ -570,7 +600,7 @@ configure_proxy0() {
         return 0
     fi
 
-    ROUTER_IP="$(ip -4 addr show 2>/dev/null | awk '/inet / { gsub(/\/.*/, "", $2); if ($2 ~ /^192\.168\./ || $2 ~ /^10\./ || $2 ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./) { print $2; exit } }')"
+    ROUTER_IP="$(detect_lan_router_ip | awk 'NF { print; exit }')"
     ROUTER_IP="${ROUTER_IP:-127.0.0.1}"
 
     ndmc -c "interface $PROXY_IFACE" || true
@@ -659,6 +689,7 @@ main() {
     echo "Enable daily auto-update: vless-go-auto-update enable"
     echo "Configure backup: vless-go-failover set-backup URL_OR_VLESS"
     echo "Switch manually: vless-go-failover switch backup --first"
+    echo "Override Proxy0 upstream host if needed: PROXY_UPSTREAM_HOST=192.168.1.1 sh xray_vless_failover_go.sh"
     echo "Note: failover daemon is intentionally not included yet."
 }
 
