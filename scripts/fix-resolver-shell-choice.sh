@@ -109,8 +109,8 @@ except Exception as exc:
     raise SystemExit(1)
 
 links = []
-for text in decode_variants(payload):
-    for link in extract_vless_links(text):
+for text_variant in decode_variants(payload):
+    for link in extract_vless_links(text_variant):
         if link not in links:
             links.append(link)
 
@@ -175,7 +175,7 @@ done
 
 pattern = r"cat > \"\$RESOLVER\" <<'RESOLVE'\n.*?\nRESOLVE\n\n    chmod \+x \"\$RESOLVER\""
 replacement = "cat > \"$RESOLVER\" <<'RESOLVE'\n" + resolver + "RESOLVE\n\n    chmod +x \"$RESOLVER\""
-text = re.sub(pattern, replacement, text, count=1, flags=re.S)
+text = re.sub(pattern, lambda _m: replacement, text, count=1, flags=re.S)
 
 if text == original:
     print('No resolver heredoc changed.')
