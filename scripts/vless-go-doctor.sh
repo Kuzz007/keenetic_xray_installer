@@ -15,6 +15,7 @@ WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
 WATCHDOG_LOG="/opt/var/log/vless-go-watchdog.log"
 WATCHDOG_DETAIL_LOG="/opt/var/log/vless-go-watchdog-detail.log"
 AUTO_UPDATE_LOG="/opt/var/log/vless-go-auto-update.log"
+HISTORY_LOG="/opt/var/log/vless-go-switch-history.log"
 CRON_FILE="/opt/var/spool/cron/crontabs/root"
 SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
 SOCKS_PORT="${SOCKS_PORT:-10808}"
@@ -48,36 +49,13 @@ OK_COUNT=0
 WARN_COUNT=0
 FAIL_COUNT=0
 
-ok() {
-    OK_COUNT=$((OK_COUNT + 1))
-    printf '[OK] %s\n' "$*"
-}
-
-warn() {
-    WARN_COUNT=$((WARN_COUNT + 1))
-    printf '[WARN] %s\n' "$*"
-}
-
-fail() {
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    printf '[FAIL] %s\n' "$*"
-}
-
-info() {
-    printf '[INFO] %s\n' "$*"
-}
-
-section() {
-    printf '\n== %s ==\n' "$*"
-}
-
-has_cmd() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-read_first() {
-    [ -s "$1" ] && sed -n '1p' "$1" || true
-}
+ok() { OK_COUNT=$((OK_COUNT + 1)); printf '[OK] %s\n' "$*"; }
+warn() { WARN_COUNT=$((WARN_COUNT + 1)); printf '[WARN] %s\n' "$*"; }
+fail() { FAIL_COUNT=$((FAIL_COUNT + 1)); printf '[FAIL] %s\n' "$*"; }
+info() { printf '[INFO] %s\n' "$*"; }
+section() { printf '\n== %s ==\n' "$*"; }
+has_cmd() { command -v "$1" >/dev/null 2>&1; }
+read_first() { [ -s "$1" ] && sed -n '1p' "$1" || true; }
 
 mask_source_type() {
     VALUE="$1"
@@ -125,14 +103,10 @@ check_selector() {
 }
 
 xray_bin() {
-    if has_cmd xray; then
-        command -v xray
-    elif [ -x /opt/sbin/xray ]; then
-        echo /opt/sbin/xray
-    elif [ -x /opt/bin/xray ]; then
-        echo /opt/bin/xray
-    else
-        echo ""
+    if has_cmd xray; then command -v xray
+    elif [ -x /opt/sbin/xray ]; then echo /opt/sbin/xray
+    elif [ -x /opt/bin/xray ]; then echo /opt/bin/xray
+    else echo ""
     fi
 }
 
@@ -143,7 +117,6 @@ check_init_status() {
         warn "$LABEL init script not found: $INIT"
         return 0
     fi
-
     if "$INIT" status >/tmp/vless-go-doctor.status.$$ 2>&1; then
         ok "$LABEL init status: alive"
     else
@@ -154,20 +127,14 @@ check_init_status() {
 }
 
 check_socks_listener() {
-    if has_cmd netstat; then
-        if netstat -lnt 2>/dev/null | grep -E "(^|[.:])$SOCKS_PORT[[:space:]]" >/dev/null 2>&1; then
-            ok "SOCKS listener found on port $SOCKS_PORT"
-            return 0
-        fi
+    if has_cmd netstat && netstat -lnt 2>/dev/null | grep -E "(^|[.:])$SOCKS_PORT[[:space:]]" >/dev/null 2>&1; then
+        ok "SOCKS listener found on port $SOCKS_PORT"
+        return 0
     fi
-
-    if has_cmd ss; then
-        if ss -lnt 2>/dev/null | grep -E "(^|[.:])$SOCKS_PORT[[:space:]]" >/dev/null 2>&1; then
-            ok "SOCKS listener found on port $SOCKS_PORT"
-            return 0
-        fi
+    if has_cmd ss && ss -lnt 2>/dev/null | grep -E "(^|[.:])$SOCKS_PORT[[:space:]]" >/dev/null 2>&1; then
+        ok "SOCKS listener found on port $SOCKS_PORT"
+        return 0
     fi
-
     warn "SOCKS listener not detected on port $SOCKS_PORT"
 }
 
@@ -176,11 +143,7 @@ check_socks_health() {
         warn "curl not found; cannot check SOCKS health"
         return 0
     fi
-
-    if curl -fsS --socks5-hostname "$SOCKS_HOST:$SOCKS_PORT" \
-        --connect-timeout "$CONNECT_TIMEOUT" \
-        --max-time "$MAX_TIME" \
-        "$CHECK_URL" >/dev/null 2>/tmp/vless-go-doctor.curl.$$; then
+    if curl -fsS --socks5-hostname "$SOCKS_HOST:$SOCKS_PORT" --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" "$CHECK_URL" >/dev/null 2>/tmp/vless-go-doctor.curl.$$; then
         ok "SOCKS health-check OK via $CHECK_URL"
     else
         warn "SOCKS health-check failed via $CHECK_URL"
@@ -213,19 +176,16 @@ check_cron_auto_update() {
         ok "cron file empty or missing; auto-update disabled"
         return 0
     fi
-
     LINES="$(grep 'vless-go-auto-update' "$CRON_FILE" 2>/dev/null || true)"
     if [ -z "$LINES" ]; then
         ok "auto-update cron entry not installed"
         return 0
     fi
-
     if echo "$LINES" | grep -- '--first' >/dev/null 2>&1; then
         warn "auto-update cron still contains legacy --first"
         echo "$LINES" | sed 's/^/  /'
         return 0
     fi
-
     if echo "$LINES" | grep '/opt/bin/vless-go-auto-update run' >/dev/null 2>&1; then
         ok "auto-update cron uses selector-aware runner"
         echo "$LINES" | sed 's/^/  /'
@@ -240,7 +200,6 @@ check_backups() {
         warn "Xray backup directory missing: $XRAY_BACKUP_DIR"
         return 0
     fi
-
     COUNT="$(find "$XRAY_BACKUP_DIR" -type f -name 'xray.*.bak' 2>/dev/null | wc -l | tr -d ' ')"
     if [ "${COUNT:-0}" -gt 0 ]; then
         ok "Xray backup binaries found: $COUNT"
@@ -250,31 +209,41 @@ check_backups() {
     fi
 }
 
-section "Commands"
-for CMD in opkg curl xray vless-go-update vless-go-failover vless-go-watchdog vless-go-auto-update vless-go-xray-core-update xray-go-installer-update failover-go; do
-    if has_cmd "$CMD"; then
-        ok "$CMD found: $(command -v "$CMD")"
+check_history() {
+    if has_cmd vless-go-history; then
+        ok "vless-go-history found: $(command -v vless-go-history)"
+        if vless-go-history path >/tmp/vless-go-doctor.history-path.$$ 2>/dev/null; then
+            PATH_VALUE="$(cat /tmp/vless-go-doctor.history-path.$$)"
+            ok "switch history path: $PATH_VALUE"
+        else
+            warn "vless-go-history path failed"
+        fi
+        rm -f /tmp/vless-go-doctor.history-path.$$ 2>/dev/null || true
     else
-        fail "$CMD not found"
+        warn "vless-go-history command not found"
     fi
+
+    if [ -s "$HISTORY_LOG" ]; then
+        COUNT="$(wc -l < "$HISTORY_LOG" 2>/dev/null | tr -d ' ')"
+        ok "switch history entries: ${COUNT:-0}"
+        show_tail_safe "$HISTORY_LOG" "switch history"
+    else
+        info "switch history log empty or missing: $HISTORY_LOG"
+    fi
+}
+
+section "Commands"
+for CMD in opkg curl xray vless-go-update vless-go-failover vless-go-watchdog vless-go-auto-update vless-go-xray-core-update vless-go-history xray-go-installer-update failover-go; do
+    if has_cmd "$CMD"; then ok "$CMD found: $(command -v "$CMD")"; else fail "$CMD not found"; fi
 done
 
 section "Updater dependencies"
 for CMD in python3 unzip; do
-    if has_cmd "$CMD"; then
-        ok "$CMD found: $(command -v "$CMD")"
-    else
-        warn "$CMD not found; vless-go-xray-core-update can install it via opkg when needed"
-    fi
+    if has_cmd "$CMD"; then ok "$CMD found: $(command -v "$CMD")"; else warn "$CMD not found; vless-go-xray-core-update can install it via opkg when needed"; fi
 done
 
 if has_cmd vless-go-xray-core-update; then
-    if vless-go-xray-core-update --help >/tmp/vless-go-doctor.corehelp.$$ 2>&1; then
-        ok "Xray-core updater help works"
-    else
-        warn "Xray-core updater help returned non-zero"
-        sed 's/^/  /' /tmp/vless-go-doctor.corehelp.$$
-    fi
+    if vless-go-xray-core-update --help >/tmp/vless-go-doctor.corehelp.$$ 2>&1; then ok "Xray-core updater help works"; else warn "Xray-core updater help returned non-zero"; sed 's/^/  /' /tmp/vless-go-doctor.corehelp.$$; fi
     rm -f /tmp/vless-go-doctor.corehelp.$$ 2>/dev/null || true
 fi
 
@@ -300,12 +269,7 @@ if [ -n "$XRAY_BIN" ]; then
     [ -n "$XRAY_VERSION" ] && ok "Xray version: $XRAY_VERSION" || warn "failed to read Xray version"
     if [ -s "$XRAY_CONFIG" ]; then
         ok "Xray config present: $XRAY_CONFIG"
-        if "$XRAY_BIN" run -test -config "$XRAY_CONFIG" >/tmp/vless-go-doctor.xray.$$ 2>&1; then
-            ok "Xray config validation OK"
-        else
-            fail "Xray config validation failed"
-            sed 's/^/  /' /tmp/vless-go-doctor.xray.$$
-        fi
+        if "$XRAY_BIN" run -test -config "$XRAY_CONFIG" >/tmp/vless-go-doctor.xray.$$ 2>&1; then ok "Xray config validation OK"; else fail "Xray config validation failed"; sed 's/^/  /' /tmp/vless-go-doctor.xray.$$; fi
         rm -f /tmp/vless-go-doctor.xray.$$ 2>/dev/null || true
     else
         fail "Xray config missing: $XRAY_CONFIG"
@@ -319,15 +283,16 @@ check_socks_listener
 check_socks_health
 
 section "Auto-update"
-if has_cmd vless-go-auto-update; then
-    vless-go-auto-update status 2>/dev/null | sed 's/^/  /'
-fi
+if has_cmd vless-go-auto-update; then vless-go-auto-update status 2>/dev/null | sed 's/^/  /'; fi
 check_cron_auto_update
 [ -s "$AUTO_UPDATE_LOG" ] && show_tail_safe "$AUTO_UPDATE_LOG" "auto-update log" || info "auto-update log empty or missing: $AUTO_UPDATE_LOG"
 
 section "Watchdog"
 check_init_status "$WATCHDOG_INIT" "VLESS Go watchdog"
 show_watchdog_summary
+
+section "Switch history"
+check_history
 
 section "Logs"
 show_tail_safe "$WATCHDOG_LOG" "watchdog main log"
@@ -343,12 +308,6 @@ fi
 section "Summary"
 printf 'OK=%s WARN=%s FAIL=%s\n' "$OK_COUNT" "$WARN_COUNT" "$FAIL_COUNT"
 
-if [ "$FAIL_COUNT" -gt 0 ]; then
-    exit 2
-fi
-
-if [ "$WARN_COUNT" -gt 0 ]; then
-    exit 1
-fi
-
+if [ "$FAIL_COUNT" -gt 0 ]; then exit 2; fi
+if [ "$WARN_COUNT" -gt 0 ]; then exit 1; fi
 exit 0
