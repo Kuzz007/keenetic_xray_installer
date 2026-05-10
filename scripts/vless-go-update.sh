@@ -109,31 +109,93 @@ if [ -z "$SELECTOR" ]; then
 fi
 SELECTOR="${SELECTOR:-first}"
 
-selector_args() {
+selector_index() {
     case "$SELECTOR" in
-        first|'')
-            printf '%s\n' "-first"
-            ;;
         index:*)
             IDX="${SELECTOR#index:}"
             case "$IDX" in
                 ''|*[!0-9]*) echo "ERROR: invalid selector index: $SELECTOR" >&2; return 1 ;;
                 0) echo "ERROR: selector index must be 1-based: $SELECTOR" >&2; return 1 ;;
-                *) printf '%s\n%s\n' "-select-index" "$IDX" ;;
+                *) printf '%s\n' "$IDX" ;;
             esac
             ;;
+        *) return 1 ;;
+    esac
+}
+
+go_supports_select_index() {
+    "$GO_RESOLVER" -h 2>&1 | grep -q -- '-select-index'
+}
+
+extract_vless_links_from_text() {
+    sed 's/[[:space:]<>"'"'']/\n/g' | grep '^vless://' | awk '!seen[$0]++'
+}
+
+extract_link_by_index_shell() {
+    SOURCE_VALUE="$1"
+    IDX="$2"
+    TMP_SUB="$TMP_DIR/vless-go-sub.$$.$RANDOM.txt"
+    TMP_DECODED="$TMP_DIR/vless-go-sub-decoded.$$.$RANDOM.txt"
+
+    rm -f "$TMP_SUB" "$TMP_DECODED" 2>/dev/null || true
+
+    case "$SOURCE_VALUE" in
+        vless://*)
+            if [ "$IDX" = "1" ]; then
+                printf '%s\n' "$SOURCE_VALUE"
+                return 0
+            fi
+            echo "ERROR: selector $SELECTOR is out of range for single VLESS link" >&2
+            return 1
+            ;;
+        http://*|https://*)
+            curl -fsSL -o "$TMP_SUB" "$SOURCE_VALUE"
+            ;;
         *)
-            echo "ERROR: unsupported selector: $SELECTOR (supported: first, index:N)" >&2
+            echo "ERROR: source must be vless:// or http(s) subscription URL" >&2
             return 1
             ;;
     esac
+
+    LINK="$(cat "$TMP_SUB" | extract_vless_links_from_text | sed -n "${IDX}p")"
+    if [ -z "$LINK" ] && command -v base64 >/dev/null 2>&1; then
+        tr -d '\r\n\t ' < "$TMP_SUB" | base64 -d > "$TMP_DECODED" 2>/dev/null || true
+        LINK="$(cat "$TMP_DECODED" 2>/dev/null | extract_vless_links_from_text | sed -n "${IDX}p")"
+    fi
+
+    rm -f "$TMP_SUB" "$TMP_DECODED" 2>/dev/null || true
+
+    if [ -z "$LINK" ]; then
+        echo "ERROR: failed to extract profile $IDX from subscription" >&2
+        return 1
+    fi
+
+    printf '%s\n' "$LINK"
 }
 
 SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE")"
 TMP_CONFIG="$TMP_DIR/config.vless-go-update.$$.$RANDOM.json"
 trap 'rm -f "$TMP_CONFIG" 2>/dev/null || true; vless_go_release_lock 2>/dev/null || true' EXIT INT TERM
 
-set -- $(selector_args)
+case "$SELECTOR" in
+    first|'')
+        set -- -first
+        ;;
+    index:*)
+        IDX="$(selector_index)"
+        if go_supports_select_index; then
+            set -- -select-index "$IDX"
+        else
+            echo "Go resolver does not support -select-index yet; using shell extraction fallback for selector $SELECTOR" >&2
+            SOURCE_VALUE="$(extract_link_by_index_shell "$SOURCE_VALUE" "$IDX")"
+            set -- -first
+        fi
+        ;;
+    *)
+        echo "ERROR: unsupported selector: $SELECTOR (supported: first, index:N)" >&2
+        exit 1
+        ;;
+esac
 
 "$GO_RESOLVER" \
     -input "$SOURCE_VALUE" \
