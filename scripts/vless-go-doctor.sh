@@ -110,6 +110,29 @@ xray_bin() {
     fi
 }
 
+check_go_resolver() {
+    if ! has_cmd xray-failover-go; then
+        fail "xray-failover-go not found"
+        return 0
+    fi
+
+    VERSION="$(xray-failover-go -version 2>/dev/null || true)"
+    if [ -n "$VERSION" ]; then
+        ok "xray-failover-go version: $VERSION"
+    else
+        warn "xray-failover-go -version failed; binary may be old"
+    fi
+
+    HELP="$(xray-failover-go -h 2>&1 || true)"
+    for FLAG in -select-index -select-name -json -private -version; do
+        if echo "$HELP" | grep -q -- "$FLAG"; then
+            ok "xray-failover-go supports $FLAG"
+        else
+            fail "xray-failover-go missing $FLAG"
+        fi
+    done
+}
+
 check_init_status() {
     INIT="$1"
     LABEL="$2"
@@ -233,9 +256,12 @@ check_history() {
 }
 
 section "Commands"
-for CMD in opkg curl xray vless-go-update vless-go-failover vless-go-watchdog vless-go-auto-update vless-go-xray-core-update vless-go-history xray-go-installer-update failover-go; do
+for CMD in opkg curl xray xray-failover-go vless-go-update vless-go-failover vless-go-watchdog vless-go-auto-update vless-go-xray-core-update vless-go-history xray-go-installer-update failover-go; do
     if has_cmd "$CMD"; then ok "$CMD found: $(command -v "$CMD")"; else fail "$CMD not found"; fi
 done
+
+section "Go resolver"
+check_go_resolver
 
 section "Updater dependencies"
 for CMD in python3 unzip; do
