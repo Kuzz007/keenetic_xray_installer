@@ -28,6 +28,7 @@ type cliOptions struct {
 	profileName string
 	nonInteractive bool
 	listOnly    bool
+	selectIndex int
 }
 
 type vlessProfile struct {
@@ -47,11 +48,15 @@ func main() {
 	flag.IntVar(&opts.listenPort, "port", 10808, "SOCKS inbound listen port")
 	flag.StringVar(&opts.profileName, "profile", "vless-out", "Xray outbound tag")
 	flag.BoolVar(&opts.nonInteractive, "first", false, "choose first profile without prompting")
+	flag.IntVar(&opts.selectIndex, "select-index", 0, "choose 1-based profile index without prompting")
 	flag.BoolVar(&opts.listOnly, "list", false, "list profiles without writing config")
 	flag.Parse()
 
 	if strings.TrimSpace(opts.input) == "" {
 		fail("missing -input. Use vless:// link or http(s) subscription URL")
+	}
+	if opts.selectIndex < 0 {
+		fail("-select-index must be zero or a positive 1-based index")
 	}
 
 	profiles, err := resolveProfiles(opts.input)
@@ -72,7 +77,12 @@ func main() {
 	}
 
 	selected := profiles[0]
-	if len(profiles) > 1 && !opts.nonInteractive {
+	if opts.selectIndex > 0 {
+		if opts.selectIndex > len(profiles) {
+			fail(fmt.Sprintf("-select-index %d out of range [1-%d]", opts.selectIndex, len(profiles)))
+		}
+		selected = profiles[opts.selectIndex-1]
+	} else if len(profiles) > 1 && !opts.nonInteractive {
 		idx, err := promptChoice(len(profiles))
 		if err != nil {
 			fail(err.Error())
