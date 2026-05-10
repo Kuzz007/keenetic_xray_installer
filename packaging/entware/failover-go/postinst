@@ -1,0 +1,32 @@
+#!/bin/sh
+set -e
+
+GO_EXPERIMENTAL_TAG="${GO_EXPERIMENTAL_TAG:-0.1.2-go-experimental}"
+GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${GO_EXPERIMENTAL_TAG}/xray-failover-go-linux-arm64}"
+GO_RESOLVER="/opt/bin/xray-failover-go"
+XRAY_DIR="/opt/etc/xray"
+
+mkdir -p /opt/bin /opt/libexec "$XRAY_DIR" /opt/var/log /opt/var/spool/cron/crontabs
+
+if [ ! -x "$GO_RESOLVER" ]; then
+    echo "Downloading Go resolver/generator: $GO_BINARY_URL"
+    curl -fL -o "$GO_RESOLVER" "$GO_BINARY_URL"
+    chmod +x "$GO_RESOLVER"
+else
+    echo "Existing Go resolver/generator found: $GO_RESOLVER"
+fi
+
+[ -s "$XRAY_DIR/vless-go.active" ] || printf '%s\n' primary > "$XRAY_DIR/vless-go.active"
+[ -s "$XRAY_DIR/vless-go.primary.selector" ] || printf '%s\n' first > "$XRAY_DIR/vless-go.primary.selector"
+[ -s "$XRAY_DIR/vless-go.backup.selector" ] || printf '%s\n' first > "$XRAY_DIR/vless-go.backup.selector"
+chmod 600 "$XRAY_DIR"/vless-go.* 2>/dev/null || true
+
+touch /opt/var/spool/cron/crontabs/root 2>/dev/null || true
+chmod 600 /opt/var/spool/cron/crontabs/root 2>/dev/null || true
+
+echo "failover-go package installed."
+echo "Next steps:"
+echo "  1. Run initial setup: xray_vless_failover_go.sh"
+echo "  2. Open menu: failover-go"
+echo "  3. Run diagnostics: vless-go-doctor"
+exit 0

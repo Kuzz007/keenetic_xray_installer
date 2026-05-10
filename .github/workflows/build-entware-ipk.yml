@@ -1,0 +1,44 @@
+name: Build Entware IPK
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version
+        required: false
+        default: 0.1.2-go-experimental
+      arch:
+        description: Entware architecture
+        required: false
+        default: aarch64-3.10
+  push:
+    branches:
+      - main
+    paths:
+      - scripts/**
+      - xray_vless_failover_go.sh
+      - packaging/entware/**
+      - .github/workflows/build-entware-ipk.yml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      PKG_VERSION: ${{ github.event.inputs.version || '0.1.2-go-experimental' }}
+      PKG_ARCH: ${{ github.event.inputs.arch || 'aarch64-3.10' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build IPK
+        run: |
+          chmod +x scripts/build-entware-ipk.sh
+          scripts/build-entware-ipk.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: failover-go-ipk
+          path: |
+            dist/failover-go_${{ env.PKG_VERSION }}_${{ env.PKG_ARCH }}.ipk
+            dist/failover-go_${{ env.PKG_VERSION }}_${{ env.PKG_ARCH }}.ipk.sha256

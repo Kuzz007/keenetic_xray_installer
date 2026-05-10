@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
+CRON_FILE="/opt/var/spool/cron/crontabs/root"
+
+if [ -x "$WATCHDOG_INIT" ]; then
+    "$WATCHDOG_INIT" stop >/dev/null 2>&1 || true
+fi
+
+if [ -f "$CRON_FILE" ]; then
+    grep -v 'vless-go-auto-update' "$CRON_FILE" > "$CRON_FILE.tmp.$$" 2>/dev/null || true
+    mv "$CRON_FILE.tmp.$$" "$CRON_FILE"
+    chmod 600 "$CRON_FILE" 2>/dev/null || true
+fi
+
+echo "failover-go package removed."
+echo "Runtime state under /opt/etc/xray and logs under /opt/var/log are intentionally preserved."
+exit 0
