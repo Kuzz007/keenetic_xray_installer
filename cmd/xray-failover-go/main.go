@@ -20,24 +20,49 @@ import (
 
 const userAgent = "Keenetic-Xray-Failover-Go/0.1"
 
+var version = "0.1.1-go-experimental"
+
 type cliOptions struct {
-	input       string
-	output      string
-	listenHost  string
-	listenPort  int
-	profileName string
+	input          string
+	output         string
+	listenHost     string
+	listenPort     int
+	profileName    string
 	nonInteractive bool
-	listOnly    bool
-	selectIndex int
+	listOnly       bool
+	selectIndex    int
+	selectName     string
+	privateOutput  bool
+	jsonOutput     bool
+	showVersion    bool
 }
 
 type vlessProfile struct {
-	Raw      string
-	Name     string
-	UUID     string
-	Server   string
-	Port     int
-	Params   map[string]string
+	Raw    string
+	Name   string
+	UUID   string
+	Server string
+	Port   int
+	Params map[string]string
+}
+
+type profileInfo struct {
+	Index     int    `json:"index"`
+	Name      string `json:"name"`
+	Server    string `json:"server,omitempty"`
+	Port      int    `json:"port,omitempty"`
+	Transport string `json:"transport"`
+	Security  string `json:"security"`
+}
+
+type cliJSON struct {
+	Version      string        `json:"version"`
+	ProfileCount int           `json:"profile_count"`
+	Profiles     []profileInfo `json:"profiles,omitempty"`
+	Selected     *profileInfo  `json:"selected,omitempty"`
+	Output       string        `json:"output,omitempty"`
+	Listen       string        `json:"listen,omitempty"`
+	Port         int           `json:"port,omitempty"`
 }
 
 func main() {
@@ -49,14 +74,28 @@ func main() {
 	flag.StringVar(&opts.profileName, "profile", "vless-out", "Xray outbound tag")
 	flag.BoolVar(&opts.nonInteractive, "first", false, "choose first profile without prompting")
 	flag.IntVar(&opts.selectIndex, "select-index", 0, "choose 1-based profile index without prompting")
-	flag.BoolVar(&opts.listOnly, "list", false, "list profiles without writing config")
+	flag.StringVar(&opts.selectName, "select-name", "", "choose profile by exact name, or unique case-insensitive substring")
+	flag.BoolVar(&opts.privateOutput, "private", false, "hide server/domain details in human and JSON output")
+	flag.BoolVar(&opts.jsonOutput, "json", false, "emit machine-readable JSON status/list output")
+	flag.BoolVar(&opts.showVersion, "version", false, "print version and exit")
 	flag.Parse()
+
+	if opts.showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	if strings.TrimSpace(opts.input) == "" {
 		fail("missing -input. Use vless:// link or http(s) subscription URL")
 	}
 	if opts.selectIndex < 0 {
 		fail("-select-index must be zero or a positive 1-based index")
+	}
+	if opts.selectIndex > 0 && strings.TrimSpace(opts.selectName) != "" {
+		fail("use only one selector: -select-index or -select-name")
+	}
+	if opts.nonInteractive && (opts.selectIndex > 0 || strings.TrimSpace(opts.selectName) != "") {
+		fail("use only one selector: -first, -select-index, or -select-name")
 	}
 
 	profiles, err := resolveProfiles(opts.input)
@@ -67,27 +106,23 @@ func main() {
 		fail("no vless:// profiles found")
 	}
 
-	fmt.Fprintf(os.Stderr, "Found VLESS profiles: %d\n", len(profiles))
-	for i, profile := range profiles {
-		fmt.Fprintf(os.Stderr, "%d. %s\n", i+1, profile.Label())
+	if !opts.jsonOutput {
+		fmt.Fprintf(os.Stderr, "Found VLESS profiles: %d\n", len(profiles))
+		for i, profile := range profiles {
+			fmt.Fprintf(os.Stderr, "%d. %s\n", i+1, profile.Label(opts.privateOutput))
+		}
 	}
 
 	if opts.listOnly {
+		if opts.jsonOutput {
+			writeMachineJSON(cliJSON{Version: version, ProfileCount: len(profiles), Profiles: profilesInfo(profiles, opts.privateOutput)})
+		}
 		return
 	}
 
-	selected := profiles[0]
-	if opts.selectIndex > 0 {
-		if opts.selectIndex > len(profiles) {
-			fail(fmt.Sprintf("-select-index %d out of range [1-%d]", opts.selectIndex, len(profiles)))
-		}
-		selected = profiles[opts.selectIndex-1]
-	} else if len(profiles) > 1 && !opts.nonInteractive {
-		idx, err := promptChoice(len(profiles))
-		if err != nil {
-			fail(err.Error())
-		}
-		selected = profiles[idx]
+	selected, selectedIndex, err := selectProfile(profiles, opts)
+	if err != nil {
+		fail(err.Error())
 	}
 
 	cfg, err := buildXrayConfig(selected, opts)
@@ -99,9 +134,26 @@ func main() {
 		fail(err.Error())
 	}
 
+	selectedInfo := selected.Info(selectedIndex+1, opts.privateOutput)
+	if opts.jsonOutput {
+		writeMachineJSON(cliJSON{
+			Version:      version,
+			ProfileCount: len(profiles),
+			Selected:     &selectedInfo,
+			Output:       opts.output,
+			Listen:       opts.listenHost,
+			Port:         opts.listenPort,
+		})
+		return
+	}
+
 	fmt.Printf("Created config: %s\n", opts.output)
-	fmt.Printf("Profile: %s\n", selected.Label())
-	fmt.Printf("Server: %s\n", selected.Server)
+	fmt.Printf("Profile: %s\n", selected.Label(opts.privateOutput))
+	if opts.privateOutput {
+		fmt.Printf("Server: <hidden>\n")
+	} else {
+		fmt.Printf("Server: %s\n", selected.Server)
+	}
 	fmt.Printf("Port: %d\n", selected.Port)
 	fmt.Printf("Transport: %s\n", valueOrDefault(selected.Params["type"], "tcp"))
 	fmt.Printf("Security: %s\n", valueOrDefault(selected.Params["security"], "none"))
@@ -111,6 +163,71 @@ func main() {
 func fail(msg string) {
 	fmt.Fprintln(os.Stderr, "ERROR:", msg)
 	os.Exit(1)
+}
+
+func writeMachineJSON(value cliJSON) {
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(value); err != nil {
+		fail(err.Error())
+	}
+}
+
+func selectProfile(profiles []vlessProfile, opts cliOptions) (vlessProfile, int, error) {
+	if len(profiles) == 0 {
+		return vlessProfile{}, 0, errors.New("no profiles found")
+	}
+
+	if opts.selectIndex > 0 {
+		if opts.selectIndex > len(profiles) {
+			return vlessProfile{}, 0, fmt.Errorf("-select-index %d out of range [1-%d]", opts.selectIndex, len(profiles))
+		}
+		idx := opts.selectIndex - 1
+		return profiles[idx], idx, nil
+	}
+
+	if name := strings.TrimSpace(opts.selectName); name != "" {
+		idx, err := findProfileByName(profiles, name)
+		if err != nil {
+			return vlessProfile{}, 0, err
+		}
+		return profiles[idx], idx, nil
+	}
+
+	if len(profiles) > 1 && !opts.nonInteractive {
+		idx, err := promptChoice(len(profiles))
+		if err != nil {
+			return vlessProfile{}, 0, err
+		}
+		return profiles[idx], idx, nil
+	}
+
+	return profiles[0], 0, nil
+}
+
+func findProfileByName(profiles []vlessProfile, needle string) (int, error) {
+	for i, profile := range profiles {
+		if profile.Name == needle {
+			return i, nil
+		}
+	}
+
+	needleLower := strings.ToLower(needle)
+	matches := make([]int, 0, 1)
+	for i, profile := range profiles {
+		if strings.Contains(strings.ToLower(profile.Name), needleLower) {
+			matches = append(matches, i)
+		}
+	}
+
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return 0, fmt.Errorf("-select-name %q did not match any profile", needle)
+	default:
+		return 0, fmt.Errorf("-select-name %q is ambiguous: %d profiles matched", needle, len(matches))
+	}
 }
 
 func resolveProfiles(input string) ([]vlessProfile, error) {
@@ -266,10 +383,36 @@ func parseVLESS(raw string) (vlessProfile, error) {
 	return vlessProfile{Raw: raw, Name: name, UUID: uuid, Server: host, Port: port, Params: params}, nil
 }
 
-func (p vlessProfile) Label() string {
+func (p vlessProfile) Label(private bool) string {
 	transport := valueOrDefault(p.Params["type"], "tcp")
-	security := valueOrDefault(p.Params["security"], "none")
-	return fmt.Sprintf("%s (%s:%d, %s/%s)", p.Name, p.Server, p.Port, transport, security)
+	security := valueOrDefault(p.Params["security"], "none")	
+	server := p.Server
+	if private {
+		server = "<hidden>"
+	}
+	return fmt.Sprintf("%s (%s:%d, %s/%s)", p.Name, server, p.Port, transport, security)
+}
+
+func (p vlessProfile) Info(index int, private bool) profileInfo {
+	info := profileInfo{
+		Index:     index,
+		Name:      p.Name,
+		Port:      p.Port,
+		Transport: valueOrDefault(p.Params["type"], "tcp"),
+		Security:  valueOrDefault(p.Params["security"], "none"),
+	}
+	if !private {
+		info.Server = p.Server
+	}
+	return info
+}
+
+func profilesInfo(profiles []vlessProfile, private bool) []profileInfo {
+	out := make([]profileInfo, 0, len(profiles))
+	for i, profile := range profiles {
+		out = append(out, profile.Info(i+1, private))
+	}
+	return out
 }
 
 func promptChoice(count int) (int, error) {
