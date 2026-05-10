@@ -2,6 +2,9 @@
 set -e
 
 XRAY_DIR="/opt/etc/xray"
+ACTIVE_STORE="$XRAY_DIR/vless-go.active"
+PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
+BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 WATCHDOG_CONF="$XRAY_DIR/vless-go-watchdog.conf"
 WATCHDOG_LOG="/opt/var/log/vless-go-watchdog.log"
 WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
@@ -42,6 +45,22 @@ show_header() {
     echo " VLESS Go / Xray failover menu"
     echo "========================================"
     echo
+}
+
+active_slot() {
+    if [ -s "$ACTIVE_STORE" ]; then
+        sed -n '1p' "$ACTIVE_STORE"
+    else
+        echo "primary"
+    fi
+}
+
+slot_configured() {
+    case "$1" in
+        primary) [ -s "$PRIMARY_STORE" ] ;;
+        backup) [ -s "$BACKUP_STORE" ] ;;
+        *) return 1 ;;
+    esac
 }
 
 show_status() {
@@ -111,14 +130,55 @@ replace_source() {
     pause
 }
 
-update_active() {
+update_all_sources() {
     show_header
-    echo "[Update active subscription now]"
-    if require_cmd "$GO_FAILOVER_CMD"; then
-        "$GO_FAILOVER_CMD" update-active --first
-    elif require_cmd "$GO_UPDATE_CMD"; then
-        "$GO_UPDATE_CMD" --first
+    echo "[Update primary and backup subscriptions now]"
+    if ! require_cmd "$GO_FAILOVER_CMD"; then
+        pause
+        return 0
     fi
+
+    ORIGINAL="$(active_slot)"
+    echo "Original active slot: $ORIGINAL"
+    echo
+
+    UPDATED="0"
+
+    if slot_configured primary; then
+        echo "Updating/validating primary without restart..."
+        "$GO_FAILOVER_CMD" switch primary --first --no-restart
+        UPDATED="1"
+        echo
+    else
+        echo "Primary source is not configured; skipping."
+    fi
+
+    if slot_configured backup; then
+        echo "Updating/validating backup without restart..."
+        "$GO_FAILOVER_CMD" switch backup --first --no-restart
+        UPDATED="1"
+        echo
+    else
+        echo "Backup source is not configured; skipping."
+    fi
+
+    if [ "$UPDATED" = "0" ]; then
+        echo "Nothing was updated."
+        pause
+        return 0
+    fi
+
+    case "$ORIGINAL" in
+        primary|backup)
+            echo "Restoring active slot: $ORIGINAL"
+            "$GO_FAILOVER_CMD" switch "$ORIGINAL" --first
+            ;;
+        *)
+            echo "Unknown original active slot: $ORIGINAL"
+            echo "Leaving the last validated slot active."
+            ;;
+    esac
+
     echo
     pause
 }
@@ -209,6 +269,19 @@ show_watchdog_log() {
     pause
 }
 
+follow_watchdog_log() {
+    show_header
+    echo "[Watchdog log: live follow]"
+    echo "Press Ctrl+C to stop following and return to shell/menu."
+    echo
+    if [ -e "$WATCHDOG_LOG" ]; then
+        tail -n 50 -f "$WATCHDOG_LOG"
+    else
+        echo "Log is missing: $WATCHDOG_LOG"
+        pause
+    fi
+}
+
 update_go_edition() {
     show_header
     echo "[Update Go edition]"
@@ -241,12 +314,13 @@ show_menu() {
     echo "4. Switch to backup"
     echo "5. Add/replace primary VLESS/subscription URL"
     echo "6. Add/replace backup VLESS/subscription URL"
-    echo "7. Update active subscription now"
+    echo "7. Update primary and backup subscriptions now"
     echo "8. Configure cron auto-update"
     echo "9. Enable/disable backup -> primary recovery"
     echo "10. Show watchdog log"
-    echo "11. Update Go edition"
-    echo "12. Update Xray-core"
+    echo "11. Follow watchdog log live"
+    echo "12. Update Go edition"
+    echo "13. Update Xray-core"
     echo "0. Exit"
     echo
 }
@@ -261,12 +335,13 @@ while true; do
         4) switch_slot backup ;;
         5) replace_source primary ;;
         6) replace_source backup ;;
-        7) update_active ;;
+        7) update_all_sources ;;
         8) configure_auto_update ;;
         9) toggle_recovery ;;
         10) show_watchdog_log ;;
-        11) update_go_edition ;;
-        12) update_xray_core ;;
+        11) follow_watchdog_log ;;
+        12) update_go_edition ;;
+        13) update_xray_core ;;
         0|q|Q|exit|quit) exit 0 ;;
         *) echo "Unknown choice."; sleep 1 ;;
     esac
