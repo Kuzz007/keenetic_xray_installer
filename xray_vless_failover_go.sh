@@ -12,6 +12,7 @@ GO_WATCHDOG_CMD="/opt/bin/vless-go-watchdog"
 GO_WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
 GO_WATCHDOG_CONF="$XRAY_DIR/vless-go-watchdog.conf"
 GO_INSTALLER_UPDATE_CMD="/opt/bin/xray-go-installer-update"
+DOCTOR_CMD="/opt/bin/vless-go-doctor"
 SOCKS_PORT="10808"
 SOCKS_LISTEN="0.0.0.0"
 PROXY_IFACE="Proxy0"
@@ -26,9 +27,11 @@ REPO_BRANCH="${REPO_BRANCH:-main}"
 WATCHDOG_BRANCH="${WATCHDOG_BRANCH:-$REPO_BRANCH}"
 WATCHDOG_INSTALL_URL="${WATCHDOG_INSTALL_URL:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${WATCHDOG_BRANCH}/xray_vless_go_watchdog_install.sh}"
 GO_INSTALLER_UPDATE_URL="${GO_INSTALLER_UPDATE_URL:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}/scripts/xray-go-installer-update.sh}"
+DOCTOR_URL="${DOCTOR_URL:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}/scripts/vless-go-doctor.sh}"
 INSTALL_WATCHDOG="${INSTALL_WATCHDOG:-1}"
 START_WATCHDOG="${START_WATCHDOG:-1}"
 INSTALL_UPDATER="${INSTALL_UPDATER:-1}"
+INSTALL_DOCTOR="${INSTALL_DOCTOR:-1}"
 AUTO_RECOVER_PRIMARY="${AUTO_RECOVER_PRIMARY:-1}"
 
 read_tty() {
@@ -77,7 +80,7 @@ ensure_cron() {
 }
 
 ensure_packages() {
-    echo "[1/11] Checking Entware packages..."
+    echo "[1/12] Checking Entware packages..."
     if ! command -v opkg >/dev/null 2>&1; then
         echo "ERROR: opkg not found. Entware is required." >&2
         exit 1
@@ -106,7 +109,7 @@ ensure_packages() {
 }
 
 install_go_resolver() {
-    echo "[2/11] Installing experimental Go resolver/generator..."
+    echo "[2/12] Installing experimental Go resolver/generator..."
     mkdir -p "$(dirname "$GO_RESOLVER")" "$TMP_DIR"
 
     if [ -x "$GO_RESOLVER" ]; then
@@ -124,7 +127,7 @@ install_go_resolver() {
 }
 
 create_xray_init() {
-    echo "[8/11] Creating Xray init script..."
+    echo "[9/12] Creating Xray init script..."
     cat > "$INIT_SCRIPT" <<INIT
 #!/bin/sh
 
@@ -140,7 +143,7 @@ INIT
 }
 
 create_update_command() {
-    echo "[4/11] Creating vless-go-update command..."
+    echo "[4/12] Creating vless-go-update command..."
     mkdir -p "$(dirname "$GO_UPDATE_CMD")" "$XRAY_DIR" "$TMP_DIR"
 
     cat > "$GO_UPDATE_CMD" <<'UPDATE'
@@ -272,7 +275,7 @@ UPDATE
 }
 
 create_auto_update_command() {
-    echo "[5/11] Creating vless-go-auto-update command..."
+    echo "[5/12] Creating vless-go-auto-update command..."
     mkdir -p "$(dirname "$GO_AUTO_UPDATE_CMD")" /opt/var/spool/cron/crontabs /opt/var/log
 
     cat > "$GO_AUTO_UPDATE_CMD" <<'AUTO'
@@ -367,7 +370,7 @@ AUTO
 }
 
 create_failover_command() {
-    echo "[6/11] Creating vless-go-failover command..."
+    echo "[6/12] Creating vless-go-failover command..."
     mkdir -p "$(dirname "$GO_FAILOVER_CMD")" "$XRAY_DIR"
 
     cat > "$GO_FAILOVER_CMD" <<'FAILOVER'
@@ -469,7 +472,7 @@ FAILOVER
 }
 
 install_updater() {
-    echo "[7/11] Installing xray-go-installer-update command..."
+    echo "[7/12] Installing xray-go-installer-update command..."
 
     if [ "$INSTALL_UPDATER" = "0" ]; then
         echo "Updater installation skipped because INSTALL_UPDATER=0."
@@ -490,8 +493,30 @@ install_updater() {
     chmod +x "$GO_INSTALLER_UPDATE_CMD"
 }
 
+install_doctor() {
+    echo "[8/12] Installing vless-go-doctor command..."
+
+    if [ "$INSTALL_DOCTOR" = "0" ]; then
+        echo "Doctor installation skipped because INSTALL_DOCTOR=0."
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$DOCTOR_CMD")" "$TMP_DIR"
+    TMP_DOCTOR="$TMP_DIR/vless-go-doctor.$$"
+    trap 'rm -f "$TMP_DOCTOR" 2>/dev/null || true' EXIT INT TERM
+
+    if ! curl -fL -o "$TMP_DOCTOR" "$DOCTOR_URL"; then
+        echo "ERROR: failed to download doctor: $DOCTOR_URL" >&2
+        exit 1
+    fi
+
+    chmod +x "$TMP_DOCTOR"
+    mv "$TMP_DOCTOR" "$DOCTOR_CMD"
+    chmod +x "$DOCTOR_CMD"
+}
+
 install_watchdog() {
-    echo "[10/11] Installing watchdog daemon and recovery support..."
+    echo "[11/12] Installing watchdog daemon and recovery support..."
 
     if [ "$INSTALL_WATCHDOG" = "0" ]; then
         echo "Watchdog installation skipped because INSTALL_WATCHDOG=0."
@@ -543,7 +568,7 @@ detect_lan_router_ip() {
 }
 
 configure_proxy0() {
-    echo "[9/11] Configuring Proxy0..."
+    echo "[10/12] Configuring Proxy0..."
     if ! command -v ndmc >/dev/null 2>&1; then
         echo "WARNING: ndmc not found. Configure Proxy0 manually to SOCKS5 $SOCKS_LISTEN:$SOCKS_PORT."
         return 0
@@ -565,7 +590,7 @@ configure_proxy0() {
 }
 
 start_xray() {
-    echo "[11/11] Testing and starting Xray..."
+    echo "[12/12] Testing and starting Xray..."
     XRAY_BIN="$(get_xray_bin)"
     if [ -z "$XRAY_BIN" ]; then
         echo "ERROR: xray binary not found." >&2
@@ -610,7 +635,7 @@ main() {
         echo "Backup source skipped. You can add it later with: vless-go-failover set-backup URL_OR_VLESS"
     fi
 
-    echo "[3/11] Resolving subscription and generating Xray config..."
+    echo "[3/12] Resolving subscription and generating Xray config..."
     "$GO_RESOLVER" \
         -input "$INPUT_VALUE" \
         -output "$XRAY_CONFIG" \
@@ -622,6 +647,7 @@ main() {
     create_auto_update_command
     create_failover_command
     install_updater
+    install_doctor
     create_xray_init
     configure_proxy0
     install_watchdog
@@ -638,10 +664,12 @@ main() {
     echo "Auto-update command: $GO_AUTO_UPDATE_CMD"
     echo "Failover command: $GO_FAILOVER_CMD"
     echo "Installer update command: $GO_INSTALLER_UPDATE_CMD"
+    echo "Doctor command: $DOCTOR_CMD"
     echo "Watchdog command: $GO_WATCHDOG_CMD"
     echo "Watchdog init: $GO_WATCHDOG_INIT"
     echo "Watchdog config: $GO_WATCHDOG_CONF"
     echo "Enable daily subscription auto-update: vless-go-auto-update enable"
+    echo "Run diagnostics: vless-go-doctor"
     echo "Update installed Go edition without re-entering sources: xray-go-installer-update --first"
     echo "Backup -> primary recovery is enabled by default. Disable it with: sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=0/' $GO_WATCHDOG_CONF && $GO_WATCHDOG_INIT restart"
     echo "Switch manually: vless-go-failover switch backup --first"
