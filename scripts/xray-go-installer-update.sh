@@ -9,6 +9,8 @@ RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_in
 GO_RESOLVER="/opt/bin/xray-failover-go"
 GO_UPDATE_CMD="/opt/bin/vless-go-update"
 GO_UPDATE_URL="${GO_UPDATE_URL:-${RAW_BASE}/scripts/vless-go-update.sh}"
+GO_AUTO_UPDATE_CMD="/opt/bin/vless-go-auto-update"
+GO_AUTO_UPDATE_URL="${GO_AUTO_UPDATE_URL:-${RAW_BASE}/scripts/vless-go-auto-update.sh}"
 GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
 GO_FAILOVER_URL="${GO_FAILOVER_URL:-${RAW_BASE}/scripts/vless-go-failover.sh}"
 FAILOVER_GO_CMD="/opt/bin/failover-go"
@@ -40,7 +42,7 @@ usage() {
     echo "  --no-binary    Do not update /opt/bin/xray-failover-go."
     echo "  --no-watchdog  Do not reinstall watchdog helper/init/config."
     echo "  --no-doctor    Do not install/update /opt/bin/vless-go-doctor."
-    echo "  --no-helpers   Do not install/update lock-aware vless-go-update/failover helpers."
+    echo "  --no-helpers   Do not install/update vless-go-update/failover/auto-update helpers."
     echo "  --no-menu      Do not install/update /opt/bin/failover-go."
     echo "  --first        Rebuild active Xray config using first profile from subscription."
 }
@@ -177,6 +179,15 @@ if [ ! -s "$ACTIVE_STORE" ]; then
     chmod 600 "$ACTIVE_STORE" 2>/dev/null || true
 fi
 
+if [ ! -s "$XRAY_DIR/vless-go.primary.selector" ]; then
+    echo "first" > "$XRAY_DIR/vless-go.primary.selector"
+    chmod 600 "$XRAY_DIR/vless-go.primary.selector" 2>/dev/null || true
+fi
+if [ ! -s "$XRAY_DIR/vless-go.backup.selector" ]; then
+    echo "first" > "$XRAY_DIR/vless-go.backup.selector"
+    chmod 600 "$XRAY_DIR/vless-go.backup.selector" 2>/dev/null || true
+fi
+
 if [ ! -s "$PRIMARY_STORE" ]; then
     echo "ERROR: no saved primary source found. Re-run xray_vless_failover_go.sh once." >&2
     exit 1
@@ -195,6 +206,7 @@ if [ "$NO_HELPERS" = "0" ]; then
     install_readable_helper "$LOCK_HELPER_URL" "$LOCK_HELPER" "lock helper"
     install_executable "$GO_UPDATE_URL" "$GO_UPDATE_CMD" "vless-go-update helper"
     install_executable "$GO_FAILOVER_URL" "$GO_FAILOVER_CMD" "vless-go-failover helper"
+    install_executable "$GO_AUTO_UPDATE_URL" "$GO_AUTO_UPDATE_CMD" "vless-go-auto-update helper"
 fi
 
 if [ "$NO_MENU" = "0" ]; then
@@ -217,7 +229,7 @@ fi
 if command -v vless-go-update >/dev/null 2>&1; then
     echo "Regenerating active Xray config from saved source..."
     UPDATE_ARGS="--no-restart"
-    [ "$FIRST" = "0" ] || UPDATE_ARGS="$UPDATE_ARGS --first"
+    [ "$FIRST" = "0" ] || UPDATE_ARGS="$UPDATE_ARGS --selector first"
     VLESS_GO_LOCK_HELD=1 vless-go-failover update-active $UPDATE_ARGS
 else
     echo "WARNING: vless-go-update not found; Xray config was not regenerated." >&2
@@ -236,6 +248,8 @@ echo "Experimental Go edition updated."
 echo "Primary source: $PRIMARY_STORE"
 echo "Backup source: $BACKUP_STORE"
 echo "Active slot: $(sed -n '1p' "$ACTIVE_STORE" 2>/dev/null || echo unknown)"
+echo "Primary selector: $(sed -n '1p' "$XRAY_DIR/vless-go.primary.selector" 2>/dev/null || echo first)"
+echo "Backup selector: $(sed -n '1p' "$XRAY_DIR/vless-go.backup.selector" 2>/dev/null || echo first)"
 echo "Watchdog config: $WATCHDOG_CONF"
 echo "Doctor command: $DOCTOR_CMD"
 echo "Lock helper: $LOCK_HELPER"

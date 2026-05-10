@@ -9,6 +9,7 @@ WATCHDOG_CONF="$XRAY_DIR/vless-go-watchdog.conf"
 WATCHDOG_LOG="/opt/var/log/vless-go-watchdog.log"
 WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
 XRAY_CORE_UPDATE_CMD="/opt/bin/vless-go-xray-core-update"
+GO_RESOLVER="/opt/bin/xray-failover-go"
 GO_UPDATE_CMD="/opt/bin/vless-go-update"
 GO_AUTO_UPDATE_CMD="/opt/bin/vless-go-auto-update"
 GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
@@ -63,6 +64,83 @@ slot_configured() {
     esac
 }
 
+slot_file() {
+    case "$1" in
+        primary) echo "$PRIMARY_STORE" ;;
+        backup) echo "$BACKUP_STORE" ;;
+        *) return 1 ;;
+    esac
+}
+
+slot_source() {
+    FILE="$(slot_file "$1")" || return 1
+    sed -n '1p' "$FILE" 2>/dev/null || true
+}
+
+selector_file() {
+    case "$1" in
+        primary|backup) echo "$XRAY_DIR/vless-go.$1.selector" ;;
+        *) return 1 ;;
+    esac
+}
+
+read_selector() {
+    FILE="$(selector_file "$1")" || return 1
+    VALUE="$(sed -n '1p' "$FILE" 2>/dev/null || true)"
+    echo "${VALUE:-first}"
+}
+
+normalize_selector() {
+    VALUE="$1"
+    case "$VALUE" in
+        first|'') echo "first" ;;
+        index:[1-9]*) echo "$VALUE" ;;
+        [1-9]*) echo "index:$VALUE" ;;
+        *) return 1 ;;
+    esac
+}
+
+show_profile_list() {
+    SOURCE_VALUE="$1"
+    if [ -z "$SOURCE_VALUE" ]; then
+        return 0
+    fi
+    if [ ! -x "$GO_RESOLVER" ]; then
+        echo "Profile list skipped: $GO_RESOLVER not found." >&2
+        return 0
+    fi
+
+    echo >&2
+    echo "Available profiles from subscription/source:" >&2
+    if ! "$GO_RESOLVER" -input "$SOURCE_VALUE" -list >&2; then
+        echo "WARNING: failed to list profiles. You can still enter selector manually." >&2
+    fi
+    echo >&2
+}
+
+prompt_selector() {
+    SLOT="$1"
+    SOURCE_VALUE="$2"
+    CURRENT="$(read_selector "$SLOT" 2>/dev/null || echo first)"
+
+    show_profile_list "$SOURCE_VALUE"
+
+    echo "Current $SLOT selector: $CURRENT" >&2
+    echo "Selector controls which profile is used when a subscription contains multiple VLESS links." >&2
+    echo "Supported input: first, index:N, or just N (example: 7 means index:7)." >&2
+    echo >&2
+    read_tty "Enter selector for $SLOT [default: $CURRENT]: "
+    VALUE="$REPLY"
+    if [ -z "$VALUE" ]; then
+        VALUE="$CURRENT"
+    fi
+    if ! SELECTOR="$(normalize_selector "$VALUE")"; then
+        echo "ERROR: invalid selector: $VALUE" >&2
+        return 1
+    fi
+    echo "$SELECTOR"
+}
+
 show_status() {
     show_header
     echo "[Status]"
@@ -92,7 +170,7 @@ switch_slot() {
     show_header
     echo "[Switch to $SLOT]"
     if require_cmd "$GO_FAILOVER_CMD"; then
-        "$GO_FAILOVER_CMD" switch "$SLOT" --first
+        "$GO_FAILOVER_CMD" switch "$SLOT"
     fi
     echo
     pause
@@ -112,19 +190,42 @@ replace_source() {
         return 0
     fi
 
+    SELECTOR="$(prompt_selector "$SLOT" "$VALUE")" || { pause; return 1; }
+
     if require_cmd "$GO_FAILOVER_CMD"; then
-        "$GO_FAILOVER_CMD" "set-$SLOT" "$VALUE"
+        "$GO_FAILOVER_CMD" "set-$SLOT" "$VALUE" --selector "$SELECTOR"
     fi
 
     echo
     read_tty "Switch to $SLOT now? [y/N]: "
     case "$REPLY" in
         y|Y|yes|YES)
-            "$GO_FAILOVER_CMD" switch "$SLOT" --first
+            "$GO_FAILOVER_CMD" switch "$SLOT"
             ;;
         *)
             echo "Saved only. You can switch later from the menu."
             ;;
+    esac
+    echo
+    pause
+}
+
+set_slot_selector() {
+    SLOT="$1"
+    show_header
+    echo "[Set $SLOT profile selector]"
+    if ! require_cmd "$GO_FAILOVER_CMD"; then
+        pause
+        return 0
+    fi
+    SOURCE_VALUE="$(slot_source "$SLOT")"
+    SELECTOR="$(prompt_selector "$SLOT" "$SOURCE_VALUE")" || { pause; return 1; }
+    "$GO_FAILOVER_CMD" set-selector "$SLOT" "$SELECTOR"
+    echo
+    read_tty "Apply $SLOT now with this selector? [y/N]: "
+    case "$REPLY" in
+        y|Y|yes|YES) "$GO_FAILOVER_CMD" switch "$SLOT" ;;
+        *) echo "Selector saved only." ;;
     esac
     echo
     pause
@@ -146,7 +247,7 @@ update_all_sources() {
 
     if slot_configured primary; then
         echo "Updating/validating primary without restart..."
-        "$GO_FAILOVER_CMD" switch primary --first --no-restart
+        "$GO_FAILOVER_CMD" switch primary --no-restart
         UPDATED="1"
         echo
     else
@@ -155,7 +256,7 @@ update_all_sources() {
 
     if slot_configured backup; then
         echo "Updating/validating backup without restart..."
-        "$GO_FAILOVER_CMD" switch backup --first --no-restart
+        "$GO_FAILOVER_CMD" switch backup --no-restart
         UPDATED="1"
         echo
     else
@@ -171,7 +272,7 @@ update_all_sources() {
     case "$ORIGINAL" in
         primary|backup)
             echo "Restoring active slot: $ORIGINAL"
-            "$GO_FAILOVER_CMD" switch "$ORIGINAL" --first
+            "$GO_FAILOVER_CMD" switch "$ORIGINAL"
             ;;
         *)
             echo "Unknown original active slot: $ORIGINAL"
@@ -314,13 +415,15 @@ show_menu() {
     echo "4. Switch to backup"
     echo "5. Add/replace primary VLESS/subscription URL"
     echo "6. Add/replace backup VLESS/subscription URL"
-    echo "7. Update primary and backup subscriptions now"
-    echo "8. Configure cron auto-update"
-    echo "9. Enable/disable backup -> primary recovery"
-    echo "10. Show watchdog log"
-    echo "11. Follow watchdog log live"
-    echo "12. Update Go edition"
-    echo "13. Update Xray-core"
+    echo "7. Set primary profile selector"
+    echo "8. Set backup profile selector"
+    echo "9. Update primary and backup subscriptions now"
+    echo "10. Configure cron auto-update"
+    echo "11. Enable/disable backup -> primary recovery"
+    echo "12. Show watchdog log"
+    echo "13. Follow watchdog log live"
+    echo "14. Update Go edition"
+    echo "15. Update Xray-core"
     echo "0. Exit"
     echo
 }
@@ -335,13 +438,15 @@ while true; do
         4) switch_slot backup ;;
         5) replace_source primary ;;
         6) replace_source backup ;;
-        7) update_all_sources ;;
-        8) configure_auto_update ;;
-        9) toggle_recovery ;;
-        10) show_watchdog_log ;;
-        11) follow_watchdog_log ;;
-        12) update_go_edition ;;
-        13) update_xray_core ;;
+        7) set_slot_selector primary ;;
+        8) set_slot_selector backup ;;
+        9) update_all_sources ;;
+        10) configure_auto_update ;;
+        11) toggle_recovery ;;
+        12) show_watchdog_log ;;
+        13) follow_watchdog_log ;;
+        14) update_go_edition ;;
+        15) update_xray_core ;;
         0|q|Q|exit|quit) exit 0 ;;
         *) echo "Unknown choice."; sleep 1 ;;
     esac
