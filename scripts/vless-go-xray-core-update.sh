@@ -68,6 +68,11 @@ extract_release_field() {
     grep -m 1 '"'"$FIELD"'"[[:space:]]*:' "$FILE" | sed 's/.*: *//; s/^"//; s/",*$//; s/"$//'
 }
 
+list_asset_names() {
+    FILE="$1"
+    grep '"name"[[:space:]]*:' "$FILE" | sed 's/.*"name"[[:space:]]*:[[:space:]]*"//; s/".*//' | grep '^Xray-.*\.zip$' || true
+}
+
 extract_asset_url() {
     FILE="$1"
     PATTERN="$2"
@@ -149,11 +154,10 @@ fetch_release_json() {
         ALL="$OUT.all"
         curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: vless-go-xray-core-update' -o "$ALL" "$URL"
         if command -v jsonfilter >/dev/null 2>&1; then
-            # jsonfilter on arrays is available on many OpenWrt/Entware systems, but not all.
             ID="$(jsonfilter -i "$ALL" -e '@[@.prerelease=true][0].id' 2>/dev/null || true)"
             if [ -n "$ID" ]; then
                 awk -v id="$ID" '
-                    BEGIN { depth=0; found=0 }
+                    BEGIN { found=0 }
                     /"id"[[:space:]]*:[[:space:]]*/ && $0 ~ id { found=1 }
                     found { print }
                     found && /^  \}/ { exit }
@@ -162,8 +166,8 @@ fetch_release_json() {
         fi
         if [ ! -s "$OUT" ]; then
             awk '
-                BEGIN { inobj=0; depth=0; buf=""; pre=0 }
-                /^  \{/ { inobj=1; depth=1; buf=$0 "\n"; pre=0; next }
+                BEGIN { inobj=0; buf=""; pre=0 }
+                /^  \{/ { inobj=1; buf=$0 "\n"; pre=0; next }
                 inobj {
                     buf = buf $0 "\n"
                     if ($0 ~ /"prerelease"[[:space:]]*:[[:space:]]*true/) pre=1
@@ -271,12 +275,25 @@ fetch_release_json "$CHANNEL" "$RELEASE_JSON"
 
 TAG="$(extract_release_field "$RELEASE_JSON" tag_name)"
 NAME="$(extract_release_field "$RELEASE_JSON" name)"
-URL="$(extract_asset_url "$RELEASE_JSON" "$ASSET_NAME")"
+case "$CHANNEL" in
+    stable|latest)
+        URL="https://github.com/$XRAY_REPO/releases/latest/download/$ASSET_NAME"
+        ;;
+    *)
+        URL="$(extract_asset_url "$RELEASE_JSON" "$ASSET_NAME")"
+        ;;
+esac
 
-[ -n "$URL" ] || { echo "ERROR: asset not found: $ASSET_NAME" >&2; exit 1; }
+if [ -z "$URL" ]; then
+    echo "ERROR: asset not found: $ASSET_NAME" >&2
+    echo "Available Xray zip assets from release metadata:" >&2
+    list_asset_names "$RELEASE_JSON" >&2
+    exit 1
+fi
 
-echo "Selected release: ${TAG:-unknown} ${NAME:-}"
+echo "Selected release: ${TAG:-latest} ${NAME:-}"
 echo "Selected asset: $ASSET_NAME"
+echo "Download URL: $URL"
 
 if [ "$ASSUME_YES" != "1" ]; then
     read_tty "Proceed with Xray-core update? [y/N]: "
@@ -287,7 +304,12 @@ if [ "$ASSUME_YES" != "1" ]; then
 fi
 
 echo "Downloading asset..."
-curl -fL -o "$ZIP_FILE" "$URL"
+if ! curl -fL -o "$ZIP_FILE" "$URL"; then
+    echo "ERROR: failed to download asset: $ASSET_NAME" >&2
+    echo "Available Xray zip assets from release metadata:" >&2
+    list_asset_names "$RELEASE_JSON" >&2
+    exit 1
+fi
 
 echo "Unpacking asset..."
 unzip -o "$ZIP_FILE" -d "$UNPACK_DIR" >/dev/null
