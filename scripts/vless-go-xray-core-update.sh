@@ -13,9 +13,10 @@ CHANNEL=""
 TAG_OVERRIDE=""
 ASSUME_YES="0"
 NO_RESTART="0"
+BACKUP_ENABLED=""
 
 usage() {
-    echo "Usage: vless-go-xray-core-update [--channel stable|latest|prerelease] [--tag vX.Y.Z] [--yes] [--no-restart]"
+    echo "Usage: vless-go-xray-core-update [--channel stable|latest|prerelease] [--tag vX.Y.Z] [--yes] [--no-restart] [--backup|--no-backup]"
 }
 
 read_tty() {
@@ -143,8 +144,12 @@ start_services() {
 }
 
 rollback() {
-    echo "ROLLBACK: restoring previous Xray binary..." >&2
-    [ -n "${BACKUP_BIN:-}" ] && [ -s "$BACKUP_BIN" ] && cp "$BACKUP_BIN" "$XRAY_BIN" && chmod +x "$XRAY_BIN"
+    if [ -n "${BACKUP_BIN:-}" ] && [ -s "$BACKUP_BIN" ]; then
+        echo "ROLLBACK: restoring previous Xray binary..." >&2
+        cp "$BACKUP_BIN" "$XRAY_BIN" && chmod +x "$XRAY_BIN"
+    else
+        echo "ROLLBACK: no backup binary available; manual recovery may be required." >&2
+    fi
     start_services || true
 }
 
@@ -154,6 +159,8 @@ while [ "$#" -gt 0 ]; do
         --tag) TAG_OVERRIDE="$2"; CHANNEL="tag"; shift 2 ;;
         --yes|-y) ASSUME_YES="1"; shift ;;
         --no-restart) NO_RESTART="1"; shift ;;
+        --backup) BACKUP_ENABLED="1"; shift ;;
+        --no-backup) BACKUP_ENABLED="0"; shift ;;
         -h|--help|help) usage; exit 0 ;;
         *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -177,6 +184,29 @@ if [ -z "$CHANNEL" ]; then
         0|'') echo "Canceled."; exit 0 ;;
         *) echo "ERROR: unknown choice: $REPLY" >&2; exit 1 ;;
     esac
+fi
+
+if [ -z "$BACKUP_ENABLED" ]; then
+    if [ "$ASSUME_YES" = "1" ]; then
+        BACKUP_ENABLED="1"
+    else
+        echo ""
+        echo "Create backup of current Xray binary before update?"
+        echo "Backup enables automatic rollback if the new binary fails."
+        read_tty "Create backup? [Y/n]: "
+        case "$REPLY" in
+            n|N|no|NO) BACKUP_ENABLED="0" ;;
+            *) BACKUP_ENABLED="1" ;;
+        esac
+    fi
+fi
+
+if [ "$BACKUP_ENABLED" = "0" ]; then
+    echo "WARNING: Xray binary backup is disabled. Automatic binary rollback will not be available."
+    if [ "$ASSUME_YES" != "1" ]; then
+        read_tty "Continue without backup? [y/N]: "
+        case "$REPLY" in y|Y|yes|YES) ;; *) echo "Canceled."; exit 0 ;; esac
+    fi
 fi
 
 mkdir -p "$TMP_DIR" "$BACKUP_DIR"
@@ -207,6 +237,7 @@ echo "Selected release: ${NAME:-$TAG}"
 echo "Selected tag: $TAG"
 echo "Selected asset: $ASSET_NAME"
 echo "Download URL: $URL"
+echo "Backup current binary: $BACKUP_ENABLED"
 
 if [ "$ASSUME_YES" != "1" ]; then
     read_tty "Proceed with Xray-core update? [y/N]: "
@@ -230,10 +261,15 @@ if [ -s "$XRAY_CONFIG" ]; then
     "$NEW_XRAY" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1 || "$NEW_XRAY" test -config "$XRAY_CONFIG"
 fi
 
-BACKUP_BIN="$BACKUP_DIR/xray.$(date '+%Y%m%d-%H%M%S').bak"
-echo "Backing up current binary to: $BACKUP_BIN"
-cp "$XRAY_BIN" "$BACKUP_BIN"
-chmod 600 "$BACKUP_BIN" 2>/dev/null || true
+BACKUP_BIN=""
+if [ "$BACKUP_ENABLED" = "1" ]; then
+    BACKUP_BIN="$BACKUP_DIR/xray.$(date '+%Y%m%d-%H%M%S').bak"
+    echo "Backing up current binary to: $BACKUP_BIN"
+    cp "$XRAY_BIN" "$BACKUP_BIN"
+    chmod 600 "$BACKUP_BIN" 2>/dev/null || true
+else
+    echo "Skipping Xray binary backup by user request."
+fi
 
 if [ "$NO_RESTART" != "1" ]; then
     echo "Stopping services..."
@@ -258,6 +294,7 @@ fi
 if [ "$NO_RESTART" = "1" ]; then
     echo "Services were not restarted because --no-restart was used."
     echo "Xray-core update completed."
+    [ -n "$BACKUP_BIN" ] && echo "Backup binary: $BACKUP_BIN"
     exit 0
 fi
 
@@ -266,4 +303,4 @@ start_services || { rollback; exit 1; }
 [ -x "$XRAY_INIT" ] && "$XRAY_INIT" status >/dev/null 2>&1 || { rollback; exit 1; }
 
 echo "Xray-core update completed successfully."
-echo "Backup binary: $BACKUP_BIN"
+[ -n "$BACKUP_BIN" ] && echo "Backup binary: $BACKUP_BIN"
