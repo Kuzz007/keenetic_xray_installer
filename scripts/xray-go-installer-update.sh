@@ -13,6 +13,8 @@ GO_AUTO_UPDATE_CMD="/opt/bin/vless-go-auto-update"
 GO_AUTO_UPDATE_URL="${GO_AUTO_UPDATE_URL:-${RAW_BASE}/scripts/vless-go-auto-update.sh}"
 GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
 GO_FAILOVER_URL="${GO_FAILOVER_URL:-${RAW_BASE}/scripts/vless-go-failover.sh}"
+GO_HISTORY_CMD="/opt/bin/vless-go-history"
+GO_HISTORY_URL="${GO_HISTORY_URL:-${RAW_BASE}/scripts/vless-go-history.sh}"
 FAILOVER_GO_CMD="/opt/bin/failover-go"
 FAILOVER_GO_URL="${FAILOVER_GO_URL:-${RAW_BASE}/scripts/failover-go.sh}"
 XRAY_CORE_UPDATE_CMD="/opt/bin/vless-go-xray-core-update"
@@ -44,7 +46,7 @@ usage() {
     echo "  --no-binary              Do not update /opt/bin/xray-failover-go."
     echo "  --no-watchdog            Do not reinstall watchdog helper/init/config."
     echo "  --no-doctor              Do not install/update /opt/bin/vless-go-doctor."
-    echo "  --no-helpers             Do not install/update vless-go-update/failover/auto-update helpers."
+    echo "  --no-helpers             Do not install/update vless-go-update/failover/auto-update/history helpers."
     echo "  --no-menu                Do not install/update /opt/bin/failover-go."
     echo "  --no-xray-core-updater   Do not install/update /opt/bin/vless-go-xray-core-update."
     echo "  --first                  Rebuild active Xray config using first profile from subscription."
@@ -66,14 +68,11 @@ cleanup_stale_lock() {
 
 acquire_lock() {
     OWNER="${1:-xray-go-installer-update}"
-
     if [ "${VLESS_GO_LOCK_HELD:-0}" = "1" ]; then
         return 0
     fi
-
     mkdir -p "$(dirname "$LOCK_DIR")" 2>/dev/null || true
     START="$(date +%s)"
-
     while true; do
         if mkdir "$LOCK_DIR" 2>/dev/null; then
             LOCK_HELD="1"
@@ -84,9 +83,7 @@ acquire_lock() {
             trap 'release_lock' EXIT INT TERM
             return 0
         fi
-
         cleanup_stale_lock
-
         NOW="$(date +%s)"
         ELAPSED="$((NOW - START))"
         if [ "$ELAPSED" -ge "$LOCK_WAIT" ]; then
@@ -95,7 +92,6 @@ acquire_lock() {
             echo "ERROR: VLESS Go lock is busy: owner=$OWNER_TEXT pid=$PID_TEXT path=$LOCK_DIR" >&2
             return 1
         fi
-
         sleep 1
     done
 }
@@ -212,6 +208,7 @@ if [ "$NO_HELPERS" = "0" ]; then
     install_executable "$GO_UPDATE_URL" "$GO_UPDATE_CMD" "vless-go-update helper"
     install_executable "$GO_FAILOVER_URL" "$GO_FAILOVER_CMD" "vless-go-failover helper"
     install_executable "$GO_AUTO_UPDATE_URL" "$GO_AUTO_UPDATE_CMD" "vless-go-auto-update helper"
+    install_executable "$GO_HISTORY_URL" "$GO_HISTORY_CMD" "vless-go-history helper"
 fi
 
 if [ "$NO_MENU" = "0" ]; then
@@ -262,5 +259,6 @@ echo "Backup selector: $(sed -n '1p' "$XRAY_DIR/vless-go.backup.selector" 2>/dev
 echo "Watchdog config: $WATCHDOG_CONF"
 echo "Doctor command: $DOCTOR_CMD"
 echo "Lock helper: $LOCK_HELPER"
+echo "History command: $GO_HISTORY_CMD"
 echo "Menu command: $FAILOVER_GO_CMD"
 echo "Xray-core updater command: $XRAY_CORE_UPDATE_CMD"

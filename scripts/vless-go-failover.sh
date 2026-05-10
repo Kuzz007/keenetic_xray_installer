@@ -7,6 +7,7 @@ PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
 BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 GO_UPDATE_CMD="/opt/bin/vless-go-update"
+HISTORY_CMD="/opt/bin/vless-go-history"
 LOCK_HELPER="/opt/libexec/vless-go-lock.sh"
 
 if [ -s "$LOCK_HELPER" ]; then
@@ -14,6 +15,12 @@ if [ -s "$LOCK_HELPER" ]; then
 else
     vless_go_acquire_lock() { return 0; }
 fi
+
+history_log() {
+    [ "${VLESS_GO_HISTORY_SUPPRESS:-0}" = "1" ] && return 0
+    [ -x "$HISTORY_CMD" ] || return 0
+    "$HISTORY_CMD" log "$@" >/dev/null 2>&1 || true
+}
 
 usage() {
     echo "Usage: vless-go-failover COMMAND [ARGS]"
@@ -138,10 +145,11 @@ parse_update_flags() {
 run_update() {
     SOURCE_VALUE="$1"
     SLOT="$2"
-    shift 2
+    ACTION="${3:-update-active}"
+    shift 3
     parse_update_flags "$@"
 
-    [ -x "$GO_UPDATE_CMD" ] || { echo "ERROR: update command not found: $GO_UPDATE_CMD" >&2; exit 1; }
+    [ -x "$GO_UPDATE_CMD" ] || { history_log failed_update slot="$SLOT" reason=missing_update_command; echo "ERROR: update command not found: $GO_UPDATE_CMD" >&2; exit 1; }
 
     if [ -z "$SELECTOR" ]; then
         case "$SLOT" in
@@ -149,10 +157,12 @@ run_update() {
             *) SELECTOR="first" ;;
         esac
     fi
-    validate_selector "$SELECTOR" || { echo "ERROR: invalid selector: $SELECTOR" >&2; exit 1; }
+    validate_selector "$SELECTOR" || { history_log failed_update slot="$SLOT" selector="$SELECTOR" reason=invalid_selector; echo "ERROR: invalid selector: $SELECTOR" >&2; exit 1; }
 
     vless_go_acquire_lock "vless-go-failover:$SLOT"
     trap 'vless_go_release_lock 2>/dev/null || true' EXIT INT TERM
+
+    OLD_SLOT="$(sed -n '1p' "$ACTIVE_STORE" 2>/dev/null || echo unknown)"
 
     mkdir -p "$XRAY_DIR"
     printf '%s\n' "$SOURCE_VALUE" > "$SOURCE_STORE"
@@ -163,8 +173,23 @@ run_update() {
     ARGS="--source $SOURCE_VALUE --selector $SELECTOR"
     [ "$NO_RESTART" = "0" ] || ARGS="$ARGS --no-restart"
 
+    set +e
     # shellcheck disable=SC2086
     VLESS_GO_LOCK_HELD=1 "$GO_UPDATE_CMD" $ARGS
+    RC="$?"
+    set -e
+
+    if [ "$RC" -ne 0 ]; then
+        history_log failed_switch action="$ACTION" from="$OLD_SLOT" to="$SLOT" selector="$SELECTOR" rc="$RC"
+        exit "$RC"
+    fi
+
+    case "$ACTION" in
+        switch) history_log manual_switch from="$OLD_SLOT" to="$SLOT" selector="$SELECTOR" no_restart="$NO_RESTART" ;;
+        update-active) history_log update_active_config slot="$SLOT" selector="$SELECTOR" no_restart="$NO_RESTART" ;;
+        *) history_log "$ACTION" slot="$SLOT" selector="$SELECTOR" no_restart="$NO_RESTART" ;;
+    esac
+
     echo "Active VLESS slot: $SLOT"
     echo "Active VLESS selector: $SELECTOR"
 }
@@ -192,8 +217,8 @@ case "${1:-status}" in
     set-primary) shift; parse_set_args "$@"; save_source primary "$SET_SOURCE" "$SET_SELECTOR" ;;
     set-backup) shift; parse_set_args "$@"; save_source backup "$SET_SOURCE" "$SET_SELECTOR" ;;
     set-selector) shift; [ "$#" -ge 2 ] || { echo "ERROR: set-selector requires slot and selector" >&2; exit 1; }; save_selector "$1" "$2" ;;
-    switch) shift; [ "$#" -ge 1 ] || { echo "ERROR: switch requires primary or backup" >&2; exit 1; }; SLOT="$1"; shift; SOURCE_VALUE="$(slot_source "$SLOT")" || { echo "ERROR: $SLOT source is not configured" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "$@" ;;
-    update-active) shift; if [ -s "$ACTIVE_STORE" ]; then SLOT="$(sed -n '1p' "$ACTIVE_STORE")"; SOURCE_VALUE="$(slot_source "$SLOT" 2>/dev/null || true)"; else SLOT="current"; SOURCE_VALUE=""; fi; [ -n "$SOURCE_VALUE" ] || SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE" 2>/dev/null || true)"; [ -n "$SOURCE_VALUE" ] || { echo "ERROR: no active source found" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "$@" ;;
+    switch) shift; [ "$#" -ge 1 ] || { echo "ERROR: switch requires primary or backup" >&2; exit 1; }; SLOT="$1"; shift; SOURCE_VALUE="$(slot_source "$SLOT")" || { history_log failed_switch to="$SLOT" reason=source_not_configured; echo "ERROR: $SLOT source is not configured" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "switch" "$@" ;;
+    update-active) shift; if [ -s "$ACTIVE_STORE" ]; then SLOT="$(sed -n '1p' "$ACTIVE_STORE")"; SOURCE_VALUE="$(slot_source "$SLOT" 2>/dev/null || true)"; else SLOT="current"; SOURCE_VALUE=""; fi; [ -n "$SOURCE_VALUE" ] || SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE" 2>/dev/null || true)"; [ -n "$SOURCE_VALUE" ] || { history_log failed_update reason=no_active_source; echo "ERROR: no active source found" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "update-active" "$@" ;;
     sync-primary) [ -s "$SOURCE_STORE" ] || { echo "ERROR: current source is not configured" >&2; exit 1; }; save_source primary "$(sed -n '1p' "$SOURCE_STORE")" "first"; printf '%s\n' primary > "$ACTIVE_STORE"; chmod 600 "$ACTIVE_STORE" 2>/dev/null || true ;;
     -h|--help|help) usage ;;
     *) echo "ERROR: unknown command: $1" >&2; usage >&2; exit 1 ;;
