@@ -7,6 +7,12 @@ REPO_BRANCH="${REPO_BRANCH:-main}"
 WATCHDOG_BRANCH="${WATCHDOG_BRANCH:-$REPO_BRANCH}"
 RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
 GO_RESOLVER="/opt/bin/xray-failover-go"
+GO_UPDATE_CMD="/opt/bin/vless-go-update"
+GO_UPDATE_URL="${GO_UPDATE_URL:-${RAW_BASE}/scripts/vless-go-update.sh}"
+GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
+GO_FAILOVER_URL="${GO_FAILOVER_URL:-${RAW_BASE}/scripts/vless-go-failover.sh}"
+LOCK_HELPER="/opt/libexec/vless-go-lock.sh"
+LOCK_HELPER_URL="${LOCK_HELPER_URL:-${RAW_BASE}/scripts/vless-go-lock.sh}"
 DOCTOR_CMD="/opt/bin/vless-go-doctor"
 DOCTOR_URL="${DOCTOR_URL:-${RAW_BASE}/scripts/vless-go-doctor.sh}"
 WATCHDOG_INSTALLER_URL="${WATCHDOG_INSTALLER_URL:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${WATCHDOG_BRANCH}/xray_vless_go_watchdog_install.sh}"
@@ -23,7 +29,7 @@ LOCK_WAIT="${VLESS_GO_LOCK_WAIT:-30}"
 LOCK_HELD="0"
 
 usage() {
-    echo "Usage: xray-go-installer-update [--no-restart] [--no-binary] [--no-watchdog] [--no-doctor] [--first]"
+    echo "Usage: xray-go-installer-update [--no-restart] [--no-binary] [--no-watchdog] [--no-doctor] [--no-helpers] [--first]"
     echo ""
     echo "Updates installed experimental Go edition components without asking for VLESS sources again."
     echo ""
@@ -32,6 +38,7 @@ usage() {
     echo "  --no-binary    Do not update /opt/bin/xray-failover-go."
     echo "  --no-watchdog  Do not reinstall watchdog helper/init/config."
     echo "  --no-doctor    Do not install/update /opt/bin/vless-go-doctor."
+    echo "  --no-helpers   Do not install/update lock-aware vless-go-update/failover helpers."
     echo "  --first        Rebuild active Xray config using first profile from subscription."
 }
 
@@ -99,6 +106,7 @@ NO_RESTART="0"
 NO_BINARY="0"
 NO_WATCHDOG="0"
 NO_DOCTOR="0"
+NO_HELPERS="0"
 FIRST="0"
 
 while [ "$#" -gt 0 ]; do
@@ -107,6 +115,7 @@ while [ "$#" -gt 0 ]; do
         --no-binary) NO_BINARY="1"; shift ;;
         --no-watchdog) NO_WATCHDOG="1"; shift ;;
         --no-doctor) NO_DOCTOR="1"; shift ;;
+        --no-helpers) NO_HELPERS="1"; shift ;;
         --first) FIRST="1"; shift ;;
         -h|--help|help) usage; exit 0 ;;
         *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
@@ -127,7 +136,31 @@ else
     opkg install ca-bundle >/dev/null 2>&1 || true
 fi
 
-mkdir -p /opt/bin "$XRAY_DIR" "$TMP_DIR"
+mkdir -p /opt/bin /opt/libexec "$XRAY_DIR" "$TMP_DIR"
+
+install_executable() {
+    URL="$1"
+    DEST="$2"
+    NAME="$3"
+    TMP_FILE="$TMP_DIR/$(basename "$DEST").$$"
+    echo "Updating $NAME..."
+    curl -fL -o "$TMP_FILE" "$URL"
+    chmod +x "$TMP_FILE"
+    mv "$TMP_FILE" "$DEST"
+    chmod +x "$DEST"
+}
+
+install_readable_helper() {
+    URL="$1"
+    DEST="$2"
+    NAME="$3"
+    TMP_FILE="$TMP_DIR/$(basename "$DEST").$$"
+    echo "Updating $NAME..."
+    curl -fL -o "$TMP_FILE" "$URL"
+    chmod 644 "$TMP_FILE"
+    mv "$TMP_FILE" "$DEST"
+    chmod 644 "$DEST"
+}
 
 if [ ! -s "$PRIMARY_STORE" ] && [ -s "$SOURCE_STORE" ]; then
     cp "$SOURCE_STORE" "$PRIMARY_STORE"
@@ -153,13 +186,14 @@ if [ "$NO_BINARY" = "0" ]; then
     chmod +x "$GO_RESOLVER"
 fi
 
+if [ "$NO_HELPERS" = "0" ]; then
+    install_readable_helper "$LOCK_HELPER_URL" "$LOCK_HELPER" "lock helper"
+    install_executable "$GO_UPDATE_URL" "$GO_UPDATE_CMD" "vless-go-update helper"
+    install_executable "$GO_FAILOVER_URL" "$GO_FAILOVER_CMD" "vless-go-failover helper"
+fi
+
 if [ "$NO_DOCTOR" = "0" ]; then
-    TMP_DOCTOR="$TMP_DIR/vless-go-doctor.$$"
-    echo "Updating doctor helper..."
-    curl -fL -o "$TMP_DOCTOR" "$DOCTOR_URL"
-    chmod +x "$TMP_DOCTOR"
-    mv "$TMP_DOCTOR" "$DOCTOR_CMD"
-    chmod +x "$DOCTOR_CMD"
+    install_executable "$DOCTOR_URL" "$DOCTOR_CMD" "doctor helper"
 fi
 
 if [ "$NO_WATCHDOG" = "0" ]; then
@@ -195,3 +229,4 @@ echo "Backup source: $BACKUP_STORE"
 echo "Active slot: $(sed -n '1p' "$ACTIVE_STORE" 2>/dev/null || echo unknown)"
 echo "Watchdog config: $WATCHDOG_CONF"
 echo "Doctor command: $DOCTOR_CMD"
+echo "Lock helper: $LOCK_HELPER"
