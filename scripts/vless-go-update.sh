@@ -123,50 +123,12 @@ selector_index() {
     esac
 }
 
-go_supports_select_index() {
-    "$GO_RESOLVER" -h 2>&1 | grep -q -- '-select-index'
-}
-
-extract_link_by_index_shell() {
-    SOURCE_VALUE="$1"
-    IDX="$2"
-    TMP_SUB="$TMP_DIR/vless-go-sub.$$.txt"
-    TMP_DECODED="$TMP_DIR/vless-go-sub-decoded.$$.txt"
-
-    rm -f "$TMP_SUB" "$TMP_DECODED" 2>/dev/null || true
-
-    case "$SOURCE_VALUE" in
-        vless://*)
-            if [ "$IDX" = "1" ]; then
-                printf '%s\n' "$SOURCE_VALUE"
-                return 0
-            fi
-            echo "ERROR: selector $SELECTOR is out of range for single VLESS link" >&2
-            return 1
-            ;;
-        http://*|https://*)
-            curl -fsSL -o "$TMP_SUB" "$SOURCE_VALUE"
-            ;;
-        *)
-            echo "ERROR: source must be vless:// or http(s) subscription URL" >&2
-            return 1
-            ;;
-    esac
-
-    LINK="$(grep -o 'vless://[^[:space:]<>]*' "$TMP_SUB" | sed -n "${IDX}p")"
-    if [ -z "$LINK" ] && command -v base64 >/dev/null 2>&1; then
-        tr -d '\r\n\t ' < "$TMP_SUB" | base64 -d > "$TMP_DECODED" 2>/dev/null || true
-        LINK="$(grep -o 'vless://[^[:space:]<>]*' "$TMP_DECODED" 2>/dev/null | sed -n "${IDX}p")"
-    fi
-
-    rm -f "$TMP_SUB" "$TMP_DECODED" 2>/dev/null || true
-
-    if [ -z "$LINK" ]; then
-        echo "ERROR: failed to extract profile $IDX from subscription" >&2
+require_select_index_support() {
+    if ! "$GO_RESOLVER" -h 2>&1 | grep -q -- '-select-index'; then
+        echo "ERROR: installed Go resolver does not support -select-index." >&2
+        echo "Update /opt/bin/xray-failover-go through xray-go-installer-update or install release 0.1.1-go-experimental+." >&2
         return 1
     fi
-
-    printf '%s\n' "$LINK"
 }
 
 SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE")"
@@ -179,13 +141,8 @@ case "$SELECTOR" in
         ;;
     index:*)
         IDX="$(selector_index)"
-        if go_supports_select_index; then
-            set -- -select-index "$IDX"
-        else
-            echo "Go resolver does not support -select-index yet; using shell extraction fallback for selector $SELECTOR" >&2
-            SOURCE_VALUE="$(extract_link_by_index_shell "$SOURCE_VALUE" "$IDX")"
-            set -- -first
-        fi
+        require_select_index_support
+        set -- -select-index "$IDX"
         ;;
     *)
         echo "ERROR: unsupported selector: $SELECTOR (supported: first, index:N)" >&2
