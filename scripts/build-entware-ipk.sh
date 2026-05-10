@@ -9,13 +9,16 @@ BUILD_DIR="$ROOT_DIR/dist/ipk-build"
 OUT_DIR="$ROOT_DIR/dist"
 PKG_DIR="$BUILD_DIR/${PKG_NAME}_${PKG_VERSION}_${PKG_ARCH}"
 CONTROL_SRC="$ROOT_DIR/packaging/entware/failover-go/control"
-POSTINST_SRC="$ROOT_DIR/packaging/entware/failover-go/postinst"
-PRERM_SRC="$ROOT_DIR/packaging/entware/failover-go/prerm"
 OUT_IPK="$OUT_DIR/${PKG_NAME}_${PKG_VERSION}_${PKG_ARCH}.ipk"
+
+if ! command -v ar >/dev/null 2>&1; then
+    echo "ERROR: ar command not found. Install binutils or run this workflow on Ubuntu." >&2
+    exit 1
+fi
 
 mkdir -p "$OUT_DIR"
 rm -rf "$BUILD_DIR"
-mkdir -p "$PKG_DIR/CONTROL" "$PKG_DIR/opt/bin" "$PKG_DIR/opt/libexec" "$PKG_DIR/opt/etc/init.d"
+mkdir -p "$PKG_DIR/CONTROL" "$PKG_DIR/opt/bin" "$PKG_DIR/opt/libexec"
 
 copy_exec() {
     src="$1"
@@ -63,9 +66,10 @@ chmod 644 "$PKG_DIR/CONTROL/control"
 )
 
 echo '2.0' > "$BUILD_DIR/debian-binary"
+rm -f "$OUT_IPK"
 (
     cd "$BUILD_DIR"
-    tar -czf "$OUT_IPK" ./debian-binary ./control.tar.gz ./data.tar.gz
+    ar r "$OUT_IPK" debian-binary control.tar.gz data.tar.gz >/dev/null
 )
 
 sha256sum "$OUT_IPK" > "$OUT_IPK.sha256"
