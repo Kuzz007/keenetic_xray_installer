@@ -7,17 +7,15 @@ XRAY_INIT="/opt/etc/init.d/S24xray"
 WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
 TMP_DIR="/opt/tmp/vless-go-xray-core-update.$$"
 BACKUP_DIR="/opt/etc/xray/backups"
+RELEASES_API="https://api.github.com/repos/XTLS/Xray-core/releases"
+LATEST_API="https://api.github.com/repos/XTLS/Xray-core/releases/latest"
 CHANNEL=""
+TAG_OVERRIDE=""
 ASSUME_YES="0"
 NO_RESTART="0"
 
 usage() {
-    echo "Usage: vless-go-xray-core-update [--channel stable|latest|prerelease] [--yes] [--no-restart]"
-    echo ""
-    echo "Options:"
-    echo "  --channel VALUE   Release channel: stable/latest or prerelease."
-    echo "  --yes             Non-interactive confirmation."
-    echo "  --no-restart      Download, verify, and replace binary but do not start services."
+    echo "Usage: vless-go-xray-core-update [--channel stable|latest|prerelease] [--tag vX.Y.Z] [--yes] [--no-restart]"
 }
 
 read_tty() {
@@ -29,6 +27,21 @@ read_tty() {
         printf "%s" "$prompt" >&2
         IFS= read -r REPLY
     fi
+}
+
+need_cmd() {
+    command -v "$1" >/dev/null 2>&1 || { echo "ERROR: required command not found: $1" >&2; exit 1; }
+}
+
+opkg_install_if_missing() {
+    cmd="$1"
+    pkg="$2"
+    command -v "$cmd" >/dev/null 2>&1 && return 0
+    echo "$cmd not found. Trying to install $pkg via opkg..."
+    command -v opkg >/dev/null 2>&1 || { echo "ERROR: $cmd not found and opkg unavailable." >&2; exit 1; }
+    opkg update
+    opkg install "$pkg"
+    command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: failed to install $pkg." >&2; exit 1; }
 }
 
 get_xray_bin() {
@@ -43,221 +56,124 @@ get_xray_bin() {
     fi
 }
 
-need_cmd() {
-    command -v "$1" >/dev/null 2>&1 || { echo "ERROR: required command not found: $1" >&2; exit 1; }
-}
-
-json_get() {
-    FILE="$1"
-    EXPR="$2"
-    if command -v jsonfilter >/dev/null 2>&1; then
-        jsonfilter -i "$FILE" -e "$EXPR" 2>/dev/null || true
-    else
-        return 1
-    fi
-}
-
-extract_release_field() {
-    FILE="$1"
-    FIELD="$2"
-    VALUE="$(json_get "$FILE" "@.$FIELD" 2>/dev/null || true)"
-    if [ -n "$VALUE" ]; then
-        printf '%s\n' "$VALUE"
-        return 0
-    fi
-    grep -m 1 '"'"$FIELD"'"[[:space:]]*:' "$FILE" | sed 's/.*: *//; s/^"//; s/",*$//; s/"$//'
-}
-
-sanitize_release_field() {
-    VALUE="$1"
-    case "$VALUE" in
-        ''|*'{'*|*'}'*|*':'*|*','*) return 1 ;;
-        *) printf '%s\n' "$VALUE" ;;
-    esac
-}
-
-list_asset_names() {
-    FILE="$1"
-    grep '"name"[[:space:]]*:' "$FILE" | sed 's/.*"name"[[:space:]]*:[[:space:]]*"//; s/".*//' | grep '^Xray-.*\.zip$' || true
-}
-
-extract_asset_url() {
-    FILE="$1"
-    PATTERN="$2"
-    if command -v jsonfilter >/dev/null 2>&1; then
-        URL="$(jsonfilter -i "$FILE" -e "@.assets[@.name='$PATTERN'].browser_download_url" 2>/dev/null || true)"
-        if [ -n "$URL" ]; then
-            printf '%s\n' "$URL" | sed -n '1p'
-            return 0
-        fi
-    fi
-
-    awk -v pat="$PATTERN" '
-        /"name"[[:space:]]*:/ {
-            line=$0
-            gsub(/.*"name"[[:space:]]*:[[:space:]]*"/, "", line)
-            gsub(/".*/, "", line)
-            name=line
-        }
-        /"browser_download_url"[[:space:]]*:/ {
-            url=$0
-            gsub(/.*"browser_download_url"[[:space:]]*:[[:space:]]*"/, "", url)
-            gsub(/".*/, "", url)
-            if (name == pat) {
-                print url
-                exit
-            }
-        }
-    ' "$FILE"
-}
-
-normalize_arch_asset() {
+detect_asset_name() {
     ARCH="$(uname -m 2>/dev/null || echo unknown)"
     case "$ARCH" in
-        aarch64|arm64)
-            echo "Xray-linux-arm64-v8a.zip"
-            ;;
-        armv7l|armv7*)
-            echo "Xray-linux-arm32-v7a.zip"
-            ;;
-        armv6l|armv6*)
-            echo "Xray-linux-arm32-v6.zip"
-            ;;
-        mipsel|mipsle)
-            echo "Xray-linux-mips32le.zip"
-            ;;
-        mips)
-            echo "Xray-linux-mips32.zip"
-            ;;
-        x86_64|amd64)
-            echo "Xray-linux-64.zip"
-            ;;
-        i386|i686)
-            echo "Xray-linux-32.zip"
-            ;;
-        *)
-            echo "ERROR: unsupported architecture: $ARCH" >&2
-            exit 1
-            ;;
+        x86_64|amd64) echo "Xray-linux-64.zip" ;;
+        i386|i486|i586|i686) echo "Xray-linux-32.zip" ;;
+        aarch64|arm64) echo "Xray-linux-arm64-v8a.zip" ;;
+        armv7l|armv7*|armv8l) echo "Xray-linux-arm32-v7a.zip" ;;
+        armv6l|armv6*) echo "Xray-linux-arm32-v6.zip" ;;
+        armv5*|arm) echo "Xray-linux-arm32-v5.zip" ;;
+        mips64el|mips64le) echo "Xray-linux-mips64le.zip" ;;
+        mips64) echo "Xray-linux-mips64.zip" ;;
+        mipsel|mipsle) echo "Xray-linux-mips32le.zip" ;;
+        mips) echo "Xray-linux-mips32.zip" ;;
+        riscv64) echo "Xray-linux-riscv64.zip" ;;
+        *) echo "" ;;
     esac
 }
 
-fetch_release_json() {
-    CHANNEL_VALUE="$1"
-    OUT="$2"
-    case "$CHANNEL_VALUE" in
-        stable|latest)
-            URL="https://api.github.com/repos/$XRAY_REPO/releases/latest"
-            ;;
-        prerelease|pre-release|pre)
-            URL="https://api.github.com/repos/$XRAY_REPO/releases"
-            ;;
-        *)
-            echo "ERROR: unsupported channel: $CHANNEL_VALUE" >&2
-            exit 1
-            ;;
-    esac
+select_release_json() {
+    mode="$1"
+    out_json="$2"
+    all_json="$TMP_DIR/releases.json"
 
-    if [ "$CHANNEL_VALUE" = "prerelease" ] || [ "$CHANNEL_VALUE" = "pre-release" ] || [ "$CHANNEL_VALUE" = "pre" ]; then
-        ALL="$OUT.all"
-        curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: vless-go-xray-core-update' -o "$ALL" "$URL"
-        if command -v jsonfilter >/dev/null 2>&1; then
-            ID="$(jsonfilter -i "$ALL" -e '@[@.prerelease=true][0].id' 2>/dev/null || true)"
-            if [ -n "$ID" ]; then
-                awk -v id="$ID" '
-                    BEGIN { found=0 }
-                    /"id"[[:space:]]*:[[:space:]]*/ && $0 ~ id { found=1 }
-                    found { print }
-                    found && /^  \}/ { exit }
-                ' "$ALL" > "$OUT"
-            fi
-        fi
-        if [ ! -s "$OUT" ]; then
-            awk '
-                BEGIN { inobj=0; buf=""; pre=0 }
-                /^  \{/ { inobj=1; buf=$0 "\n"; pre=0; next }
-                inobj {
-                    buf = buf $0 "\n"
-                    if ($0 ~ /"prerelease"[[:space:]]*:[[:space:]]*true/) pre=1
-                    if ($0 ~ /^  \}/) {
-                        if (pre) { printf "%s", buf; exit }
-                        inobj=0; buf=""; pre=0
-                    }
-                }
-            ' "$ALL" > "$OUT"
-        fi
-        [ -s "$OUT" ] || { echo "ERROR: no pre-release found for $XRAY_REPO" >&2; exit 1; }
-    else
-        curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: vless-go-xray-core-update' -o "$OUT" "$URL"
+    if [ -n "$TAG_OVERRIDE" ]; then
+        curl -fsSL -H "User-Agent: vless-go-xray-core-update" -o "$out_json" "https://api.github.com/repos/$XRAY_REPO/releases/tags/$TAG_OVERRIDE"
+        return 0
     fi
+
+    if [ "$mode" = "stable" ] || [ "$mode" = "latest" ]; then
+        curl -fsSL -H "User-Agent: vless-go-xray-core-update" -o "$out_json" "$LATEST_API"
+        return 0
+    fi
+
+    curl -fsSL -H "User-Agent: vless-go-xray-core-update" -o "$all_json" "$RELEASES_API?per_page=100"
+    python3 - "$all_json" "$out_json" <<'PY'
+import json, sys
+src, dst = sys.argv[1], sys.argv[2]
+with open(src, 'r', encoding='utf-8') as f:
+    releases = json.load(f)
+for release in releases:
+    if release.get('prerelease') and not release.get('draft'):
+        with open(dst, 'w', encoding='utf-8') as out:
+            json.dump(release, out)
+        print(release.get('tag_name', ''), file=sys.stderr)
+        break
+else:
+    raise SystemExit('No Xray-core pre-release found in GitHub releases')
+PY
+}
+
+json_field() {
+    json_file="$1"
+    field="$2"
+    python3 - "$json_file" "$field" <<'PY'
+import json, sys
+with open(sys.argv[1], 'r', encoding='utf-8') as f:
+    data = json.load(f)
+print(data.get(sys.argv[2], '') or '')
+PY
+}
+
+asset_url() {
+    json_file="$1"
+    asset_name="$2"
+    python3 - "$json_file" "$asset_name" <<'PY'
+import json, sys
+with open(sys.argv[1], 'r', encoding='utf-8') as f:
+    data = json.load(f)
+needle = sys.argv[2]
+for asset in data.get('assets', []):
+    if asset.get('name') == needle:
+        print(asset.get('browser_download_url', '') or '')
+        break
+PY
 }
 
 stop_services() {
-    if [ -x "$WATCHDOG_INIT" ]; then
-        "$WATCHDOG_INIT" stop || true
-    fi
-    if [ -x "$XRAY_INIT" ]; then
-        "$XRAY_INIT" stop || true
-    fi
+    [ -x "$WATCHDOG_INIT" ] && "$WATCHDOG_INIT" stop || true
+    [ -x "$XRAY_INIT" ] && "$XRAY_INIT" stop || true
 }
 
 start_services() {
-    if [ -x "$XRAY_INIT" ]; then
-        "$XRAY_INIT" start || return 1
-    fi
-    if [ -x "$WATCHDOG_INIT" ]; then
-        "$WATCHDOG_INIT" start || true
-    fi
+    [ -x "$XRAY_INIT" ] && "$XRAY_INIT" start || return 1
+    [ -x "$WATCHDOG_INIT" ] && "$WATCHDOG_INIT" start || true
 }
 
 rollback() {
     echo "ROLLBACK: restoring previous Xray binary..." >&2
-    if [ -n "${BACKUP_BIN:-}" ] && [ -s "$BACKUP_BIN" ] && [ -n "${XRAY_BIN:-}" ]; then
-        cp "$BACKUP_BIN" "$XRAY_BIN"
-        chmod +x "$XRAY_BIN"
-    fi
+    [ -n "${BACKUP_BIN:-}" ] && [ -s "$BACKUP_BIN" ] && cp "$BACKUP_BIN" "$XRAY_BIN" && chmod +x "$XRAY_BIN"
     start_services || true
 }
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --channel)
-            [ "$#" -ge 2 ] || { echo "ERROR: --channel requires value" >&2; exit 1; }
-            CHANNEL="$2"
-            shift 2
-            ;;
-        --yes|-y)
-            ASSUME_YES="1"
-            shift
-            ;;
-        --no-restart)
-            NO_RESTART="1"
-            shift
-            ;;
-        -h|--help|help)
-            usage
-            exit 0
-            ;;
-        *)
-            echo "ERROR: unknown argument: $1" >&2
-            usage >&2
-            exit 1
-            ;;
+        --channel) CHANNEL="$2"; shift 2 ;;
+        --tag) TAG_OVERRIDE="$2"; CHANNEL="tag"; shift 2 ;;
+        --yes|-y) ASSUME_YES="1"; shift ;;
+        --no-restart) NO_RESTART="1"; shift ;;
+        -h|--help|help) usage; exit 0 ;;
+        *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
     esac
 done
 
 need_cmd curl
-need_cmd unzip
+opkg_install_if_missing python3 python3
+opkg_install_if_missing unzip unzip
 
 if [ -z "$CHANNEL" ]; then
     echo "Choose Xray-core update channel:"
     echo "1. Stable/latest"
     echo "2. Pre-release"
+    echo "3. Specific tag"
     echo "0. Cancel"
     read_tty "Choose: "
     case "$REPLY" in
         1) CHANNEL="latest" ;;
         2) CHANNEL="prerelease" ;;
+        3) read_tty "Enter tag, for example v26.5.9: "; TAG_OVERRIDE="$REPLY"; CHANNEL="tag" ;;
         0|'') echo "Canceled."; exit 0 ;;
         *) echo "ERROR: unknown choice: $REPLY" >&2; exit 1 ;;
     esac
@@ -268,10 +184,11 @@ trap 'rm -rf "$TMP_DIR" 2>/dev/null || true' EXIT INT TERM
 
 XRAY_BIN="$(get_xray_bin)"
 [ -n "$XRAY_BIN" ] || { echo "ERROR: xray binary not found" >&2; exit 1; }
+ASSET_NAME="$(detect_asset_name)"
+[ -n "$ASSET_NAME" ] || { echo "ERROR: unsupported architecture: $(uname -m 2>/dev/null || echo unknown)" >&2; exit 1; }
 
-ASSET_NAME="$(normalize_arch_asset)"
 RELEASE_JSON="$TMP_DIR/release.json"
-ZIP_FILE="$TMP_DIR/xray.zip"
+ZIP_FILE="$TMP_DIR/$ASSET_NAME"
 UNPACK_DIR="$TMP_DIR/unpack"
 mkdir -p "$UNPACK_DIR"
 
@@ -279,54 +196,30 @@ echo "Current Xray binary: $XRAY_BIN"
 "$XRAY_BIN" version 2>/dev/null | sed -n '1,2p' || true
 
 echo "Fetching Xray-core release metadata: channel=$CHANNEL"
-fetch_release_json "$CHANNEL" "$RELEASE_JSON"
+select_release_json "$CHANNEL" "$RELEASE_JSON"
+TAG="$(json_field "$RELEASE_JSON" tag_name)"
+NAME="$(json_field "$RELEASE_JSON" name)"
+URL="$(asset_url "$RELEASE_JSON" "$ASSET_NAME")"
 
-TAG_RAW="$(extract_release_field "$RELEASE_JSON" tag_name)"
-NAME_RAW="$(extract_release_field "$RELEASE_JSON" name)"
-TAG="$(sanitize_release_field "$TAG_RAW" 2>/dev/null || true)"
-NAME="$(sanitize_release_field "$NAME_RAW" 2>/dev/null || true)"
-case "$CHANNEL" in
-    stable|latest)
-        URL="https://github.com/$XRAY_REPO/releases/latest/download/$ASSET_NAME"
-        [ -n "$TAG" ] || TAG="latest"
-        ;;
-    *)
-        URL="$(extract_asset_url "$RELEASE_JSON" "$ASSET_NAME")"
-        [ -n "$TAG" ] || TAG="$CHANNEL"
-        ;;
-esac
+[ -n "$URL" ] || { echo "ERROR: asset not found: $ASSET_NAME in release $TAG" >&2; exit 1; }
 
-if [ -z "$URL" ]; then
-    echo "ERROR: asset not found: $ASSET_NAME" >&2
-    echo "Available Xray zip assets from release metadata:" >&2
-    list_asset_names "$RELEASE_JSON" >&2
-    exit 1
-fi
-
-echo "Selected release: $TAG ${NAME:-}"
+echo "Selected release: ${NAME:-$TAG}"
+echo "Selected tag: $TAG"
 echo "Selected asset: $ASSET_NAME"
 echo "Download URL: $URL"
 
 if [ "$ASSUME_YES" != "1" ]; then
     read_tty "Proceed with Xray-core update? [y/N]: "
-    case "$REPLY" in
-        y|Y|yes|YES) ;;
-        *) echo "Canceled."; exit 0 ;;
-    esac
+    case "$REPLY" in y|Y|yes|YES) ;; *) echo "Canceled."; exit 0 ;; esac
 fi
 
 echo "Downloading asset..."
-if ! curl -fL -o "$ZIP_FILE" "$URL"; then
-    echo "ERROR: failed to download asset: $ASSET_NAME" >&2
-    echo "Available Xray zip assets from release metadata:" >&2
-    list_asset_names "$RELEASE_JSON" >&2
-    exit 1
-fi
+curl -fL -H "User-Agent: vless-go-xray-core-update" -o "$ZIP_FILE" "$URL"
 
 echo "Unpacking asset..."
-unzip -o "$ZIP_FILE" -d "$UNPACK_DIR" >/dev/null
+unzip -oq "$ZIP_FILE" -d "$UNPACK_DIR"
 NEW_XRAY="$(find "$UNPACK_DIR" -type f -name xray | sed -n '1p')"
-[ -n "$NEW_XRAY" ] && [ -s "$NEW_XRAY" ] || { echo "ERROR: xray binary not found inside archive" >&2; exit 1; }
+[ -s "$NEW_XRAY" ] || { echo "ERROR: xray binary not found inside archive" >&2; exit 1; }
 chmod +x "$NEW_XRAY"
 
 echo "New Xray version:"
@@ -335,12 +228,9 @@ echo "New Xray version:"
 echo "Testing new Xray with current config before replacing..."
 if [ -s "$XRAY_CONFIG" ]; then
     "$NEW_XRAY" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1 || "$NEW_XRAY" test -config "$XRAY_CONFIG"
-else
-    echo "WARNING: config not found: $XRAY_CONFIG" >&2
 fi
 
-STAMP="$(date '+%Y%m%d-%H%M%S')"
-BACKUP_BIN="$BACKUP_DIR/xray.$STAMP.bak"
+BACKUP_BIN="$BACKUP_DIR/xray.$(date '+%Y%m%d-%H%M%S').bak"
 echo "Backing up current binary to: $BACKUP_BIN"
 cp "$XRAY_BIN" "$BACKUP_BIN"
 chmod 600 "$BACKUP_BIN" 2>/dev/null || true
@@ -350,12 +240,7 @@ if [ "$NO_RESTART" != "1" ]; then
     stop_services
 fi
 
-set +e
-cp "$NEW_XRAY" "$XRAY_BIN"
-chmod +x "$XRAY_BIN"
-REPLACE_RC="$?"
-set -e
-if [ "$REPLACE_RC" != "0" ]; then
+if ! cp "$NEW_XRAY" "$XRAY_BIN" || ! chmod +x "$XRAY_BIN"; then
     rollback
     exit 1
 fi
@@ -366,10 +251,7 @@ echo "Installed Xray version:"
 if [ -s "$XRAY_CONFIG" ]; then
     echo "Validating installed Xray config..."
     if ! "$XRAY_BIN" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1; then
-        if ! "$XRAY_BIN" test -config "$XRAY_CONFIG"; then
-            rollback
-            exit 1
-        fi
+        "$XRAY_BIN" test -config "$XRAY_CONFIG" || { rollback; exit 1; }
     fi
 fi
 
@@ -380,17 +262,8 @@ if [ "$NO_RESTART" = "1" ]; then
 fi
 
 echo "Starting services..."
-if ! start_services; then
-    rollback
-    exit 1
-fi
-
-if [ -x "$XRAY_INIT" ]; then
-    if ! "$XRAY_INIT" status >/dev/null 2>&1; then
-        rollback
-        exit 1
-    fi
-fi
+start_services || { rollback; exit 1; }
+[ -x "$XRAY_INIT" ] && "$XRAY_INIT" status >/dev/null 2>&1 || { rollback; exit 1; }
 
 echo "Xray-core update completed successfully."
 echo "Backup binary: $BACKUP_BIN"
