@@ -21,14 +21,18 @@ usage() {
 }
 
 read_tty() {
-    prompt="$1"
+    PROMPT="$1"
     if [ -r /dev/tty ]; then
-        printf "%s" "$prompt" >/dev/tty
+        printf "%s" "$PROMPT" >/dev/tty
         IFS= read -r REPLY </dev/tty
     else
-        printf "%s" "$prompt" >&2
+        printf "%s" "$PROMPT" >&2
         IFS= read -r REPLY
     fi
+}
+
+need_cmd() {
+    command -v "$1" >/dev/null 2>&1 || { echo "ERROR: required command not found: $1" >&2; exit 1; }
 }
 
 get_xray_bin() {
@@ -41,74 +45,6 @@ get_xray_bin() {
     else
         echo ""
     fi
-}
-
-need_cmd() {
-    command -v "$1" >/dev/null 2>&1 || { echo "ERROR: required command not found: $1" >&2; exit 1; }
-}
-
-json_get() {
-    FILE="$1"
-    EXPR="$2"
-    if command -v jsonfilter >/dev/null 2>&1; then
-        jsonfilter -i "$FILE" -e "$EXPR" 2>/dev/null || true
-    else
-        return 1
-    fi
-}
-
-extract_release_field() {
-    FILE="$1"
-    FIELD="$2"
-    VALUE="$(json_get "$FILE" "@.$FIELD" 2>/dev/null || true)"
-    if [ -n "$VALUE" ]; then
-        printf '%s\n' "$VALUE"
-        return 0
-    fi
-    grep -m 1 '"'"$FIELD"'"[[:space:]]*:' "$FILE" | sed 's/.*: *//; s/^"//; s/",*$//; s/"$//'
-}
-
-sanitize_release_field() {
-    VALUE="$1"
-    case "$VALUE" in
-        ''|*'{'*|*'}'*|*':'*|*','*) return 1 ;;
-        *) printf '%s\n' "$VALUE" ;;
-    esac
-}
-
-list_asset_names() {
-    FILE="$1"
-    grep '"name"[[:space:]]*:' "$FILE" | sed 's/.*"name"[[:space:]]*:[[:space:]]*"//; s/".*//' | grep '^Xray-.*\.zip$' || true
-}
-
-extract_asset_url() {
-    FILE="$1"
-    PATTERN="$2"
-    if command -v jsonfilter >/dev/null 2>&1; then
-        URL="$(jsonfilter -i "$FILE" -e "@.assets[@.name='$PATTERN'].browser_download_url" 2>/dev/null || true)"
-        if [ -n "$URL" ]; then
-            printf '%s\n' "$URL" | sed -n '1p'
-            return 0
-        fi
-    fi
-
-    awk -v pat="$PATTERN" '
-        /"name"[[:space:]]*:/ {
-            line=$0
-            gsub(/.*"name"[[:space:]]*:[[:space:]]*"/, "", line)
-            gsub(/".*/, "", line)
-            name=line
-        }
-        /"browser_download_url"[[:space:]]*:/ {
-            url=$0
-            gsub(/.*"browser_download_url"[[:space:]]*:[[:space:]]*"/, "", url)
-            gsub(/".*/, "", url)
-            if (name == pat) {
-                print url
-                exit
-            }
-        }
-    ' "$FILE"
 }
 
 normalize_arch_asset() {
@@ -125,54 +61,28 @@ normalize_arch_asset() {
     esac
 }
 
-fetch_release_json() {
-    CHANNEL_VALUE="$1"
-    OUT="$2"
-    case "$CHANNEL_VALUE" in
-        stable|latest)
-            URL="https://api.github.com/repos/$XRAY_REPO/releases/latest"
-            curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: vless-go-xray-core-update' -o "$OUT" "$URL"
-            ;;
-        prerelease|pre-release|pre)
-            URL="https://api.github.com/repos/$XRAY_REPO/releases"
-            ALL="$OUT.all"
-            curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: vless-go-xray-core-update' -o "$ALL" "$URL"
-            if command -v jsonfilter >/dev/null 2>&1; then
-                ID="$(jsonfilter -i "$ALL" -e '@[@.prerelease=true][0].id' 2>/dev/null || true)"
-                if [ -n "$ID" ]; then
-                    awk -v id="$ID" '
-                        BEGIN { found=0 }
-                        /"id"[[:space:]]*:[[:space:]]*/ && $0 ~ id { found=1 }
-                        found { print }
-                        found && /^  \}/ { exit }
-                    ' "$ALL" > "$OUT"
-                fi
-            fi
-            if [ ! -s "$OUT" ]; then
-                awk '
-                    BEGIN { inobj=0; buf=""; pre=0 }
-                    /^  \{/ { inobj=1; buf=$0 "\n"; pre=0; next }
-                    inobj {
-                        buf = buf $0 "\n"
-                        if ($0 ~ /"prerelease"[[:space:]]*:[[:space:]]*true/) pre=1
-                        if ($0 ~ /^  \}/) {
-                            if (pre) { printf "%s", buf; exit }
-                            inobj=0; buf=""; pre=0
-                        }
-                    }
-                ' "$ALL" > "$OUT"
-            fi
-            if [ ! -s "$OUT" ]; then
-                echo "No Xray-core pre-release is currently available from GitHub Releases."
-                echo "Use Stable/latest instead."
-                exit 0
-            fi
-            ;;
-        *)
-            echo "ERROR: unsupported channel: $CHANNEL_VALUE" >&2
-            exit 1
-            ;;
-    esac
+json_field_first() {
+    FILE="$1"
+    FIELD="$2"
+    grep -m 1 '"'"$FIELD"'"[[:space:]]*:' "$FILE" | sed 's/.*"'"$FIELD"'"[[:space:]]*:[[:space:]]*"//; s/".*//'
+}
+
+find_first_prerelease_tag() {
+    FILE="$1"
+    awk '
+        /"tag_name"[[:space:]]*:/ {
+            line=$0
+            sub(/.*"tag_name"[[:space:]]*:[[:space:]]*"/, "", line)
+            sub(/".*/, "", line)
+            tag=line
+        }
+        /"prerelease"[[:space:]]*:[[:space:]]*true/ {
+            if (tag != "") {
+                print tag
+                exit
+            }
+        }
+    ' "$FILE"
 }
 
 stop_services() {
@@ -209,10 +119,23 @@ while [ "$#" -gt 0 ]; do
             CHANNEL="$2"
             shift 2
             ;;
-        --yes|-y) ASSUME_YES="1"; shift ;;
-        --no-restart) NO_RESTART="1"; shift ;;
-        -h|--help|help) usage; exit 0 ;;
-        *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
+        --yes|-y)
+            ASSUME_YES="1"
+            shift
+            ;;
+        --no-restart)
+            NO_RESTART="1"
+            shift
+            ;;
+        -h|--help|help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "ERROR: unknown argument: $1" >&2
+            usage >&2
+            exit 1
+            ;;
     esac
 done
 
@@ -249,29 +172,32 @@ echo "Current Xray binary: $XRAY_BIN"
 "$XRAY_BIN" version 2>/dev/null | sed -n '1,2p' || true
 
 echo "Fetching Xray-core release metadata: channel=$CHANNEL"
-fetch_release_json "$CHANNEL" "$RELEASE_JSON"
-
-TAG_RAW="$(extract_release_field "$RELEASE_JSON" tag_name)"
-NAME_RAW="$(extract_release_field "$RELEASE_JSON" name)"
-TAG="$(sanitize_release_field "$TAG_RAW" 2>/dev/null || true)"
-NAME="$(sanitize_release_field "$NAME_RAW" 2>/dev/null || true)"
 case "$CHANNEL" in
     stable|latest)
-        URL="https://github.com/$XRAY_REPO/releases/latest/download/$ASSET_NAME"
+        curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: vless-go-xray-core-update' \
+            -o "$RELEASE_JSON" "https://api.github.com/repos/$XRAY_REPO/releases/latest"
+        TAG="$(json_field_first "$RELEASE_JSON" tag_name)"
+        NAME="$(json_field_first "$RELEASE_JSON" name)"
         [ -n "$TAG" ] || TAG="latest"
+        URL="https://github.com/$XRAY_REPO/releases/latest/download/$ASSET_NAME"
+        ;;
+    prerelease|pre-release|pre)
+        curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: vless-go-xray-core-update' \
+            -o "$RELEASE_JSON" "https://api.github.com/repos/$XRAY_REPO/releases"
+        TAG="$(find_first_prerelease_tag "$RELEASE_JSON")"
+        if [ -z "$TAG" ]; then
+            echo "No Xray-core pre-release was found in GitHub Releases API response."
+            echo "Use Stable/latest instead, or check: https://github.com/XTLS/Xray-core/releases"
+            exit 0
+        fi
+        NAME="$TAG"
+        URL="https://github.com/$XRAY_REPO/releases/download/$TAG/$ASSET_NAME"
         ;;
     *)
-        URL="$(extract_asset_url "$RELEASE_JSON" "$ASSET_NAME")"
-        [ -n "$TAG" ] || TAG="$CHANNEL"
+        echo "ERROR: unsupported channel: $CHANNEL" >&2
+        exit 1
         ;;
 esac
-
-if [ -z "$URL" ]; then
-    echo "ERROR: asset not found: $ASSET_NAME" >&2
-    echo "Available Xray zip assets from release metadata:" >&2
-    list_asset_names "$RELEASE_JSON" >&2
-    exit 1
-fi
 
 echo "Selected release: $TAG ${NAME:-}"
 echo "Selected asset: $ASSET_NAME"
@@ -288,8 +214,7 @@ fi
 echo "Downloading asset..."
 if ! curl -fL -o "$ZIP_FILE" "$URL"; then
     echo "ERROR: failed to download asset: $ASSET_NAME" >&2
-    echo "Available Xray zip assets from release metadata:" >&2
-    list_asset_names "$RELEASE_JSON" >&2
+    echo "Release URL: https://github.com/$XRAY_REPO/releases/tag/$TAG" >&2
     exit 1
 fi
 
