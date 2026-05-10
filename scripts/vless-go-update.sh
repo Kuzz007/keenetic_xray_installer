@@ -29,11 +29,11 @@ get_xray_bin() {
 }
 
 usage() {
-    echo "Usage: vless-go-update [--source URL_OR_VLESS] [--selector first|index:N] [--first] [--no-restart]"
+    echo "Usage: vless-go-update [--source URL_OR_VLESS] [--selector first|index:N|name:PROFILE] [--first] [--no-restart]"
     echo ""
     echo "Options:"
     echo "  --source VALUE      Replace saved VLESS/subscription source before updating."
-    echo "  --selector VALUE    Select profile using first or index:N."
+    echo "  --selector VALUE    Select profile using first, index:N, or name:PROFILE."
     echo "  --first             Select first profile without interactive prompt."
     echo "  --no-restart        Generate and validate config, but do not restart Xray."
     echo ""
@@ -123,9 +123,21 @@ selector_index() {
     esac
 }
 
-require_select_index_support() {
-    if ! "$GO_RESOLVER" -h 2>&1 | grep -q -- '-select-index'; then
-        echo "ERROR: installed Go resolver does not support -select-index." >&2
+selector_name() {
+    case "$SELECTOR" in
+        name:*)
+            NAME="${SELECTOR#name:}"
+            [ -n "$NAME" ] || { echo "ERROR: selector name must not be empty: $SELECTOR" >&2; return 1; }
+            printf '%s\n' "$NAME"
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+require_flag_support() {
+    FLAG="$1"
+    if ! "$GO_RESOLVER" -h 2>&1 | grep -q -- "$FLAG"; then
+        echo "ERROR: installed Go resolver does not support $FLAG." >&2
         echo "Update /opt/bin/xray-failover-go through xray-go-installer-update or install release 0.1.1-go-experimental+." >&2
         return 1
     fi
@@ -141,11 +153,16 @@ case "$SELECTOR" in
         ;;
     index:*)
         IDX="$(selector_index)"
-        require_select_index_support
+        require_flag_support "-select-index"
         set -- -select-index "$IDX"
         ;;
+    name:*)
+        NAME="$(selector_name)"
+        require_flag_support "-select-name"
+        set -- -select-name "$NAME"
+        ;;
     *)
-        echo "ERROR: unsupported selector: $SELECTOR (supported: first, index:N)" >&2
+        echo "ERROR: unsupported selector: $SELECTOR (supported: first, index:N, name:PROFILE)" >&2
         exit 1
         ;;
 esac
