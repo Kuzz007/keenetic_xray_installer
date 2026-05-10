@@ -26,11 +26,11 @@ usage() {
     echo "Usage: vless-go-failover COMMAND [ARGS]"
     echo "Commands:"
     echo "  status"
-    echo "  set-primary SRC [--selector first|index:N]"
-    echo "  set-backup SRC [--selector first|index:N]"
-    echo "  set-selector primary|backup first|index:N"
-    echo "  switch primary|backup [--selector first|index:N] [--first] [--no-restart]"
-    echo "  update-active [--selector first|index:N] [--first] [--no-restart]"
+    echo "  set-primary SRC [--selector first|index:N|name:PROFILE]"
+    echo "  set-backup SRC [--selector first|index:N|name:PROFILE]"
+    echo "  set-selector primary|backup first|index:N|name:PROFILE"
+    echo "  switch primary|backup [--selector first|index:N|name:PROFILE] [--first] [--no-restart]"
+    echo "  update-active [--selector first|index:N|name:PROFILE] [--first] [--no-restart]"
     echo "  sync-primary"
 }
 
@@ -60,6 +60,10 @@ validate_selector() {
                 *) return 0 ;;
             esac
             ;;
+        name:*)
+            NAME="${VALUE#name:}"
+            [ -n "$NAME" ]
+            ;;
         *) return 1 ;;
     esac
 }
@@ -82,7 +86,7 @@ slot_selector() {
 save_selector() {
     SLOT="$1"
     VALUE="${2:-first}"
-    validate_selector "$VALUE" || { echo "ERROR: invalid selector: $VALUE (supported: first, index:N)" >&2; exit 1; }
+    validate_selector "$VALUE" || { echo "ERROR: invalid selector: $VALUE (supported: first, index:N, name:PROFILE)" >&2; exit 1; }
     FILE="$(selector_file "$SLOT")" || { echo "ERROR: invalid slot: $SLOT" >&2; exit 1; }
     mkdir -p "$XRAY_DIR"
     printf '%s\n' "$VALUE" > "$FILE"
