@@ -396,12 +396,8 @@ update_go_edition() {
 update_xray_core() {
     show_header
     echo "[Update Xray-core]"
-    if [ -x "$XRAY_CORE_UPDATE_CMD" ]; then
+    if require_cmd "$XRAY_CORE_UPDATE_CMD"; then
         "$XRAY_CORE_UPDATE_CMD"
-    else
-        echo "Xray-core GitHub updater is not implemented in Go edition yet."
-        echo "Planned command: $XRAY_CORE_UPDATE_CMD"
-        echo "This menu item is reserved for the next roadmap PR."
     fi
     echo
     pause
