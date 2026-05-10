@@ -15,6 +15,7 @@ GO_AUTO_UPDATE_CMD="/opt/bin/vless-go-auto-update"
 GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
 GO_WATCHDOG_CMD="/opt/bin/vless-go-watchdog"
 GO_DOCTOR_CMD="/opt/bin/vless-go-doctor"
+GO_HISTORY_CMD="/opt/bin/vless-go-history"
 GO_INSTALLER_UPDATE_CMD="/opt/bin/xray-go-installer-update"
 
 read_tty() {
@@ -383,6 +384,28 @@ follow_watchdog_log() {
     fi
 }
 
+show_switch_history() {
+    show_header
+    echo "[Switch history]"
+    if require_cmd "$GO_HISTORY_CMD"; then
+        "$GO_HISTORY_CMD" tail 80 || true
+    fi
+    echo
+    pause
+}
+
+follow_switch_history() {
+    show_header
+    echo "[Switch history: live follow]"
+    echo "Press Ctrl+C to stop following and return to shell/menu."
+    echo
+    if require_cmd "$GO_HISTORY_CMD"; then
+        "$GO_HISTORY_CMD" follow
+    else
+        pause
+    fi
+}
+
 update_go_edition() {
     show_header
     echo "[Update Go edition]"
@@ -418,8 +441,10 @@ show_menu() {
     echo "11. Enable/disable backup -> primary recovery"
     echo "12. Show watchdog log"
     echo "13. Follow watchdog log live"
-    echo "14. Update Go edition"
-    echo "15. Update Xray-core"
+    echo "14. Show switch history"
+    echo "15. Follow switch history live"
+    echo "16. Update Go edition"
+    echo "17. Update Xray-core"
     echo "0. Exit"
     echo
 }
@@ -441,8 +466,10 @@ while true; do
         11) toggle_recovery ;;
         12) show_watchdog_log ;;
         13) follow_watchdog_log ;;
-        14) update_go_edition ;;
-        15) update_xray_core ;;
+        14) show_switch_history ;;
+        15) follow_switch_history ;;
+        16) update_go_edition ;;
+        17) update_xray_core ;;
         0|q|Q|exit|quit) exit 0 ;;
         *) echo "Unknown choice."; sleep 1 ;;
     esac
