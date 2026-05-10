@@ -7,6 +7,7 @@ PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
 BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 FAILOVER_CMD="/opt/bin/vless-go-failover"
 GO_RESOLVER="/opt/bin/xray-failover-go"
+HISTORY_CMD="/opt/bin/vless-go-history"
 CONFIG_FILE="${CONFIG_FILE:-$XRAY_DIR/vless-go-watchdog.conf}"
 
 SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
@@ -48,6 +49,11 @@ log() {
 log_detail() {
     mkdir -p "$(dirname "$DETAIL_LOG_FILE")" 2>/dev/null || true
     printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$DETAIL_LOG_FILE"
+}
+
+history_log() {
+    [ -x "$HISTORY_CMD" ] || return 0
+    "$HISTORY_CMD" log "$@" >/dev/null 2>&1 || true
 }
 
 active_slot() {
@@ -142,6 +148,7 @@ refresh_proxy0_if_needed() {
 
 switch_to() {
     SLOT="$1"
+    REASON="${2:-manual}"
     ensure_failover_cmd
     log "Switching to $SLOT"
 
@@ -156,6 +163,7 @@ switch_to() {
 
     if [ "$RC" -ne 0 ]; then
         log "ERROR: switch to $SLOT failed; see detail log."
+        history_log failed_switch source=watchdog reason="$REASON" to="$SLOT" rc="$RC"
         return "$RC"
     fi
 
@@ -240,9 +248,10 @@ check_and_switch() {
     log "Health check FAILED on $SLOT"
     if [ "$SLOT" = "primary" ]; then
         [ -s "$BACKUP_STORE" ] || { log "Backup is not configured; cannot fail over."; return 1; }
-        switch_to backup
-        if check_socks; then log "Health check OK after switching to backup"; return 0; fi
+        switch_to backup cron_failover
+        if check_socks; then log "Health check OK after switching to backup"; history_log daemon_failover from=primary to=backup result=ok source=cron; return 0; fi
         log "Health check still FAILED after switching to backup"
+        history_log failed_switch source=cron from=primary to=backup reason=post_switch_health_failed
         return 1
     fi
 
@@ -266,14 +275,17 @@ handle_daemon_primary() {
     if [ "$DAEMON_FAIL_COUNT" -ge "$FAILOVER_FAILURES_REQUIRED" ]; then
         if [ -s "$BACKUP_STORE" ]; then
             log "Failover threshold reached; switching primary -> backup"
-            if switch_to backup && check_socks; then
+            if switch_to backup daemon_failover && check_socks; then
                 log "Daemon failover to backup OK"
+                history_log daemon_failover from=primary to=backup result=ok failures="$FAILOVER_FAILURES_REQUIRED"
                 DAEMON_RECOVERY_COOLDOWN="$RECOVERY_COOLDOWN_CYCLES"
             else
                 log "Daemon failover to backup did not pass health check"
+                history_log failed_switch source=daemon from=primary to=backup reason=post_switch_health_failed
             fi
         else
             log "Backup is not configured; cannot fail over."
+            history_log failed_switch source=daemon from=primary to=backup reason=backup_not_configured
         fi
         DAEMON_FAIL_COUNT="0"
     fi
@@ -308,10 +320,12 @@ handle_daemon_backup() {
 
     if [ "$DAEMON_RECOVERY_SUCCESS_COUNT" -ge "$RECOVERY_SUCCESSES_REQUIRED" ]; then
         log "Recovery threshold reached; switching backup -> primary"
-        if switch_to primary && check_socks; then
+        if switch_to primary daemon_recovery && check_socks; then
             log "Daemon recovery to primary OK"
+            history_log daemon_recovery from=backup to=primary result=ok successes="$RECOVERY_SUCCESSES_REQUIRED"
         else
             log "Daemon recovery to primary did not pass health check"
+            history_log failed_recovery source=daemon from=backup to=primary reason=post_switch_health_failed
         fi
         DAEMON_RECOVERY_SUCCESS_COUNT="0"
         DAEMON_RECOVERY_COOLDOWN="$RECOVERY_COOLDOWN_CYCLES"
@@ -409,8 +423,8 @@ case "${1:-check}" in
     status) status ;;
     enable) shift; enable_cron "${1:-}" ;;
     disable) disable_cron ;;
-    run-primary) switch_to primary; check_socks && log "Health check OK on primary" || { log "Health check FAILED on primary"; exit 1; } ;;
-    run-backup) switch_to backup; check_socks && log "Health check OK on backup" || { log "Health check FAILED on backup"; exit 1; } ;;
+    run-primary) switch_to primary manual; check_socks && { log "Health check OK on primary"; history_log manual_switch to=primary result=ok; } || { log "Health check FAILED on primary"; history_log failed_switch source=manual to=primary reason=health_failed; exit 1; } ;;
+    run-backup) switch_to backup manual; check_socks && { log "Health check OK on backup"; history_log manual_switch to=backup result=ok; } || { log "Health check FAILED on backup"; history_log failed_switch source=manual to=backup reason=health_failed; exit 1; } ;;
     probe-primary) probe_primary && log "Primary recovery probe OK" || { log "Primary recovery probe FAILED"; exit 1; } ;;
     -h|--help|help) usage ;;
     *) echo "ERROR: unknown command: $1" >&2; usage >&2; exit 1 ;;
