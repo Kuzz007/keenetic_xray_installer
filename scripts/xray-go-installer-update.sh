@@ -15,6 +15,8 @@ GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
 GO_FAILOVER_URL="${GO_FAILOVER_URL:-${RAW_BASE}/scripts/vless-go-failover.sh}"
 FAILOVER_GO_CMD="/opt/bin/failover-go"
 FAILOVER_GO_URL="${FAILOVER_GO_URL:-${RAW_BASE}/scripts/failover-go.sh}"
+XRAY_CORE_UPDATE_CMD="/opt/bin/vless-go-xray-core-update"
+XRAY_CORE_UPDATE_URL="${XRAY_CORE_UPDATE_URL:-${RAW_BASE}/scripts/vless-go-xray-core-update.sh}"
 LOCK_HELPER="/opt/libexec/vless-go-lock.sh"
 LOCK_HELPER_URL="${LOCK_HELPER_URL:-${RAW_BASE}/scripts/vless-go-lock.sh}"
 DOCTOR_CMD="/opt/bin/vless-go-doctor"
@@ -33,18 +35,19 @@ LOCK_WAIT="${VLESS_GO_LOCK_WAIT:-30}"
 LOCK_HELD="0"
 
 usage() {
-    echo "Usage: xray-go-installer-update [--no-restart] [--no-binary] [--no-watchdog] [--no-doctor] [--no-helpers] [--no-menu] [--first]"
+    echo "Usage: xray-go-installer-update [--no-restart] [--no-binary] [--no-watchdog] [--no-doctor] [--no-helpers] [--no-menu] [--no-xray-core-updater] [--first]"
     echo ""
     echo "Updates installed experimental Go edition components without asking for VLESS sources again."
     echo ""
     echo "Options:"
-    echo "  --no-restart   Do not restart watchdog/Xray after update."
-    echo "  --no-binary    Do not update /opt/bin/xray-failover-go."
-    echo "  --no-watchdog  Do not reinstall watchdog helper/init/config."
-    echo "  --no-doctor    Do not install/update /opt/bin/vless-go-doctor."
-    echo "  --no-helpers   Do not install/update vless-go-update/failover/auto-update helpers."
-    echo "  --no-menu      Do not install/update /opt/bin/failover-go."
-    echo "  --first        Rebuild active Xray config using first profile from subscription."
+    echo "  --no-restart             Do not restart watchdog/Xray after update."
+    echo "  --no-binary              Do not update /opt/bin/xray-failover-go."
+    echo "  --no-watchdog            Do not reinstall watchdog helper/init/config."
+    echo "  --no-doctor              Do not install/update /opt/bin/vless-go-doctor."
+    echo "  --no-helpers             Do not install/update vless-go-update/failover/auto-update helpers."
+    echo "  --no-menu                Do not install/update /opt/bin/failover-go."
+    echo "  --no-xray-core-updater   Do not install/update /opt/bin/vless-go-xray-core-update."
+    echo "  --first                  Rebuild active Xray config using first profile from subscription."
 }
 
 is_pid_alive() {
@@ -113,6 +116,7 @@ NO_WATCHDOG="0"
 NO_DOCTOR="0"
 NO_HELPERS="0"
 NO_MENU="0"
+NO_XRAY_CORE_UPDATER="0"
 FIRST="0"
 
 while [ "$#" -gt 0 ]; do
@@ -123,6 +127,7 @@ while [ "$#" -gt 0 ]; do
         --no-doctor) NO_DOCTOR="1"; shift ;;
         --no-helpers) NO_HELPERS="1"; shift ;;
         --no-menu) NO_MENU="1"; shift ;;
+        --no-xray-core-updater) NO_XRAY_CORE_UPDATER="1"; shift ;;
         --first) FIRST="1"; shift ;;
         -h|--help|help) usage; exit 0 ;;
         *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
@@ -213,6 +218,10 @@ if [ "$NO_MENU" = "0" ]; then
     install_executable "$FAILOVER_GO_URL" "$FAILOVER_GO_CMD" "failover-go menu"
 fi
 
+if [ "$NO_XRAY_CORE_UPDATER" = "0" ]; then
+    install_executable "$XRAY_CORE_UPDATE_URL" "$XRAY_CORE_UPDATE_CMD" "Xray-core updater helper"
+fi
+
 if [ "$NO_DOCTOR" = "0" ]; then
     install_executable "$DOCTOR_URL" "$DOCTOR_CMD" "doctor helper"
 fi
@@ -254,3 +263,4 @@ echo "Watchdog config: $WATCHDOG_CONF"
 echo "Doctor command: $DOCTOR_CMD"
 echo "Lock helper: $LOCK_HELPER"
 echo "Menu command: $FAILOVER_GO_CMD"
+echo "Xray-core updater command: $XRAY_CORE_UPDATE_CMD"
