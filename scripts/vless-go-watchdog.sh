@@ -154,7 +154,7 @@ switch_to() {
 
     TMP_SWITCH="/tmp/vless-go-watchdog.switch.$$"
     set +e
-    "$FAILOVER_CMD" switch "$SLOT" --first >"$TMP_SWITCH" 2>&1
+    VLESS_GO_HISTORY_SUPPRESS=1 "$FAILOVER_CMD" switch "$SLOT" --first >"$TMP_SWITCH" 2>&1
     RC="$?"
     set -e
 
