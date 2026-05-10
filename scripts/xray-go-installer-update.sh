@@ -18,6 +18,9 @@ PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
 BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 TMP_DIR="/opt/tmp"
+LOCK_DIR="${VLESS_GO_LOCK_DIR:-/opt/var/run/vless-go.lock}"
+LOCK_WAIT="${VLESS_GO_LOCK_WAIT:-30}"
+LOCK_HELD="0"
 
 usage() {
     echo "Usage: xray-go-installer-update [--no-restart] [--no-binary] [--no-watchdog] [--no-doctor] [--first]"
@@ -30,6 +33,66 @@ usage() {
     echo "  --no-watchdog  Do not reinstall watchdog helper/init/config."
     echo "  --no-doctor    Do not install/update /opt/bin/vless-go-doctor."
     echo "  --first        Rebuild active Xray config using first profile from subscription."
+}
+
+is_pid_alive() {
+    PID="$1"
+    [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null
+}
+
+cleanup_stale_lock() {
+    [ -d "$LOCK_DIR" ] || return 0
+    PID="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+    if ! is_pid_alive "$PID"; then
+        echo "Removing stale VLESS Go lock: $LOCK_DIR"
+        rm -rf "$LOCK_DIR" 2>/dev/null || true
+    fi
+}
+
+acquire_lock() {
+    OWNER="${1:-xray-go-installer-update}"
+
+    if [ "${VLESS_GO_LOCK_HELD:-0}" = "1" ]; then
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$LOCK_DIR")" 2>/dev/null || true
+    START="$(date +%s)"
+
+    while true; do
+        if mkdir "$LOCK_DIR" 2>/dev/null; then
+            LOCK_HELD="1"
+            printf '%s\n' "$$" > "$LOCK_DIR/pid"
+            printf '%s\n' "$OWNER" > "$LOCK_DIR/owner"
+            printf '%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" > "$LOCK_DIR/created_at"
+            export VLESS_GO_LOCK_HELD=1
+            trap 'release_lock' EXIT INT TERM
+            return 0
+        fi
+
+        cleanup_stale_lock
+
+        NOW="$(date +%s)"
+        ELAPSED="$((NOW - START))"
+        if [ "$ELAPSED" -ge "$LOCK_WAIT" ]; then
+            OWNER_TEXT="$(cat "$LOCK_DIR/owner" 2>/dev/null || echo unknown)"
+            PID_TEXT="$(cat "$LOCK_DIR/pid" 2>/dev/null || echo unknown)"
+            echo "ERROR: VLESS Go lock is busy: owner=$OWNER_TEXT pid=$PID_TEXT path=$LOCK_DIR" >&2
+            return 1
+        fi
+
+        sleep 1
+    done
+}
+
+release_lock() {
+    if [ "$LOCK_HELD" = "1" ]; then
+        PID="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+        if [ "$PID" = "$$" ]; then
+            rm -rf "$LOCK_DIR" 2>/dev/null || true
+        fi
+        LOCK_HELD="0"
+    fi
 }
 
 NO_RESTART="0"
@@ -49,6 +112,8 @@ while [ "$#" -gt 0 ]; do
         *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
     esac
 done
+
+acquire_lock "xray-go-installer-update"
 
 if ! command -v opkg >/dev/null 2>&1; then
     echo "ERROR: opkg not found. Entware is required." >&2
@@ -110,7 +175,7 @@ if command -v vless-go-update >/dev/null 2>&1; then
     echo "Regenerating active Xray config from saved source..."
     UPDATE_ARGS="--no-restart"
     [ "$FIRST" = "0" ] || UPDATE_ARGS="$UPDATE_ARGS --first"
-    vless-go-failover update-active $UPDATE_ARGS
+    VLESS_GO_LOCK_HELD=1 vless-go-failover update-active $UPDATE_ARGS
 else
     echo "WARNING: vless-go-update not found; Xray config was not regenerated." >&2
 fi
