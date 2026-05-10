@@ -17,6 +17,7 @@ else
 fi
 
 history_log() {
+    [ "${VLESS_GO_HISTORY_SUPPRESS:-0}" = "1" ] && return 0
     [ -x "$HISTORY_CMD" ] || return 0
     "$HISTORY_CMD" log "$@" >/dev/null 2>&1 || true
 }
