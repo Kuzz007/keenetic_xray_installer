@@ -63,6 +63,42 @@ slot_configured() {
     esac
 }
 
+selector_file() {
+    case "$1" in
+        primary|backup) echo "$XRAY_DIR/vless-go.$1.selector" ;;
+        *) return 1 ;;
+    esac
+}
+
+read_selector() {
+    FILE="$(selector_file "$1")" || return 1
+    VALUE="$(sed -n '1p' "$FILE" 2>/dev/null || true)"
+    echo "${VALUE:-first}"
+}
+
+prompt_selector() {
+    SLOT="$1"
+    CURRENT="$(read_selector "$SLOT" 2>/dev/null || echo first)"
+    echo "Current $SLOT selector: $CURRENT"
+    echo "Selector controls which profile is used when a subscription contains multiple VLESS links."
+    echo "Supported values: first, index:N"
+    echo
+    read_tty "Enter selector for $SLOT [default: $CURRENT]: "
+    VALUE="$REPLY"
+    if [ -z "$VALUE" ]; then
+        VALUE="$CURRENT"
+    fi
+    case "$VALUE" in
+        first|index:[1-9]*)
+            echo "$VALUE"
+            ;;
+        *)
+            echo "ERROR: invalid selector: $VALUE" >&2
+            return 1
+            ;;
+    esac
+}
+
 show_status() {
     show_header
     echo "[Status]"
@@ -92,7 +128,7 @@ switch_slot() {
     show_header
     echo "[Switch to $SLOT]"
     if require_cmd "$GO_FAILOVER_CMD"; then
-        "$GO_FAILOVER_CMD" switch "$SLOT" --first
+        "$GO_FAILOVER_CMD" switch "$SLOT"
     fi
     echo
     pause
@@ -112,19 +148,41 @@ replace_source() {
         return 0
     fi
 
+    SELECTOR="$(prompt_selector "$SLOT")" || { pause; return 1; }
+
     if require_cmd "$GO_FAILOVER_CMD"; then
-        "$GO_FAILOVER_CMD" "set-$SLOT" "$VALUE"
+        "$GO_FAILOVER_CMD" "set-$SLOT" "$VALUE" --selector "$SELECTOR"
     fi
 
     echo
     read_tty "Switch to $SLOT now? [y/N]: "
     case "$REPLY" in
         y|Y|yes|YES)
-            "$GO_FAILOVER_CMD" switch "$SLOT" --first
+            "$GO_FAILOVER_CMD" switch "$SLOT"
             ;;
         *)
             echo "Saved only. You can switch later from the menu."
             ;;
+    esac
+    echo
+    pause
+}
+
+set_slot_selector() {
+    SLOT="$1"
+    show_header
+    echo "[Set $SLOT profile selector]"
+    if ! require_cmd "$GO_FAILOVER_CMD"; then
+        pause
+        return 0
+    fi
+    SELECTOR="$(prompt_selector "$SLOT")" || { pause; return 1; }
+    "$GO_FAILOVER_CMD" set-selector "$SLOT" "$SELECTOR"
+    echo
+    read_tty "Apply $SLOT now with this selector? [y/N]: "
+    case "$REPLY" in
+        y|Y|yes|YES) "$GO_FAILOVER_CMD" switch "$SLOT" ;;
+        *) echo "Selector saved only." ;;
     esac
     echo
     pause
@@ -146,7 +204,7 @@ update_all_sources() {
 
     if slot_configured primary; then
         echo "Updating/validating primary without restart..."
-        "$GO_FAILOVER_CMD" switch primary --first --no-restart
+        "$GO_FAILOVER_CMD" switch primary --no-restart
         UPDATED="1"
         echo
     else
@@ -155,7 +213,7 @@ update_all_sources() {
 
     if slot_configured backup; then
         echo "Updating/validating backup without restart..."
-        "$GO_FAILOVER_CMD" switch backup --first --no-restart
+        "$GO_FAILOVER_CMD" switch backup --no-restart
         UPDATED="1"
         echo
     else
@@ -171,7 +229,7 @@ update_all_sources() {
     case "$ORIGINAL" in
         primary|backup)
             echo "Restoring active slot: $ORIGINAL"
-            "$GO_FAILOVER_CMD" switch "$ORIGINAL" --first
+            "$GO_FAILOVER_CMD" switch "$ORIGINAL"
             ;;
         *)
             echo "Unknown original active slot: $ORIGINAL"
@@ -314,13 +372,15 @@ show_menu() {
     echo "4. Switch to backup"
     echo "5. Add/replace primary VLESS/subscription URL"
     echo "6. Add/replace backup VLESS/subscription URL"
-    echo "7. Update primary and backup subscriptions now"
-    echo "8. Configure cron auto-update"
-    echo "9. Enable/disable backup -> primary recovery"
-    echo "10. Show watchdog log"
-    echo "11. Follow watchdog log live"
-    echo "12. Update Go edition"
-    echo "13. Update Xray-core"
+    echo "7. Set primary profile selector"
+    echo "8. Set backup profile selector"
+    echo "9. Update primary and backup subscriptions now"
+    echo "10. Configure cron auto-update"
+    echo "11. Enable/disable backup -> primary recovery"
+    echo "12. Show watchdog log"
+    echo "13. Follow watchdog log live"
+    echo "14. Update Go edition"
+    echo "15. Update Xray-core"
     echo "0. Exit"
     echo
 }
@@ -335,13 +395,15 @@ while true; do
         4) switch_slot backup ;;
         5) replace_source primary ;;
         6) replace_source backup ;;
-        7) update_all_sources ;;
-        8) configure_auto_update ;;
-        9) toggle_recovery ;;
-        10) show_watchdog_log ;;
-        11) follow_watchdog_log ;;
-        12) update_go_edition ;;
-        13) update_xray_core ;;
+        7) set_slot_selector primary ;;
+        8) set_slot_selector backup ;;
+        9) update_all_sources ;;
+        10) configure_auto_update ;;
+        11) toggle_recovery ;;
+        12) show_watchdog_log ;;
+        13) follow_watchdog_log ;;
+        14) update_go_edition ;;
+        15) update_xray_core ;;
         0|q|Q|exit|quit) exit 0 ;;
         *) echo "Unknown choice."; sleep 1 ;;
     esac
