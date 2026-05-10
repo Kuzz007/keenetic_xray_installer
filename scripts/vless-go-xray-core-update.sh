@@ -114,31 +114,14 @@ extract_asset_url() {
 normalize_arch_asset() {
     ARCH="$(uname -m 2>/dev/null || echo unknown)"
     case "$ARCH" in
-        aarch64|arm64)
-            echo "Xray-linux-arm64-v8a.zip"
-            ;;
-        armv7l|armv7*)
-            echo "Xray-linux-arm32-v7a.zip"
-            ;;
-        armv6l|armv6*)
-            echo "Xray-linux-arm32-v6.zip"
-            ;;
-        mipsel|mipsle)
-            echo "Xray-linux-mips32le.zip"
-            ;;
-        mips)
-            echo "Xray-linux-mips32.zip"
-            ;;
-        x86_64|amd64)
-            echo "Xray-linux-64.zip"
-            ;;
-        i386|i686)
-            echo "Xray-linux-32.zip"
-            ;;
-        *)
-            echo "ERROR: unsupported architecture: $ARCH" >&2
-            exit 1
-            ;;
+        aarch64|arm64) echo "Xray-linux-arm64-v8a.zip" ;;
+        armv7l|armv7*) echo "Xray-linux-arm32-v7a.zip" ;;
+        armv6l|armv6*) echo "Xray-linux-arm32-v6.zip" ;;
+        mipsel|mipsle) echo "Xray-linux-mips32le.zip" ;;
+        mips) echo "Xray-linux-mips32.zip" ;;
+        x86_64|amd64) echo "Xray-linux-64.zip" ;;
+        i386|i686) echo "Xray-linux-32.zip" ;;
+        *) echo "ERROR: unsupported architecture: $ARCH" >&2; exit 1 ;;
     esac
 }
 
@@ -148,48 +131,48 @@ fetch_release_json() {
     case "$CHANNEL_VALUE" in
         stable|latest)
             URL="https://api.github.com/repos/$XRAY_REPO/releases/latest"
+            curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: vless-go-xray-core-update' -o "$OUT" "$URL"
             ;;
         prerelease|pre-release|pre)
             URL="https://api.github.com/repos/$XRAY_REPO/releases"
+            ALL="$OUT.all"
+            curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: vless-go-xray-core-update' -o "$ALL" "$URL"
+            if command -v jsonfilter >/dev/null 2>&1; then
+                ID="$(jsonfilter -i "$ALL" -e '@[@.prerelease=true][0].id' 2>/dev/null || true)"
+                if [ -n "$ID" ]; then
+                    awk -v id="$ID" '
+                        BEGIN { found=0 }
+                        /"id"[[:space:]]*:[[:space:]]*/ && $0 ~ id { found=1 }
+                        found { print }
+                        found && /^  \}/ { exit }
+                    ' "$ALL" > "$OUT"
+                fi
+            fi
+            if [ ! -s "$OUT" ]; then
+                awk '
+                    BEGIN { inobj=0; buf=""; pre=0 }
+                    /^  \{/ { inobj=1; buf=$0 "\n"; pre=0; next }
+                    inobj {
+                        buf = buf $0 "\n"
+                        if ($0 ~ /"prerelease"[[:space:]]*:[[:space:]]*true/) pre=1
+                        if ($0 ~ /^  \}/) {
+                            if (pre) { printf "%s", buf; exit }
+                            inobj=0; buf=""; pre=0
+                        }
+                    }
+                ' "$ALL" > "$OUT"
+            fi
+            if [ ! -s "$OUT" ]; then
+                echo "No Xray-core pre-release is currently available from GitHub Releases."
+                echo "Use Stable/latest instead."
+                exit 0
+            fi
             ;;
         *)
             echo "ERROR: unsupported channel: $CHANNEL_VALUE" >&2
             exit 1
             ;;
     esac
-
-    if [ "$CHANNEL_VALUE" = "prerelease" ] || [ "$CHANNEL_VALUE" = "pre-release" ] || [ "$CHANNEL_VALUE" = "pre" ]; then
-        ALL="$OUT.all"
-        curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: vless-go-xray-core-update' -o "$ALL" "$URL"
-        if command -v jsonfilter >/dev/null 2>&1; then
-            ID="$(jsonfilter -i "$ALL" -e '@[@.prerelease=true][0].id' 2>/dev/null || true)"
-            if [ -n "$ID" ]; then
-                awk -v id="$ID" '
-                    BEGIN { found=0 }
-                    /"id"[[:space:]]*:[[:space:]]*/ && $0 ~ id { found=1 }
-                    found { print }
-                    found && /^  \}/ { exit }
-                ' "$ALL" > "$OUT"
-            fi
-        fi
-        if [ ! -s "$OUT" ]; then
-            awk '
-                BEGIN { inobj=0; buf=""; pre=0 }
-                /^  \{/ { inobj=1; buf=$0 "\n"; pre=0; next }
-                inobj {
-                    buf = buf $0 "\n"
-                    if ($0 ~ /"prerelease"[[:space:]]*:[[:space:]]*true/) pre=1
-                    if ($0 ~ /^  \}/) {
-                        if (pre) { printf "%s", buf; exit }
-                        inobj=0; buf=""; pre=0
-                    }
-                }
-            ' "$ALL" > "$OUT"
-        fi
-        [ -s "$OUT" ] || { echo "ERROR: no pre-release found for $XRAY_REPO" >&2; exit 1; }
-    else
-        curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: vless-go-xray-core-update' -o "$OUT" "$URL"
-    fi
 }
 
 stop_services() {
@@ -226,23 +209,10 @@ while [ "$#" -gt 0 ]; do
             CHANNEL="$2"
             shift 2
             ;;
-        --yes|-y)
-            ASSUME_YES="1"
-            shift
-            ;;
-        --no-restart)
-            NO_RESTART="1"
-            shift
-            ;;
-        -h|--help|help)
-            usage
-            exit 0
-            ;;
-        *)
-            echo "ERROR: unknown argument: $1" >&2
-            usage >&2
-            exit 1
-            ;;
+        --yes|-y) ASSUME_YES="1"; shift ;;
+        --no-restart) NO_RESTART="1"; shift ;;
+        -h|--help|help) usage; exit 0 ;;
+        *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
     esac
 done
 
