@@ -33,12 +33,15 @@ need_cmd() {
     command -v "$1" >/dev/null 2>&1 || { echo "ERROR: required command not found: $1" >&2; exit 1; }
 }
 
-install_unzip_if_needed() {
-    command -v unzip >/dev/null 2>&1 && return 0
-    echo "unzip not found. Trying to install unzip via opkg..."
-    command -v opkg >/dev/null 2>&1 || { echo "ERROR: unzip not found and opkg unavailable." >&2; exit 1; }
+opkg_install_if_missing() {
+    cmd="$1"
+    pkg="$2"
+    command -v "$cmd" >/dev/null 2>&1 && return 0
+    echo "$cmd not found. Trying to install $pkg via opkg..."
+    command -v opkg >/dev/null 2>&1 || { echo "ERROR: $cmd not found and opkg unavailable." >&2; exit 1; }
     opkg update
-    opkg install unzip
+    opkg install "$pkg"
+    command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: failed to install $pkg." >&2; exit 1; }
 }
 
 get_xray_bin() {
@@ -157,8 +160,8 @@ while [ "$#" -gt 0 ]; do
 done
 
 need_cmd curl
-need_cmd python3
-install_unzip_if_needed
+opkg_install_if_missing python3 python3
+opkg_install_if_missing unzip unzip
 
 if [ -z "$CHANNEL" ]; then
     echo "Choose Xray-core update channel:"
