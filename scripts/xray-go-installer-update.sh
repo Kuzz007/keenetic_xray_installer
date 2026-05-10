@@ -11,6 +11,8 @@ GO_UPDATE_CMD="/opt/bin/vless-go-update"
 GO_UPDATE_URL="${GO_UPDATE_URL:-${RAW_BASE}/scripts/vless-go-update.sh}"
 GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
 GO_FAILOVER_URL="${GO_FAILOVER_URL:-${RAW_BASE}/scripts/vless-go-failover.sh}"
+FAILOVER_GO_CMD="/opt/bin/failover-go"
+FAILOVER_GO_URL="${FAILOVER_GO_URL:-${RAW_BASE}/scripts/failover-go.sh}"
 LOCK_HELPER="/opt/libexec/vless-go-lock.sh"
 LOCK_HELPER_URL="${LOCK_HELPER_URL:-${RAW_BASE}/scripts/vless-go-lock.sh}"
 DOCTOR_CMD="/opt/bin/vless-go-doctor"
@@ -29,7 +31,7 @@ LOCK_WAIT="${VLESS_GO_LOCK_WAIT:-30}"
 LOCK_HELD="0"
 
 usage() {
-    echo "Usage: xray-go-installer-update [--no-restart] [--no-binary] [--no-watchdog] [--no-doctor] [--no-helpers] [--first]"
+    echo "Usage: xray-go-installer-update [--no-restart] [--no-binary] [--no-watchdog] [--no-doctor] [--no-helpers] [--no-menu] [--first]"
     echo ""
     echo "Updates installed experimental Go edition components without asking for VLESS sources again."
     echo ""
@@ -39,6 +41,7 @@ usage() {
     echo "  --no-watchdog  Do not reinstall watchdog helper/init/config."
     echo "  --no-doctor    Do not install/update /opt/bin/vless-go-doctor."
     echo "  --no-helpers   Do not install/update lock-aware vless-go-update/failover helpers."
+    echo "  --no-menu      Do not install/update /opt/bin/failover-go."
     echo "  --first        Rebuild active Xray config using first profile from subscription."
 }
 
@@ -107,6 +110,7 @@ NO_BINARY="0"
 NO_WATCHDOG="0"
 NO_DOCTOR="0"
 NO_HELPERS="0"
+NO_MENU="0"
 FIRST="0"
 
 while [ "$#" -gt 0 ]; do
@@ -116,6 +120,7 @@ while [ "$#" -gt 0 ]; do
         --no-watchdog) NO_WATCHDOG="1"; shift ;;
         --no-doctor) NO_DOCTOR="1"; shift ;;
         --no-helpers) NO_HELPERS="1"; shift ;;
+        --no-menu) NO_MENU="1"; shift ;;
         --first) FIRST="1"; shift ;;
         -h|--help|help) usage; exit 0 ;;
         *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
@@ -192,6 +197,10 @@ if [ "$NO_HELPERS" = "0" ]; then
     install_executable "$GO_FAILOVER_URL" "$GO_FAILOVER_CMD" "vless-go-failover helper"
 fi
 
+if [ "$NO_MENU" = "0" ]; then
+    install_executable "$FAILOVER_GO_URL" "$FAILOVER_GO_CMD" "failover-go menu"
+fi
+
 if [ "$NO_DOCTOR" = "0" ]; then
     install_executable "$DOCTOR_URL" "$DOCTOR_CMD" "doctor helper"
 fi
@@ -230,3 +239,4 @@ echo "Active slot: $(sed -n '1p' "$ACTIVE_STORE" 2>/dev/null || echo unknown)"
 echo "Watchdog config: $WATCHDOG_CONF"
 echo "Doctor command: $DOCTOR_CMD"
 echo "Lock helper: $LOCK_HELPER"
+echo "Menu command: $FAILOVER_GO_CMD"
