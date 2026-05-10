@@ -2,7 +2,8 @@
 set -e
 
 XRAY_DIR="/opt/etc/xray"
-GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/latest/download/xray-failover-go-linux-arm64}"
+GO_EXPERIMENTAL_TAG="${GO_EXPERIMENTAL_TAG:-0.1.2-go-experimental}"
+GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${GO_EXPERIMENTAL_TAG}/xray-failover-go-linux-arm64}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 WATCHDOG_BRANCH="${WATCHDOG_BRANCH:-$REPO_BRANCH}"
 RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
@@ -15,6 +16,8 @@ GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
 GO_FAILOVER_URL="${GO_FAILOVER_URL:-${RAW_BASE}/scripts/vless-go-failover.sh}"
 GO_HISTORY_CMD="/opt/bin/vless-go-history"
 GO_HISTORY_URL="${GO_HISTORY_URL:-${RAW_BASE}/scripts/vless-go-history.sh}"
+GO_CLEANUP_CMD="/opt/bin/vless-go-cleanup"
+GO_CLEANUP_URL="${GO_CLEANUP_URL:-${RAW_BASE}/scripts/vless-go-cleanup.sh}"
 FAILOVER_GO_CMD="/opt/bin/failover-go"
 FAILOVER_GO_URL="${FAILOVER_GO_URL:-${RAW_BASE}/scripts/failover-go.sh}"
 XRAY_CORE_UPDATE_CMD="/opt/bin/vless-go-xray-core-update"
@@ -39,38 +42,25 @@ LOCK_HELD="0"
 usage() {
     echo "Usage: xray-go-installer-update [--no-restart] [--no-binary] [--no-watchdog] [--no-doctor] [--no-helpers] [--no-menu] [--no-xray-core-updater] [--first]"
     echo ""
-    echo "Updates installed experimental Go edition components without asking for VLESS sources again."
+    echo "Обновляет установленные компоненты experimental Go edition без повторного ввода VLESS-ссылок."
     echo ""
     echo "Options:"
-    echo "  --no-restart             Do not restart watchdog/Xray after update."
-    echo "  --no-binary              Do not update /opt/bin/xray-failover-go."
-    echo "  --no-watchdog            Do not reinstall watchdog helper/init/config."
-    echo "  --no-doctor              Do not install/update /opt/bin/vless-go-doctor."
-    echo "  --no-helpers             Do not install/update vless-go-update/failover/auto-update/history helpers."
-    echo "  --no-menu                Do not install/update /opt/bin/failover-go."
-    echo "  --no-xray-core-updater   Do not install/update /opt/bin/vless-go-xray-core-update."
-    echo "  --first                  Rebuild active Xray config using first profile from subscription."
+    echo "  --no-restart             Не перезапускать watchdog/Xray после обновления."
+    echo "  --no-binary              Не обновлять /opt/bin/xray-failover-go."
+    echo "  --no-watchdog            Не переустанавливать watchdog helper/init/config."
+    echo "  --no-doctor              Не устанавливать/обновлять /opt/bin/vless-go-doctor."
+    echo "  --no-helpers             Не устанавливать/обновлять helper-команды."
+    echo "  --no-menu                Не устанавливать/обновлять /opt/bin/failover-go."
+    echo "  --no-xray-core-updater   Не устанавливать/обновлять /opt/bin/vless-go-xray-core-update."
+    echo "  --first                  Пересобрать активный Xray config с первым профилем подписки."
 }
 
-is_pid_alive() {
-    PID="$1"
-    [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null
-}
-
-cleanup_stale_lock() {
-    [ -d "$LOCK_DIR" ] || return 0
-    PID="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
-    if ! is_pid_alive "$PID"; then
-        echo "Removing stale VLESS Go lock: $LOCK_DIR"
-        rm -rf "$LOCK_DIR" 2>/dev/null || true
-    fi
-}
+is_pid_alive() { PID="$1"; [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; }
+cleanup_stale_lock() { [ -d "$LOCK_DIR" ] || return 0; PID="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"; if ! is_pid_alive "$PID"; then echo "Removing stale VLESS Go lock: $LOCK_DIR"; rm -rf "$LOCK_DIR" 2>/dev/null || true; fi; }
 
 acquire_lock() {
     OWNER="${1:-xray-go-installer-update}"
-    if [ "${VLESS_GO_LOCK_HELD:-0}" = "1" ]; then
-        return 0
-    fi
+    if [ "${VLESS_GO_LOCK_HELD:-0}" = "1" ]; then return 0; fi
     mkdir -p "$(dirname "$LOCK_DIR")" 2>/dev/null || true
     START="$(date +%s)"
     while true; do
@@ -84,8 +74,7 @@ acquire_lock() {
             return 0
         fi
         cleanup_stale_lock
-        NOW="$(date +%s)"
-        ELAPSED="$((NOW - START))"
+        NOW="$(date +%s)"; ELAPSED="$((NOW - START))"
         if [ "$ELAPSED" -ge "$LOCK_WAIT" ]; then
             OWNER_TEXT="$(cat "$LOCK_DIR/owner" 2>/dev/null || echo unknown)"
             PID_TEXT="$(cat "$LOCK_DIR/pid" 2>/dev/null || echo unknown)"
@@ -96,25 +85,9 @@ acquire_lock() {
     done
 }
 
-release_lock() {
-    if [ "$LOCK_HELD" = "1" ]; then
-        PID="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
-        if [ "$PID" = "$$" ]; then
-            rm -rf "$LOCK_DIR" 2>/dev/null || true
-        fi
-        LOCK_HELD="0"
-    fi
-}
+release_lock() { if [ "$LOCK_HELD" = "1" ]; then PID="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"; [ "$PID" = "$$" ] && rm -rf "$LOCK_DIR" 2>/dev/null || true; LOCK_HELD="0"; fi; }
 
-NO_RESTART="0"
-NO_BINARY="0"
-NO_WATCHDOG="0"
-NO_DOCTOR="0"
-NO_HELPERS="0"
-NO_MENU="0"
-NO_XRAY_CORE_UPDATER="0"
-FIRST="0"
-
+NO_RESTART="0"; NO_BINARY="0"; NO_WATCHDOG="0"; NO_DOCTOR="0"; NO_HELPERS="0"; NO_MENU="0"; NO_XRAY_CORE_UPDATER="0"; FIRST="0"
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --no-restart) NO_RESTART="1"; shift ;;
@@ -132,25 +105,12 @@ done
 
 acquire_lock "xray-go-installer-update"
 
-if ! command -v opkg >/dev/null 2>&1; then
-    echo "ERROR: opkg not found. Entware is required." >&2
-    exit 1
-fi
-
-if ! command -v curl >/dev/null 2>&1; then
-    opkg update
-    opkg install curl ca-bundle
-else
-    opkg install ca-bundle >/dev/null 2>&1 || true
-fi
-
+if ! command -v opkg >/dev/null 2>&1; then echo "ERROR: opkg not found. Entware is required." >&2; exit 1; fi
+if ! command -v curl >/dev/null 2>&1; then opkg update; opkg install curl ca-bundle; else opkg install ca-bundle >/dev/null 2>&1 || true; fi
 mkdir -p /opt/bin /opt/libexec "$XRAY_DIR" "$TMP_DIR"
 
 install_executable() {
-    URL="$1"
-    DEST="$2"
-    NAME="$3"
-    TMP_FILE="$TMP_DIR/$(basename "$DEST").$$"
+    URL="$1"; DEST="$2"; NAME="$3"; TMP_FILE="$TMP_DIR/$(basename "$DEST").$$"
     echo "Updating $NAME..."
     curl -fL -o "$TMP_FILE" "$URL"
     chmod +x "$TMP_FILE"
@@ -159,10 +119,7 @@ install_executable() {
 }
 
 install_readable_helper() {
-    URL="$1"
-    DEST="$2"
-    NAME="$3"
-    TMP_FILE="$TMP_DIR/$(basename "$DEST").$$"
+    URL="$1"; DEST="$2"; NAME="$3"; TMP_FILE="$TMP_DIR/$(basename "$DEST").$$"
     echo "Updating $NAME..."
     curl -fL -o "$TMP_FILE" "$URL"
     chmod 644 "$TMP_FILE"
@@ -170,29 +127,11 @@ install_readable_helper() {
     chmod 644 "$DEST"
 }
 
-if [ ! -s "$PRIMARY_STORE" ] && [ -s "$SOURCE_STORE" ]; then
-    cp "$SOURCE_STORE" "$PRIMARY_STORE"
-    chmod 600 "$PRIMARY_STORE" 2>/dev/null || true
-fi
-
-if [ ! -s "$ACTIVE_STORE" ]; then
-    echo "primary" > "$ACTIVE_STORE"
-    chmod 600 "$ACTIVE_STORE" 2>/dev/null || true
-fi
-
-if [ ! -s "$XRAY_DIR/vless-go.primary.selector" ]; then
-    echo "first" > "$XRAY_DIR/vless-go.primary.selector"
-    chmod 600 "$XRAY_DIR/vless-go.primary.selector" 2>/dev/null || true
-fi
-if [ ! -s "$XRAY_DIR/vless-go.backup.selector" ]; then
-    echo "first" > "$XRAY_DIR/vless-go.backup.selector"
-    chmod 600 "$XRAY_DIR/vless-go.backup.selector" 2>/dev/null || true
-fi
-
-if [ ! -s "$PRIMARY_STORE" ]; then
-    echo "ERROR: no saved primary source found. Re-run xray_vless_failover_go.sh once." >&2
-    exit 1
-fi
+if [ ! -s "$PRIMARY_STORE" ] && [ -s "$SOURCE_STORE" ]; then cp "$SOURCE_STORE" "$PRIMARY_STORE"; chmod 600 "$PRIMARY_STORE" 2>/dev/null || true; fi
+if [ ! -s "$ACTIVE_STORE" ]; then echo "primary" > "$ACTIVE_STORE"; chmod 600 "$ACTIVE_STORE" 2>/dev/null || true; fi
+if [ ! -s "$XRAY_DIR/vless-go.primary.selector" ]; then echo "first" > "$XRAY_DIR/vless-go.primary.selector"; chmod 600 "$XRAY_DIR/vless-go.primary.selector" 2>/dev/null || true; fi
+if [ ! -s "$XRAY_DIR/vless-go.backup.selector" ]; then echo "first" > "$XRAY_DIR/vless-go.backup.selector"; chmod 600 "$XRAY_DIR/vless-go.backup.selector" 2>/dev/null || true; fi
+if [ ! -s "$PRIMARY_STORE" ]; then echo "ERROR: no saved primary source found. Re-run xray_vless_failover_go.sh once." >&2; exit 1; fi
 
 if [ "$NO_BINARY" = "0" ]; then
     TMP_BIN="$TMP_DIR/xray-failover-go.$$"
@@ -209,19 +148,12 @@ if [ "$NO_HELPERS" = "0" ]; then
     install_executable "$GO_FAILOVER_URL" "$GO_FAILOVER_CMD" "vless-go-failover helper"
     install_executable "$GO_AUTO_UPDATE_URL" "$GO_AUTO_UPDATE_CMD" "vless-go-auto-update helper"
     install_executable "$GO_HISTORY_URL" "$GO_HISTORY_CMD" "vless-go-history helper"
+    install_executable "$GO_CLEANUP_URL" "$GO_CLEANUP_CMD" "vless-go-cleanup helper"
 fi
 
-if [ "$NO_MENU" = "0" ]; then
-    install_executable "$FAILOVER_GO_URL" "$FAILOVER_GO_CMD" "failover-go menu"
-fi
-
-if [ "$NO_XRAY_CORE_UPDATER" = "0" ]; then
-    install_executable "$XRAY_CORE_UPDATE_URL" "$XRAY_CORE_UPDATE_CMD" "Xray-core updater helper"
-fi
-
-if [ "$NO_DOCTOR" = "0" ]; then
-    install_executable "$DOCTOR_URL" "$DOCTOR_CMD" "doctor helper"
-fi
+[ "$NO_MENU" = "0" ] && install_executable "$FAILOVER_GO_URL" "$FAILOVER_GO_CMD" "failover-go menu"
+[ "$NO_XRAY_CORE_UPDATER" = "0" ] && install_executable "$XRAY_CORE_UPDATE_URL" "$XRAY_CORE_UPDATE_CMD" "Xray-core updater helper"
+[ "$NO_DOCTOR" = "0" ] && install_executable "$DOCTOR_URL" "$DOCTOR_CMD" "doctor helper"
 
 if [ "$NO_WATCHDOG" = "0" ]; then
     TMP_WATCHDOG_INSTALLER="$TMP_DIR/xray_vless_go_watchdog_install.$$"
@@ -242,12 +174,8 @@ else
 fi
 
 if [ "$NO_RESTART" = "0" ]; then
-    if [ -x "$XRAY_INIT" ]; then
-        "$XRAY_INIT" restart || "$XRAY_INIT" start || true
-    fi
-    if [ -x "$WATCHDOG_INIT" ]; then
-        "$WATCHDOG_INIT" restart || "$WATCHDOG_INIT" start || true
-    fi
+    [ -x "$XRAY_INIT" ] && "$XRAY_INIT" restart || "$XRAY_INIT" start || true
+    [ -x "$WATCHDOG_INIT" ] && "$WATCHDOG_INIT" restart || "$WATCHDOG_INIT" start || true
 fi
 
 echo "Experimental Go edition updated."
@@ -260,5 +188,6 @@ echo "Watchdog config: $WATCHDOG_CONF"
 echo "Doctor command: $DOCTOR_CMD"
 echo "Lock helper: $LOCK_HELPER"
 echo "History command: $GO_HISTORY_CMD"
+echo "Cleanup command: $GO_CLEANUP_CMD"
 echo "Menu command: $FAILOVER_GO_CMD"
 echo "Xray-core updater command: $XRAY_CORE_UPDATE_CMD"
