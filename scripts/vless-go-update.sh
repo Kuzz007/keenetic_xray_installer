@@ -127,10 +127,6 @@ go_supports_select_index() {
     "$GO_RESOLVER" -h 2>&1 | grep -q -- '-select-index'
 }
 
-extract_vless_links_from_text() {
-    grep -o 'vless://[^[:space:]<>"]*' | awk '!seen[$0]++'
-}
-
 extract_link_by_index_shell() {
     SOURCE_VALUE="$1"
     IDX="$2"
@@ -157,10 +153,10 @@ extract_link_by_index_shell() {
             ;;
     esac
 
-    LINK="$(extract_vless_links_from_text < "$TMP_SUB" | sed -n "${IDX}p")"
+    LINK="$(grep -o 'vless://[^[:space:]<>]*' "$TMP_SUB" | sed -n "${IDX}p")"
     if [ -z "$LINK" ] && command -v base64 >/dev/null 2>&1; then
         tr -d '\r\n\t ' < "$TMP_SUB" | base64 -d > "$TMP_DECODED" 2>/dev/null || true
-        LINK="$(extract_vless_links_from_text < "$TMP_DECODED" 2>/dev/null | sed -n "${IDX}p")"
+        LINK="$(grep -o 'vless://[^[:space:]<>]*' "$TMP_DECODED" 2>/dev/null | sed -n "${IDX}p")"
     fi
 
     rm -f "$TMP_SUB" "$TMP_DECODED" 2>/dev/null || true
