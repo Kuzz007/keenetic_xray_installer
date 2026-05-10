@@ -68,6 +68,14 @@ extract_release_field() {
     grep -m 1 '"'"$FIELD"'"[[:space:]]*:' "$FILE" | sed 's/.*: *//; s/^"//; s/",*$//; s/"$//'
 }
 
+sanitize_release_field() {
+    VALUE="$1"
+    case "$VALUE" in
+        ''|*'{'*|*'}'*|*':'*|*','*) return 1 ;;
+        *) printf '%s\n' "$VALUE" ;;
+    esac
+}
+
 list_asset_names() {
     FILE="$1"
     grep '"name"[[:space:]]*:' "$FILE" | sed 's/.*"name"[[:space:]]*:[[:space:]]*"//; s/".*//' | grep '^Xray-.*\.zip$' || true
@@ -273,14 +281,18 @@ echo "Current Xray binary: $XRAY_BIN"
 echo "Fetching Xray-core release metadata: channel=$CHANNEL"
 fetch_release_json "$CHANNEL" "$RELEASE_JSON"
 
-TAG="$(extract_release_field "$RELEASE_JSON" tag_name)"
-NAME="$(extract_release_field "$RELEASE_JSON" name)"
+TAG_RAW="$(extract_release_field "$RELEASE_JSON" tag_name)"
+NAME_RAW="$(extract_release_field "$RELEASE_JSON" name)"
+TAG="$(sanitize_release_field "$TAG_RAW" 2>/dev/null || true)"
+NAME="$(sanitize_release_field "$NAME_RAW" 2>/dev/null || true)"
 case "$CHANNEL" in
     stable|latest)
         URL="https://github.com/$XRAY_REPO/releases/latest/download/$ASSET_NAME"
+        [ -n "$TAG" ] || TAG="latest"
         ;;
     *)
         URL="$(extract_asset_url "$RELEASE_JSON" "$ASSET_NAME")"
+        [ -n "$TAG" ] || TAG="$CHANNEL"
         ;;
 esac
 
@@ -291,7 +303,7 @@ if [ -z "$URL" ]; then
     exit 1
 fi
 
-echo "Selected release: ${TAG:-latest} ${NAME:-}"
+echo "Selected release: $TAG ${NAME:-}"
 echo "Selected asset: $ASSET_NAME"
 echo "Download URL: $URL"
 
