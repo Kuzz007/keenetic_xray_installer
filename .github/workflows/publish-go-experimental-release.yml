@@ -1,0 +1,98 @@
+name: Publish Go experimental release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to create/update
+        required: false
+        default: 0.1.2-go-experimental
+  push:
+    branches:
+      - main
+    paths:
+      - cmd/xray-failover-go/**
+      - .github/workflows/publish-go-experimental-release.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || '0.1.2-go-experimental' }}
+      ASSET_NAME: xray-failover-go-linux-arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Build linux arm64 helper
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=arm64 \
+            go build -trimpath -ldflags "-s -w" \
+            -o "dist/${ASSET_NAME}" ./cmd/xray-failover-go
+          chmod +x "dist/${ASSET_NAME}"
+          sha256sum "dist/${ASSET_NAME}" | tee "dist/${ASSET_NAME}.sha256"
+
+      - name: Create or update prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          NOTES_FILE="dist/release-notes.md"
+          cat > "$NOTES_FILE" <<'EOF'
+          ## 0.1.2-go-experimental
+
+          Experimental Go edition build for Keenetic/Entware VLESS failover.
+
+          This release publishes the linux/arm64 Go resolver/generator asset required by fresh install:
+
+          ```text
+          xray-failover-go-linux-arm64
+          ```
+
+          Main install scripts can download it from:
+
+          ```text
+          https://github.com/Kuzz007/keenetic_xray_installer/releases/download/0.1.2-go-experimental/xray-failover-go-linux-arm64
+          ```
+
+          This is still an experimental Go edition release.
+          EOF
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_TAG" \
+              --notes-file "$NOTES_FILE" \
+              --prerelease
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_TAG" \
+              --notes-file "$NOTES_FILE" \
+              --prerelease
+          fi
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            "dist/${ASSET_NAME}" \
+            "dist/${ASSET_NAME}.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+      - name: Show release download URLs
+        run: |
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${ASSET_NAME}"
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${ASSET_NAME}.sha256"

@@ -22,7 +22,8 @@ SOURCE_STORE="$XRAY_DIR/vless-go.source"
 PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
 BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 ACTIVE_STORE="$XRAY_DIR/vless-go.active"
-GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/latest/download/xray-failover-go-linux-arm64}"
+GO_EXPERIMENTAL_TAG="${GO_EXPERIMENTAL_TAG:-0.1.2-go-experimental}"
+GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${GO_EXPERIMENTAL_TAG}/xray-failover-go-linux-arm64}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 WATCHDOG_BRANCH="${WATCHDOG_BRANCH:-$REPO_BRANCH}"
 WATCHDOG_INSTALL_URL="${WATCHDOG_INSTALL_URL:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${WATCHDOG_BRANCH}/xray_vless_go_watchdog_install.sh}"
@@ -117,9 +118,11 @@ install_go_resolver() {
         return 0
     fi
 
+    echo "Downloading Go binary: $GO_BINARY_URL"
     if ! curl -fL -o "$GO_RESOLVER" "$GO_BINARY_URL"; then
         echo "ERROR: failed to download Go binary: $GO_BINARY_URL" >&2
-        echo "Create a GitHub release with xray-failover-go-linux-arm64 or build it locally with scripts/build-go-installers.sh and copy it to $GO_RESOLVER" >&2
+        echo "Expected GitHub Release asset: xray-failover-go-linux-arm64" >&2
+        echo "Release tag: $GO_EXPERIMENTAL_TAG" >&2
         exit 1
     fi
 
@@ -142,6 +145,8 @@ INIT
     chmod +x "$INIT_SCRIPT"
 }
 
+# NOTE: The legacy inline helper generation below is kept for compatibility with the original fresh installer.
+# Installed systems are upgraded to the latest modular scripts by xray-go-installer-update.
 create_update_command() {
     echo "[4/12] Creating vless-go-update command..."
     mkdir -p "$(dirname "$GO_UPDATE_CMD")" "$XRAY_DIR" "$TMP_DIR"
@@ -274,202 +279,8 @@ UPDATE
     chmod +x "$GO_UPDATE_CMD"
 }
 
-create_auto_update_command() {
-    echo "[5/12] Creating vless-go-auto-update command..."
-    mkdir -p "$(dirname "$GO_AUTO_UPDATE_CMD")" /opt/var/spool/cron/crontabs /opt/var/log
-
-    cat > "$GO_AUTO_UPDATE_CMD" <<'AUTO'
-#!/bin/sh
-set -e
-
-GO_UPDATE_CMD="/opt/bin/vless-go-update"
-CRON_FILE="/opt/var/spool/cron/crontabs/root"
-LOG_FILE="/opt/var/log/vless-go-auto-update.log"
-MARKER="vless-go-auto-update"
-DEFAULT_SCHEDULE="17 4 * * *"
-
-usage() {
-    echo "Usage: vless-go-auto-update enable [CRON_SCHEDULE] | disable | status | run"
-}
-
-ensure_cron_files() {
-    mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
-    touch "$CRON_FILE" "$LOG_FILE"
-    chmod 600 "$CRON_FILE" 2>/dev/null || true
-}
-
-restart_cron() {
-    if command -v crond >/dev/null 2>&1 && ! ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then
-        if [ -x /opt/etc/init.d/S10cron ]; then
-            /opt/etc/init.d/S10cron start >/dev/null 2>&1 || true
-        elif [ -x /opt/etc/init.d/S10crond ]; then
-            /opt/etc/init.d/S10crond start >/dev/null 2>&1 || true
-        else
-            crond -c /opt/var/spool/cron/crontabs >/dev/null 2>&1 || crond >/dev/null 2>&1 || true
-        fi
-    fi
-}
-
-remove_existing() {
-    ensure_cron_files
-    TMP_FILE="$CRON_FILE.$$"
-    grep -v "# $MARKER" "$CRON_FILE" > "$TMP_FILE" 2>/dev/null || true
-    mv "$TMP_FILE" "$CRON_FILE"
-    chmod 600 "$CRON_FILE" 2>/dev/null || true
-}
-
-enable_auto() {
-    SCHEDULE="${1:-$DEFAULT_SCHEDULE}"
-    ensure_cron_files
-    remove_existing
-    printf '%s %s --first >> %s 2>&1 # %s\n' "$SCHEDULE" "$GO_UPDATE_CMD" "$LOG_FILE" "$MARKER" >> "$CRON_FILE"
-    chmod 600 "$CRON_FILE" 2>/dev/null || true
-    restart_cron
-    echo "Enabled VLESS Go auto-update: $SCHEDULE"
-    echo "Cron file: $CRON_FILE"
-    echo "Log file: $LOG_FILE"
-}
-
-disable_auto() {
-    remove_existing
-    echo "Disabled VLESS Go auto-update."
-}
-
-status_auto() {
-    ensure_cron_files
-    if grep "# $MARKER" "$CRON_FILE" >/dev/null 2>&1; then
-        echo "VLESS Go auto-update is enabled:"
-        grep "# $MARKER" "$CRON_FILE"
-    else
-        echo "VLESS Go auto-update is disabled."
-    fi
-
-    if ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then
-        echo "crond: running"
-    else
-        echo "crond: not running or not visible"
-    fi
-}
-
-run_now() {
-    [ -x "$GO_UPDATE_CMD" ] || { echo "ERROR: update command not found: $GO_UPDATE_CMD" >&2; exit 1; }
-    "$GO_UPDATE_CMD" --first
-}
-
-case "${1:-status}" in
-    enable) shift; enable_auto "${1:-}" ;;
-    disable) disable_auto ;;
-    status) status_auto ;;
-    run) run_now ;;
-    -h|--help|help) usage ;;
-    *) echo "ERROR: unknown command: $1" >&2; usage >&2; exit 1 ;;
-esac
-AUTO
-
-    chmod +x "$GO_AUTO_UPDATE_CMD"
-}
-
-create_failover_command() {
-    echo "[6/12] Creating vless-go-failover command..."
-    mkdir -p "$(dirname "$GO_FAILOVER_CMD")" "$XRAY_DIR"
-
-    cat > "$GO_FAILOVER_CMD" <<'FAILOVER'
-#!/bin/sh
-set -e
-
-XRAY_DIR="/opt/etc/xray"
-SOURCE_STORE="$XRAY_DIR/vless-go.source"
-PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
-BACKUP_STORE="$XRAY_DIR/vless-go.backup"
-ACTIVE_STORE="$XRAY_DIR/vless-go.active"
-GO_UPDATE_CMD="/opt/bin/vless-go-update"
-
-usage() {
-    echo "Usage: vless-go-failover COMMAND [ARGS]"
-    echo "Commands: status | set-primary SRC | set-backup SRC | switch primary|backup [--first] [--no-restart] | update-active [--first] [--no-restart] | sync-primary"
-}
-
-slot_file() {
-    case "$1" in
-        primary) echo "$PRIMARY_STORE" ;;
-        backup) echo "$BACKUP_STORE" ;;
-        *) return 1 ;;
-    esac
-}
-
-slot_source() {
-    FILE="$(slot_file "$1")" || return 1
-    [ -s "$FILE" ] || return 2
-    sed -n '1p' "$FILE"
-}
-
-save_source() {
-    SLOT="$1"
-    VALUE="$2"
-    FILE="$(slot_file "$SLOT")" || { echo "ERROR: invalid slot: $SLOT" >&2; exit 1; }
-    mkdir -p "$XRAY_DIR"
-    printf '%s\n' "$VALUE" > "$FILE"
-    chmod 600 "$FILE" 2>/dev/null || true
-    echo "Saved $SLOT source: $FILE"
-}
-
-parse_update_flags() {
-    FIRST="0"
-    NO_RESTART="0"
-    while [ "$#" -gt 0 ]; do
-        case "$1" in
-            --first) FIRST="1"; shift ;;
-            --no-restart) NO_RESTART="1"; shift ;;
-            *) echo "ERROR: unknown flag: $1" >&2; usage >&2; exit 1 ;;
-        esac
-    done
-}
-
-run_update() {
-    SOURCE_VALUE="$1"
-    SLOT="$2"
-    shift 2
-    parse_update_flags "$@"
-
-    [ -x "$GO_UPDATE_CMD" ] || { echo "ERROR: update command not found: $GO_UPDATE_CMD" >&2; exit 1; }
-
-    mkdir -p "$XRAY_DIR"
-    printf '%s\n' "$SOURCE_VALUE" > "$SOURCE_STORE"
-    chmod 600 "$SOURCE_STORE" 2>/dev/null || true
-    printf '%s\n' "$SLOT" > "$ACTIVE_STORE"
-    chmod 600 "$ACTIVE_STORE" 2>/dev/null || true
-
-    ARGS="--source $SOURCE_VALUE"
-    [ "$FIRST" = "0" ] || ARGS="$ARGS --first"
-    [ "$NO_RESTART" = "0" ] || ARGS="$ARGS --no-restart"
-
-    # shellcheck disable=SC2086
-    "$GO_UPDATE_CMD" $ARGS
-    echo "Active VLESS slot: $SLOT"
-}
-
-status() {
-    echo "Failover-lite status:"
-    [ -s "$ACTIVE_STORE" ] && echo "  active: $(sed -n '1p' "$ACTIVE_STORE")" || echo "  active: unknown"
-    [ -s "$PRIMARY_STORE" ] && echo "  primary: configured" || echo "  primary: not configured"
-    [ -s "$BACKUP_STORE" ] && echo "  backup: configured" || echo "  backup: not configured"
-    [ -s "$SOURCE_STORE" ] && echo "  current source: configured" || echo "  current source: not configured"
-}
-
-case "${1:-status}" in
-    status) status ;;
-    set-primary) shift; [ "$#" -ge 1 ] || { echo "ERROR: set-primary requires source" >&2; exit 1; }; save_source primary "$1" ;;
-    set-backup) shift; [ "$#" -ge 1 ] || { echo "ERROR: set-backup requires source" >&2; exit 1; }; save_source backup "$1" ;;
-    switch) shift; [ "$#" -ge 1 ] || { echo "ERROR: switch requires primary or backup" >&2; exit 1; }; SLOT="$1"; shift; SOURCE_VALUE="$(slot_source "$SLOT")" || { echo "ERROR: $SLOT source is not configured" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "$@" ;;
-    update-active) shift; if [ -s "$ACTIVE_STORE" ]; then SLOT="$(sed -n '1p' "$ACTIVE_STORE")"; SOURCE_VALUE="$(slot_source "$SLOT" 2>/dev/null || true)"; else SLOT="current"; SOURCE_VALUE=""; fi; [ -n "$SOURCE_VALUE" ] || SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE" 2>/dev/null || true)"; [ -n "$SOURCE_VALUE" ] || { echo "ERROR: no active source found" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "$@" ;;
-    sync-primary) [ -s "$SOURCE_STORE" ] || { echo "ERROR: current source is not configured" >&2; exit 1; }; save_source primary "$(sed -n '1p' "$SOURCE_STORE")"; printf '%s\n' primary > "$ACTIVE_STORE"; chmod 600 "$ACTIVE_STORE" 2>/dev/null || true ;;
-    -h|--help|help) usage ;;
-    *) echo "ERROR: unknown command: $1" >&2; usage >&2; exit 1 ;;
-esac
-FAILOVER
-
-    chmod +x "$GO_FAILOVER_CMD"
-}
+create_auto_update_command() { echo "[5/12] Creating vless-go-auto-update command..."; install -m 755 scripts/vless-go-auto-update.sh "$GO_AUTO_UPDATE_CMD" 2>/dev/null || true; }
+create_failover_command() { echo "[6/12] Creating vless-go-failover command..."; install -m 755 scripts/vless-go-failover.sh "$GO_FAILOVER_CMD" 2>/dev/null || true; }
 
 install_updater() {
     echo "[7/12] Installing xray-go-installer-update command..."
@@ -556,7 +367,6 @@ detect_lan_router_ip() {
         return 0
     fi
 
-    # Prefer explicit Keenetic Home/bridge interfaces, but never auto-pick 10.x.
     {
         ndmc -c "show interface Home" 2>/dev/null | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' || true
         ndmc -c "show interface Bridge0" 2>/dev/null | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' || true
@@ -641,7 +451,8 @@ main() {
         -output "$XRAY_CONFIG" \
         -listen "$SOCKS_LISTEN" \
         -port "$SOCKS_PORT" \
-        -profile "vless-out"
+        -profile "vless-out" \
+        -first
 
     create_update_command
     create_auto_update_command
@@ -671,7 +482,6 @@ main() {
     echo "Enable daily subscription auto-update: vless-go-auto-update enable"
     echo "Run diagnostics: vless-go-doctor"
     echo "Update installed Go edition without re-entering sources: xray-go-installer-update --first"
-    echo "Backup -> primary recovery is enabled by default. Disable it with: sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=0/' $GO_WATCHDOG_CONF && $GO_WATCHDOG_INIT restart"
     echo "Switch manually: vless-go-failover switch backup --first"
     echo "Watchdog status: vless-go-watchdog status"
     echo "Override Proxy0 upstream host if needed: PROXY_UPSTREAM_HOST=192.168.1.1 sh xray_vless_failover_go.sh"
