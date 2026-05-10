@@ -106,16 +106,16 @@ show_profile_list() {
         return 0
     fi
     if [ ! -x "$GO_RESOLVER" ]; then
-        echo "Profile list skipped: $GO_RESOLVER not found."
+        echo "Profile list skipped: $GO_RESOLVER not found." >&2
         return 0
     fi
 
-    echo
-    echo "Available profiles from subscription/source:"
-    if ! "$GO_RESOLVER" -input "$SOURCE_VALUE" -list 2>&1; then
-        echo "WARNING: failed to list profiles. You can still enter selector manually."
+    echo >&2
+    echo "Available profiles from subscription/source:" >&2
+    if ! "$GO_RESOLVER" -input "$SOURCE_VALUE" -list >&2; then
+        echo "WARNING: failed to list profiles. You can still enter selector manually." >&2
     fi
-    echo
+    echo >&2
 }
 
 prompt_selector() {
@@ -125,10 +125,10 @@ prompt_selector() {
 
     show_profile_list "$SOURCE_VALUE"
 
-    echo "Current $SLOT selector: $CURRENT"
-    echo "Selector controls which profile is used when a subscription contains multiple VLESS links."
-    echo "Supported input: first, index:N, or just N (example: 7 means index:7)."
-    echo
+    echo "Current $SLOT selector: $CURRENT" >&2
+    echo "Selector controls which profile is used when a subscription contains multiple VLESS links." >&2
+    echo "Supported input: first, index:N, or just N (example: 7 means index:7)." >&2
+    echo >&2
     read_tty "Enter selector for $SLOT [default: $CURRENT]: "
     VALUE="$REPLY"
     if [ -z "$VALUE" ]; then
