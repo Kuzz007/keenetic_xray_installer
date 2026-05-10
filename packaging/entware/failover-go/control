@@ -1,0 +1,10 @@
+Package: failover-go
+Version: 0.1.2-go-experimental
+Architecture: aarch64-3.10
+Maintainer: Kuzz007
+Section: net
+Priority: optional
+Depends: curl, ca-bundle, xray-core, unzip, python3
+Description: Experimental VLESS Go / Xray failover toolkit for Keenetic Entware
+ Provides failover-go menu, VLESS subscription updater, watchdog, history,
+ cleanup helper, doctor diagnostics and Xray-core updater.
