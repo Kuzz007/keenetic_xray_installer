@@ -13,6 +13,10 @@ GO_WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
 GO_WATCHDOG_CONF="$XRAY_DIR/vless-go-watchdog.conf"
 GO_INSTALLER_UPDATE_CMD="/opt/bin/xray-go-installer-update"
 DOCTOR_CMD="/opt/bin/vless-go-doctor"
+HISTORY_CMD="/opt/bin/vless-go-history"
+XRAY_CORE_UPDATE_CMD="/opt/bin/vless-go-xray-core-update"
+MENU_CMD="/opt/bin/failover-go"
+LOCK_HELPER="/opt/libexec/vless-go-lock.sh"
 SOCKS_PORT="10808"
 SOCKS_LISTEN="0.0.0.0"
 PROXY_IFACE="Proxy0"
@@ -22,13 +26,14 @@ SOURCE_STORE="$XRAY_DIR/vless-go.source"
 PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
 BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 ACTIVE_STORE="$XRAY_DIR/vless-go.active"
+PRIMARY_SELECTOR="$XRAY_DIR/vless-go.primary.selector"
+BACKUP_SELECTOR="$XRAY_DIR/vless-go.backup.selector"
 GO_EXPERIMENTAL_TAG="${GO_EXPERIMENTAL_TAG:-0.1.2-go-experimental}"
 GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${GO_EXPERIMENTAL_TAG}/xray-failover-go-linux-arm64}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 WATCHDOG_BRANCH="${WATCHDOG_BRANCH:-$REPO_BRANCH}"
+RAW_BASE="https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}"
 WATCHDOG_INSTALL_URL="${WATCHDOG_INSTALL_URL:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${WATCHDOG_BRANCH}/xray_vless_go_watchdog_install.sh}"
-GO_INSTALLER_UPDATE_URL="${GO_INSTALLER_UPDATE_URL:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}/scripts/xray-go-installer-update.sh}"
-DOCTOR_URL="${DOCTOR_URL:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}/scripts/vless-go-doctor.sh}"
 INSTALL_WATCHDOG="${INSTALL_WATCHDOG:-1}"
 START_WATCHDOG="${START_WATCHDOG:-1}"
 INSTALL_UPDATER="${INSTALL_UPDATER:-1}"
@@ -56,17 +61,42 @@ get_xray_bin() {
     fi
 }
 
+install_script() {
+    src="$1"
+    dst="$2"
+    mode="${3:-755}"
+    url="${RAW_BASE}/${src}"
+
+    mkdir -p "$(dirname "$dst")" "$TMP_DIR"
+
+    if [ -f "$src" ]; then
+        install -m "$mode" "$src" "$dst"
+        return 0
+    fi
+
+    tmp="$TMP_DIR/$(basename "$dst").$$"
+    if ! curl -fL -o "$tmp" "$url"; then
+        echo "ОШИБКА: не удалось установить $dst" >&2
+        echo "Источник: $url" >&2
+        rm -f "$tmp" 2>/dev/null || true
+        exit 1
+    fi
+    chmod "$mode" "$tmp"
+    mv "$tmp" "$dst"
+    chmod "$mode" "$dst"
+}
+
 ensure_cron() {
     mkdir -p /opt/var/spool/cron/crontabs /opt/var/log 2>/dev/null || true
     touch /opt/var/spool/cron/crontabs/root 2>/dev/null || true
     chmod 600 /opt/var/spool/cron/crontabs/root 2>/dev/null || true
 
     if ! command -v crond >/dev/null 2>&1; then
-        echo "Installing cron for optional auto-update..."
+        echo "Устанавливаю cron для опционального автообновления подписок..."
         opkg install cron >/dev/null 2>&1 \
             || opkg install cronie >/dev/null 2>&1 \
             || opkg install busybox-cron >/dev/null 2>&1 \
-            || echo "WARNING: cron could not be installed. vless-go-auto-update enable may need manual cron setup."
+            || echo "ПРЕДУПРЕЖДЕНИЕ: cron установить не удалось. Для vless-go-auto-update enable может понадобиться ручная настройка cron."
     fi
 
     if command -v crond >/dev/null 2>&1 && ! ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then
@@ -81,20 +111,20 @@ ensure_cron() {
 }
 
 ensure_packages() {
-    echo "[1/12] Checking Entware packages..."
+    echo "[1/12] Проверка пакетов Entware..."
     if ! command -v opkg >/dev/null 2>&1; then
-        echo "ERROR: opkg not found. Entware is required." >&2
+        echo "ОШИБКА: opkg не найден. Для установки нужен Entware." >&2
         exit 1
     fi
 
-    NEED_UPDATE="0"
-    command -v curl >/dev/null 2>&1 || NEED_UPDATE="1"
-    command -v crond >/dev/null 2>&1 || NEED_UPDATE="1"
+    need_update="0"
+    command -v curl >/dev/null 2>&1 || need_update="1"
+    command -v crond >/dev/null 2>&1 || need_update="1"
     if ! command -v xray >/dev/null 2>&1 && [ ! -x /opt/bin/xray ]; then
-        NEED_UPDATE="1"
+        need_update="1"
     fi
 
-    [ "$NEED_UPDATE" = "0" ] || opkg update
+    [ "$need_update" = "0" ] || opkg update
 
     if ! command -v curl >/dev/null 2>&1; then
         opkg install curl ca-bundle
@@ -110,18 +140,18 @@ ensure_packages() {
 }
 
 install_go_resolver() {
-    echo "[2/12] Installing experimental Go resolver/generator..."
+    echo "[2/12] Установка Go resolver/generator..."
     mkdir -p "$(dirname "$GO_RESOLVER")" "$TMP_DIR"
 
     if [ -x "$GO_RESOLVER" ]; then
-        echo "Existing binary found: $GO_RESOLVER"
+        echo "Найден существующий бинарник: $GO_RESOLVER"
         return 0
     fi
 
-    echo "Downloading Go binary: $GO_BINARY_URL"
+    echo "Скачиваю Go binary: $GO_BINARY_URL"
     if ! curl -fL -o "$GO_RESOLVER" "$GO_BINARY_URL"; then
-        echo "ERROR: failed to download Go binary: $GO_BINARY_URL" >&2
-        echo "Expected GitHub Release asset: xray-failover-go-linux-arm64" >&2
+        echo "ОШИБКА: не удалось скачать Go binary: $GO_BINARY_URL" >&2
+        echo "Ожидаемый GitHub Release asset: xray-failover-go-linux-arm64" >&2
         echo "Release tag: $GO_EXPERIMENTAL_TAG" >&2
         exit 1
     fi
@@ -129,8 +159,49 @@ install_go_resolver() {
     chmod +x "$GO_RESOLVER"
 }
 
+resolve_initial_config() {
+    echo "[3/12] Разбор подписки и генерация Xray config..."
+    "$GO_RESOLVER" \
+        -input "$INPUT_VALUE" \
+        -output "$XRAY_CONFIG" \
+        -listen "$SOCKS_LISTEN" \
+        -port "$SOCKS_PORT" \
+        -profile "vless-out" \
+        -first
+}
+
+install_helpers() {
+    echo "[4/12] Установка helper-команд Go edition..."
+    install_script scripts/vless-go-lock.sh "$LOCK_HELPER" 644
+    install_script scripts/vless-go-update.sh "$GO_UPDATE_CMD" 755
+    install_script scripts/vless-go-auto-update.sh "$GO_AUTO_UPDATE_CMD" 755
+    install_script scripts/vless-go-failover.sh "$GO_FAILOVER_CMD" 755
+    install_script scripts/vless-go-history.sh "$HISTORY_CMD" 755
+    install_script scripts/vless-go-xray-core-update.sh "$XRAY_CORE_UPDATE_CMD" 755
+    install_script scripts/failover-go.sh "$MENU_CMD" 755
+}
+
+install_updater() {
+    echo "[5/12] Установка команды обновления Go edition..."
+    if [ "$INSTALL_UPDATER" = "0" ]; then
+        echo "Установка updater пропущена: INSTALL_UPDATER=0."
+        return 0
+    fi
+    install_script scripts/xray-go-installer-update.sh "$GO_INSTALLER_UPDATE_CMD" 755
+}
+
+install_doctor() {
+    echo "[6/12] Установка диагностики doctor..."
+    if [ "$INSTALL_DOCTOR" = "0" ]; then
+        echo "Установка doctor пропущена: INSTALL_DOCTOR=0."
+        return 0
+    fi
+    install_script scripts/vless-go-doctor.sh "$DOCTOR_CMD" 755
+}
+
 create_xray_init() {
-    echo "[9/12] Creating Xray init script..."
+    echo "[7/12] Создание init-скрипта Xray..."
+    mkdir -p "$(dirname "$INIT_SCRIPT")"
     cat > "$INIT_SCRIPT" <<INIT
 #!/bin/sh
 
@@ -143,218 +214,6 @@ DESC="Xray"
 . /opt/etc/init.d/rc.func
 INIT
     chmod +x "$INIT_SCRIPT"
-}
-
-# NOTE: The legacy inline helper generation below is kept for compatibility with the original fresh installer.
-# Installed systems are upgraded to the latest modular scripts by xray-go-installer-update.
-create_update_command() {
-    echo "[4/12] Creating vless-go-update command..."
-    mkdir -p "$(dirname "$GO_UPDATE_CMD")" "$XRAY_DIR" "$TMP_DIR"
-
-    cat > "$GO_UPDATE_CMD" <<'UPDATE'
-#!/bin/sh
-set -e
-
-XRAY_DIR="/opt/etc/xray"
-XRAY_CONFIG="$XRAY_DIR/config.json"
-INIT_SCRIPT="/opt/etc/init.d/S24xray"
-GO_RESOLVER="/opt/bin/xray-failover-go"
-SOCKS_PORT="10808"
-SOCKS_LISTEN="0.0.0.0"
-SOURCE_STORE="$XRAY_DIR/vless-go.source"
-TMP_DIR="/opt/tmp"
-
-get_xray_bin() {
-    if command -v xray >/dev/null 2>&1; then
-        command -v xray
-    elif [ -x /opt/bin/xray ]; then
-        echo "/opt/bin/xray"
-    else
-        echo ""
-    fi
-}
-
-usage() {
-    echo "Usage: vless-go-update [--source URL_OR_VLESS] [--first] [--no-restart]"
-    echo ""
-    echo "Options:"
-    echo "  --source VALUE   Replace saved VLESS/subscription source before updating."
-    echo "  --first          Select first profile without interactive prompt."
-    echo "  --no-restart     Generate and validate config, but do not restart Xray."
-}
-
-FIRST="0"
-NO_RESTART="0"
-NEW_SOURCE=""
-
-while [ "$#" -gt 0 ]; do
-    case "$1" in
-        --source)
-            [ "$#" -ge 2 ] || { echo "ERROR: --source requires value" >&2; exit 1; }
-            NEW_SOURCE="$2"
-            shift 2
-            ;;
-        --first)
-            FIRST="1"
-            shift
-            ;;
-        --no-restart)
-            NO_RESTART="1"
-            shift
-            ;;
-        -h|--help)
-            usage
-            exit 0
-            ;;
-        *)
-            echo "ERROR: unknown argument: $1" >&2
-            usage >&2
-            exit 1
-            ;;
-    esac
-done
-
-mkdir -p "$XRAY_DIR" "$TMP_DIR"
-
-if [ -n "$NEW_SOURCE" ]; then
-    printf '%s\n' "$NEW_SOURCE" > "$SOURCE_STORE"
-    chmod 600 "$SOURCE_STORE" 2>/dev/null || true
-fi
-
-if [ ! -s "$SOURCE_STORE" ]; then
-    echo "ERROR: source is not saved. Re-run xray_vless_failover_go.sh or use: vless-go-update --source URL_OR_VLESS" >&2
-    exit 1
-fi
-
-if [ ! -x "$GO_RESOLVER" ]; then
-    echo "ERROR: Go resolver/generator not found: $GO_RESOLVER" >&2
-    exit 1
-fi
-
-SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE")"
-TMP_CONFIG="$TMP_DIR/config.vless-go-update.$$.$RANDOM.json"
-trap 'rm -f "$TMP_CONFIG" 2>/dev/null || true' EXIT INT TERM
-
-ARGS=""
-[ "$FIRST" = "0" ] || ARGS="-first"
-
-# shellcheck disable=SC2086
-"$GO_RESOLVER" \
-    -input "$SOURCE_VALUE" \
-    -output "$TMP_CONFIG" \
-    -listen "$SOCKS_LISTEN" \
-    -port "$SOCKS_PORT" \
-    -profile "vless-out" \
-    $ARGS
-
-XRAY_BIN="$(get_xray_bin)"
-if [ -z "$XRAY_BIN" ]; then
-    echo "ERROR: xray binary not found." >&2
-    exit 1
-fi
-
-if ! "$XRAY_BIN" run -test -config "$TMP_CONFIG" >/dev/null 2>&1; then
-    "$XRAY_BIN" test -config "$TMP_CONFIG"
-fi
-
-cp "$TMP_CONFIG" "$XRAY_CONFIG"
-chmod 600 "$XRAY_CONFIG" 2>/dev/null || true
-
-if [ "$NO_RESTART" = "1" ]; then
-    echo "Updated and validated config: $XRAY_CONFIG"
-    echo "Xray restart skipped."
-    exit 0
-fi
-
-if [ -x "$INIT_SCRIPT" ]; then
-    "$INIT_SCRIPT" restart || "$INIT_SCRIPT" start
-else
-    echo "WARNING: init script not found: $INIT_SCRIPT" >&2
-    echo "Config updated, restart Xray manually." >&2
-fi
-
-echo "Updated VLESS config from saved source."
-UPDATE
-
-    chmod +x "$GO_UPDATE_CMD"
-}
-
-create_auto_update_command() { echo "[5/12] Creating vless-go-auto-update command..."; install -m 755 scripts/vless-go-auto-update.sh "$GO_AUTO_UPDATE_CMD" 2>/dev/null || true; }
-create_failover_command() { echo "[6/12] Creating vless-go-failover command..."; install -m 755 scripts/vless-go-failover.sh "$GO_FAILOVER_CMD" 2>/dev/null || true; }
-
-install_updater() {
-    echo "[7/12] Installing xray-go-installer-update command..."
-
-    if [ "$INSTALL_UPDATER" = "0" ]; then
-        echo "Updater installation skipped because INSTALL_UPDATER=0."
-        return 0
-    fi
-
-    mkdir -p "$(dirname "$GO_INSTALLER_UPDATE_CMD")" "$TMP_DIR"
-    TMP_UPDATER="$TMP_DIR/xray-go-installer-update.$$"
-    trap 'rm -f "$TMP_UPDATER" 2>/dev/null || true' EXIT INT TERM
-
-    if ! curl -fL -o "$TMP_UPDATER" "$GO_INSTALLER_UPDATE_URL"; then
-        echo "ERROR: failed to download updater: $GO_INSTALLER_UPDATE_URL" >&2
-        exit 1
-    fi
-
-    chmod +x "$TMP_UPDATER"
-    mv "$TMP_UPDATER" "$GO_INSTALLER_UPDATE_CMD"
-    chmod +x "$GO_INSTALLER_UPDATE_CMD"
-}
-
-install_doctor() {
-    echo "[8/12] Installing vless-go-doctor command..."
-
-    if [ "$INSTALL_DOCTOR" = "0" ]; then
-        echo "Doctor installation skipped because INSTALL_DOCTOR=0."
-        return 0
-    fi
-
-    mkdir -p "$(dirname "$DOCTOR_CMD")" "$TMP_DIR"
-    TMP_DOCTOR="$TMP_DIR/vless-go-doctor.$$"
-    trap 'rm -f "$TMP_DOCTOR" 2>/dev/null || true' EXIT INT TERM
-
-    if ! curl -fL -o "$TMP_DOCTOR" "$DOCTOR_URL"; then
-        echo "ERROR: failed to download doctor: $DOCTOR_URL" >&2
-        exit 1
-    fi
-
-    chmod +x "$TMP_DOCTOR"
-    mv "$TMP_DOCTOR" "$DOCTOR_CMD"
-    chmod +x "$DOCTOR_CMD"
-}
-
-install_watchdog() {
-    echo "[11/12] Installing watchdog daemon and recovery support..."
-
-    if [ "$INSTALL_WATCHDOG" = "0" ]; then
-        echo "Watchdog installation skipped because INSTALL_WATCHDOG=0."
-        return 0
-    fi
-
-    mkdir -p "$TMP_DIR" "$XRAY_DIR"
-    TMP_WATCHDOG_INSTALLER="$TMP_DIR/xray_vless_go_watchdog_install.$$"
-    trap 'rm -f "$TMP_WATCHDOG_INSTALLER" 2>/dev/null || true' EXIT INT TERM
-
-    if ! curl -fL -o "$TMP_WATCHDOG_INSTALLER" "$WATCHDOG_INSTALL_URL"; then
-        echo "ERROR: failed to download watchdog installer: $WATCHDOG_INSTALL_URL" >&2
-        exit 1
-    fi
-
-    chmod +x "$TMP_WATCHDOG_INSTALLER"
-    WATCHDOG_BRANCH="$WATCHDOG_BRANCH" sh "$TMP_WATCHDOG_INSTALLER"
-
-    if [ "$AUTO_RECOVER_PRIMARY" = "1" ] && [ -f "$GO_WATCHDOG_CONF" ]; then
-        sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=1/' "$GO_WATCHDOG_CONF"
-    fi
-
-    if [ "$START_WATCHDOG" = "1" ] && [ -x "$GO_WATCHDOG_INIT" ]; then
-        "$GO_WATCHDOG_INIT" restart || "$GO_WATCHDOG_INIT" start || true
-    else
-        echo "Watchdog daemon not started. Start it with: $GO_WATCHDOG_INIT start"
-    fi
 }
 
 valid_auto_lan_ip() {
@@ -378,113 +237,159 @@ detect_lan_router_ip() {
 }
 
 configure_proxy0() {
-    echo "[10/12] Configuring Proxy0..."
+    echo "[8/12] Настройка Proxy0..."
     if ! command -v ndmc >/dev/null 2>&1; then
-        echo "WARNING: ndmc not found. Configure Proxy0 manually to SOCKS5 $SOCKS_LISTEN:$SOCKS_PORT."
+        echo "ПРЕДУПРЕЖДЕНИЕ: ndmc не найден. Настройте Proxy0 вручную на SOCKS5 $SOCKS_LISTEN:$SOCKS_PORT."
         return 0
     fi
 
-    ROUTER_IP="$(detect_lan_router_ip | awk 'NF { print; exit }')"
-    ROUTER_IP="${ROUTER_IP:-127.0.0.1}"
+    router_ip="$(detect_lan_router_ip | awk 'NF { print; exit }')"
+    router_ip="${router_ip:-127.0.0.1}"
 
     ndmc -c "interface $PROXY_IFACE" || true
     ndmc -c "interface $PROXY_IFACE proxy protocol socks5" || true
     ndmc -c "interface $PROXY_IFACE proxy socks5-udp" || true
-    ndmc -c "interface $PROXY_IFACE proxy upstream $ROUTER_IP $SOCKS_PORT" || true
+    ndmc -c "interface $PROXY_IFACE proxy upstream $router_ip $SOCKS_PORT" || true
     ndmc -c "interface $PROXY_IFACE description Xray-Go-Experimental" || true
     ndmc -c "interface $PROXY_IFACE no ip global" || true
     ndmc -c "interface $PROXY_IFACE up" || true
     ndmc -c "system configuration save" || true
 
-    echo "$PROXY_IFACE -> SOCKS5 $ROUTER_IP:$SOCKS_PORT"
+    echo "$PROXY_IFACE -> SOCKS5 $router_ip:$SOCKS_PORT"
 }
 
-start_xray() {
-    echo "[12/12] Testing and starting Xray..."
-    XRAY_BIN="$(get_xray_bin)"
-    if [ -z "$XRAY_BIN" ]; then
-        echo "ERROR: xray binary not found." >&2
+install_watchdog() {
+    echo "[9/12] Установка watchdog и recovery support..."
+    if [ "$INSTALL_WATCHDOG" = "0" ]; then
+        echo "Установка watchdog пропущена: INSTALL_WATCHDOG=0."
+        return 0
+    fi
+
+    mkdir -p "$TMP_DIR" "$XRAY_DIR"
+    tmp_watchdog_installer="$TMP_DIR/xray_vless_go_watchdog_install.$$"
+    trap 'rm -f "$tmp_watchdog_installer" 2>/dev/null || true' EXIT INT TERM
+
+    if ! curl -fL -o "$tmp_watchdog_installer" "$WATCHDOG_INSTALL_URL"; then
+        echo "ОШИБКА: не удалось скачать installer watchdog: $WATCHDOG_INSTALL_URL" >&2
         exit 1
     fi
 
-    if ! "$XRAY_BIN" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1; then
-        "$XRAY_BIN" test -config "$XRAY_CONFIG"
+    chmod +x "$tmp_watchdog_installer"
+    WATCHDOG_BRANCH="$WATCHDOG_BRANCH" sh "$tmp_watchdog_installer"
+
+    if [ "$AUTO_RECOVER_PRIMARY" = "1" ] && [ -f "$GO_WATCHDOG_CONF" ]; then
+        sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=1/' "$GO_WATCHDOG_CONF"
+    fi
+}
+
+start_watchdog() {
+    echo "[10/12] Запуск watchdog..."
+    if [ "$START_WATCHDOG" = "1" ] && [ -x "$GO_WATCHDOG_INIT" ]; then
+        "$GO_WATCHDOG_INIT" restart || "$GO_WATCHDOG_INIT" start || true
+    else
+        echo "Watchdog не запущен. Запуск вручную: $GO_WATCHDOG_INIT start"
+    fi
+}
+
+start_xray() {
+    echo "[11/12] Проверка и запуск Xray..."
+    xray_bin="$(get_xray_bin)"
+    if [ -z "$xray_bin" ]; then
+        echo "ОШИБКА: бинарник xray не найден." >&2
+        exit 1
+    fi
+
+    if ! "$xray_bin" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1; then
+        "$xray_bin" test -config "$XRAY_CONFIG"
     fi
 
     "$INIT_SCRIPT" restart || "$INIT_SCRIPT" start
 }
 
+final_summary() {
+    echo "[12/12] Итоговая проверка установки..."
+    echo
+    echo "Готово. Experimental Go edition установлена."
+    echo
+    echo "Основные файлы:"
+    echo "  Xray config: $XRAY_CONFIG"
+    echo "  Go resolver/generator: $GO_RESOLVER"
+    echo "  Текущий источник: $SOURCE_STORE"
+    echo "  Основной источник: $PRIMARY_STORE"
+    echo "  Резервный источник: $BACKUP_STORE"
+    echo "  Активный слот: $ACTIVE_STORE"
+    echo "  Selector primary: $PRIMARY_SELECTOR"
+    echo "  Selector backup: $BACKUP_SELECTOR"
+    echo
+    echo "Команды управления:"
+    echo "  Меню: $MENU_CMD"
+    echo "  Обновить активную подписку: $GO_UPDATE_CMD"
+    echo "  Failover/switch: $GO_FAILOVER_CMD"
+    echo "  Auto-update cron: $GO_AUTO_UPDATE_CMD"
+    echo "  История переключений: $HISTORY_CMD"
+    echo "  Диагностика: $DOCTOR_CMD"
+    echo "  Обновить Go edition: $GO_INSTALLER_UPDATE_CMD"
+    echo "  Обновить Xray-core: $XRAY_CORE_UPDATE_CMD"
+    echo "  Watchdog: $GO_WATCHDOG_CMD"
+    echo "  Watchdog init: $GO_WATCHDOG_INIT"
+    echo "  Watchdog config: $GO_WATCHDOG_CONF"
+    echo "  Общий lock helper: $LOCK_HELPER"
+    echo
+    echo "Полезные команды:"
+    echo "  Открыть меню: failover-go"
+    echo "  Запустить диагностику: vless-go-doctor"
+    echo "  Включить ежедневное автообновление подписок: vless-go-auto-update enable"
+    echo "  Обновить установленную Go edition без повторного ввода ссылок: xray-go-installer-update --first"
+    echo "  Переключиться на backup: vless-go-failover switch backup"
+    echo "  Статус watchdog: vless-go-watchdog status"
+    echo
+    echo "Если Proxy0 нужно привязать к конкретному IP роутера:"
+    echo "  PROXY_UPSTREAM_HOST=192.168.1.1 sh xray_vless_failover_go.sh"
+}
+
 main() {
-    echo "Experimental Xray VLESS Go installer for Keenetic"
-    echo "This does not replace the full failover installer."
+    echo "Experimental Xray VLESS Go installer для Keenetic"
+    echo "Устанавливает Go resolver, Xray config, failover helpers, watchdog, doctor и меню управления."
     echo
 
     ensure_packages
     install_go_resolver
 
     mkdir -p "$XRAY_DIR"
-    read_tty "Enter primary VLESS link or subscription URL: "
+    read_tty "Введите основной VLESS link или subscription URL: "
     INPUT_VALUE="$REPLY"
     if [ -z "$INPUT_VALUE" ]; then
-        echo "ERROR: empty primary input." >&2
+        echo "ОШИБКА: пустое значение основного источника." >&2
         exit 1
     fi
 
     printf '%s\n' "$INPUT_VALUE" > "$SOURCE_STORE"
     printf '%s\n' "$INPUT_VALUE" > "$PRIMARY_STORE"
     printf '%s\n' primary > "$ACTIVE_STORE"
-    chmod 600 "$SOURCE_STORE" "$PRIMARY_STORE" "$ACTIVE_STORE" 2>/dev/null || true
+    printf '%s\n' first > "$PRIMARY_SELECTOR"
+    chmod 600 "$SOURCE_STORE" "$PRIMARY_STORE" "$ACTIVE_STORE" "$PRIMARY_SELECTOR" 2>/dev/null || true
 
-    read_tty "Enter backup VLESS link or subscription URL (optional, press Enter to skip): "
+    read_tty "Введите резервный VLESS link или subscription URL (опционально, Enter чтобы пропустить): "
     BACKUP_VALUE="$REPLY"
     if [ -n "$BACKUP_VALUE" ]; then
         printf '%s\n' "$BACKUP_VALUE" > "$BACKUP_STORE"
-        chmod 600 "$BACKUP_STORE" 2>/dev/null || true
-        echo "Backup source saved: $BACKUP_STORE"
+        printf '%s\n' first > "$BACKUP_SELECTOR"
+        chmod 600 "$BACKUP_STORE" "$BACKUP_SELECTOR" 2>/dev/null || true
+        echo "Резервный источник сохранён: $BACKUP_STORE"
     else
-        echo "Backup source skipped. You can add it later with: vless-go-failover set-backup URL_OR_VLESS"
+        echo "Резервный источник пропущен. Добавить позже: vless-go-failover set-backup URL_OR_VLESS"
     fi
 
-    echo "[3/12] Resolving subscription and generating Xray config..."
-    "$GO_RESOLVER" \
-        -input "$INPUT_VALUE" \
-        -output "$XRAY_CONFIG" \
-        -listen "$SOCKS_LISTEN" \
-        -port "$SOCKS_PORT" \
-        -profile "vless-out" \
-        -first
-
-    create_update_command
-    create_auto_update_command
-    create_failover_command
+    resolve_initial_config
+    install_helpers
     install_updater
     install_doctor
     create_xray_init
     configure_proxy0
     install_watchdog
+    start_watchdog
     start_xray
-
-    echo
-    echo "Done. Experimental Go edition installed."
-    echo "Config: $XRAY_CONFIG"
-    echo "Resolver/generator: $GO_RESOLVER"
-    echo "Saved source: $SOURCE_STORE"
-    echo "Primary source: $PRIMARY_STORE"
-    echo "Backup source: $BACKUP_STORE"
-    echo "Update command: $GO_UPDATE_CMD"
-    echo "Auto-update command: $GO_AUTO_UPDATE_CMD"
-    echo "Failover command: $GO_FAILOVER_CMD"
-    echo "Installer update command: $GO_INSTALLER_UPDATE_CMD"
-    echo "Doctor command: $DOCTOR_CMD"
-    echo "Watchdog command: $GO_WATCHDOG_CMD"
-    echo "Watchdog init: $GO_WATCHDOG_INIT"
-    echo "Watchdog config: $GO_WATCHDOG_CONF"
-    echo "Enable daily subscription auto-update: vless-go-auto-update enable"
-    echo "Run diagnostics: vless-go-doctor"
-    echo "Update installed Go edition without re-entering sources: xray-go-installer-update --first"
-    echo "Switch manually: vless-go-failover switch backup --first"
-    echo "Watchdog status: vless-go-watchdog status"
-    echo "Override Proxy0 upstream host if needed: PROXY_UPSTREAM_HOST=192.168.1.1 sh xray_vless_failover_go.sh"
+    final_summary
 }
 
 main "$@"
