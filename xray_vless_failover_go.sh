@@ -61,6 +61,15 @@ get_xray_bin() {
     fi
 }
 
+copy_mode() {
+    src="$1"
+    dst="$2"
+    mode="${3:-755}"
+    mkdir -p "$(dirname "$dst")"
+    cp "$src" "$dst"
+    chmod "$mode" "$dst"
+}
+
 install_script() {
     src="$1"
     dst="$2"
@@ -70,7 +79,7 @@ install_script() {
     mkdir -p "$(dirname "$dst")" "$TMP_DIR"
 
     if [ -f "$src" ]; then
-        install -m "$mode" "$src" "$dst"
+        copy_mode "$src" "$dst" "$mode"
         return 0
     fi
 
@@ -81,9 +90,8 @@ install_script() {
         rm -f "$tmp" 2>/dev/null || true
         exit 1
     fi
-    chmod "$mode" "$tmp"
-    mv "$tmp" "$dst"
-    chmod "$mode" "$dst"
+    copy_mode "$tmp" "$dst" "$mode"
+    rm -f "$tmp" 2>/dev/null || true
 }
 
 ensure_cron() {
