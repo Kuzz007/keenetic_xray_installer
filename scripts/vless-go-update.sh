@@ -8,6 +8,7 @@ GO_RESOLVER="/opt/bin/xray-failover-go"
 SOCKS_PORT="10808"
 SOCKS_LISTEN="0.0.0.0"
 SOURCE_STORE="$XRAY_DIR/vless-go.source"
+ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 TMP_DIR="/opt/tmp"
 LOCK_HELPER="/opt/libexec/vless-go-lock.sh"
 
@@ -28,17 +29,23 @@ get_xray_bin() {
 }
 
 usage() {
-    echo "Usage: vless-go-update [--source URL_OR_VLESS] [--first] [--no-restart]"
+    echo "Usage: vless-go-update [--source URL_OR_VLESS] [--selector first|index:N] [--first] [--no-restart]"
     echo ""
     echo "Options:"
-    echo "  --source VALUE   Replace saved VLESS/subscription source before updating."
-    echo "  --first          Select first profile without interactive prompt."
-    echo "  --no-restart     Generate and validate config, but do not restart Xray."
+    echo "  --source VALUE      Replace saved VLESS/subscription source before updating."
+    echo "  --selector VALUE    Select profile using first or index:N."
+    echo "  --first             Select first profile without interactive prompt."
+    echo "  --no-restart        Generate and validate config, but do not restart Xray."
+    echo ""
+    echo "When --selector/--first are omitted, vless-go-update reads selector from:"
+    echo "  /opt/etc/xray/vless-go.<active-slot>.selector"
+    echo "and falls back to first."
 }
 
 FIRST="0"
 NO_RESTART="0"
 NEW_SOURCE=""
+SELECTOR=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -47,8 +54,14 @@ while [ "$#" -gt 0 ]; do
             NEW_SOURCE="$2"
             shift 2
             ;;
+        --selector)
+            [ "$#" -ge 2 ] || { echo "ERROR: --selector requires value" >&2; exit 1; }
+            SELECTOR="$2"
+            shift 2
+            ;;
         --first)
             FIRST="1"
+            SELECTOR="first"
             shift
             ;;
         --no-restart)
@@ -86,21 +99,49 @@ if [ ! -x "$GO_RESOLVER" ]; then
     exit 1
 fi
 
+if [ -z "$SELECTOR" ]; then
+    ACTIVE_SLOT="$(sed -n '1p' "$ACTIVE_STORE" 2>/dev/null || true)"
+    case "$ACTIVE_SLOT" in
+        primary|backup)
+            SELECTOR="$(sed -n '1p' "$XRAY_DIR/vless-go.$ACTIVE_SLOT.selector" 2>/dev/null || true)"
+            ;;
+    esac
+fi
+SELECTOR="${SELECTOR:-first}"
+
+selector_args() {
+    case "$SELECTOR" in
+        first|'')
+            printf '%s\n' "-first"
+            ;;
+        index:*)
+            IDX="${SELECTOR#index:}"
+            case "$IDX" in
+                ''|*[!0-9]*) echo "ERROR: invalid selector index: $SELECTOR" >&2; return 1 ;;
+                0) echo "ERROR: selector index must be 1-based: $SELECTOR" >&2; return 1 ;;
+                *) printf '%s\n%s\n' "-select-index" "$IDX" ;;
+            esac
+            ;;
+        *)
+            echo "ERROR: unsupported selector: $SELECTOR (supported: first, index:N)" >&2
+            return 1
+            ;;
+    esac
+}
+
 SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE")"
 TMP_CONFIG="$TMP_DIR/config.vless-go-update.$$.$RANDOM.json"
 trap 'rm -f "$TMP_CONFIG" 2>/dev/null || true; vless_go_release_lock 2>/dev/null || true' EXIT INT TERM
 
-ARGS=""
-[ "$FIRST" = "0" ] || ARGS="-first"
+set -- $(selector_args)
 
-# shellcheck disable=SC2086
 "$GO_RESOLVER" \
     -input "$SOURCE_VALUE" \
     -output "$TMP_CONFIG" \
     -listen "$SOCKS_LISTEN" \
     -port "$SOCKS_PORT" \
     -profile "vless-out" \
-    $ARGS
+    "$@"
 
 XRAY_BIN="$(get_xray_bin)"
 if [ -z "$XRAY_BIN" ]; then
@@ -117,6 +158,7 @@ chmod 600 "$XRAY_CONFIG" 2>/dev/null || true
 
 if [ "$NO_RESTART" = "1" ]; then
     echo "Updated and validated config: $XRAY_CONFIG"
+    echo "Selector: $SELECTOR"
     echo "Xray restart skipped."
     exit 0
 fi
@@ -129,3 +171,4 @@ else
 fi
 
 echo "Updated VLESS config from saved source."
+echo "Selector: $SELECTOR"
