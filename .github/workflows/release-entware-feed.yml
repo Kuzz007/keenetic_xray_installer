@@ -1,0 +1,55 @@
+name: Release Entware Feed
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to upload feed assets to
+        required: true
+      version:
+        description: Package version
+        required: false
+        default: 0.1.2-go-experimental
+      arch:
+        description: Entware architecture
+        required: false
+        default: aarch64-3.10
+
+permissions:
+  contents: write
+
+jobs:
+  release-feed:
+    runs-on: ubuntu-latest
+    env:
+      PKG_VERSION: ${{ github.event.inputs.version || github.event.release.tag_name || '0.1.2-go-experimental' }}
+      PKG_ARCH: ${{ github.event.inputs.arch || 'aarch64-3.10' }}
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Entware feed
+        run: |
+          chmod +x scripts/build-entware-feed.sh
+          scripts/build-entware-feed.sh
+          cd dist/entware-feed
+          tar -czf ../entware-feed_${PKG_VERSION}_${PKG_ARCH}.tar.gz .
+          cd ../..
+          sha256sum dist/entware-feed_${PKG_VERSION}_${PKG_ARCH}.tar.gz > dist/entware-feed_${PKG_VERSION}_${PKG_ARCH}.tar.gz.sha256
+
+      - name: Upload feed assets to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            dist/entware-feed/Packages \
+            dist/entware-feed/Packages.gz \
+            dist/entware-feed/failover-go_${PKG_VERSION}_${PKG_ARCH}.ipk \
+            dist/entware-feed/failover-go_${PKG_VERSION}_${PKG_ARCH}.ipk.sha256 \
+            dist/entware-feed_${PKG_VERSION}_${PKG_ARCH}.tar.gz \
+            dist/entware-feed_${PKG_VERSION}_${PKG_ARCH}.tar.gz.sha256 \
+            --clobber
