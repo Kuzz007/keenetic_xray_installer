@@ -59,7 +59,6 @@ var actions = []action{
 	{ID: "restart-watchdog", Label: "Перезапустить watchdog", Description: "Перезапустить S26vless-go-watchdog", Command: []string{"/opt/etc/init.d/S26vless-go-watchdog", "restart"}, Timeout: 30 * time.Second, Group: "watchdog", Tone: "secondary"},
 	{ID: "history", Label: "История переключений", Description: "Показать последние переключения", Command: []string{"/opt/bin/vless-go-history", "tail", "80"}, Timeout: 20 * time.Second, Group: "logs", Tone: "secondary"},
 	{ID: "cleanup-dry-run", Label: "Проверка очистки", Description: "Предпросмотр безопасной очистки", Command: []string{"/opt/bin/vless-go-cleanup", "--dry-run"}, Timeout: 30 * time.Second, Group: "maintenance", Tone: "secondary"},
-	{ID: "xray-core-update", Label: "Обновить Xray-core", Description: "Обновить Xray-core с созданием backup", Command: []string{"/opt/bin/vless-go-xray-core-update", "--backup"}, Timeout: 240 * time.Second, Group: "updates", Tone: "danger"},
 }
 
 var page = template.Must(template.New("page").Funcs(template.FuncMap{
@@ -72,7 +71,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 <title>VLESS Go Dashboard</title>
 <style>
 :root{--bg:#09090b;--panel:#18181b;--line:#3f3f46;--text:#fafafa;--muted:#a1a1aa;--blue:#2563eb;--purple:#7c3aed;--green:#22c55e;--amber:#d97706;--red:#b91c1c;--cyan:#38bdf8}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.content{padding:28px;max-width:1240px;margin:0 auto}.topbar{display:flex;gap:18px;align-items:flex-start;justify-content:space-between;margin-bottom:22px;padding:20px 22px;background:#111111;border:1px solid var(--line);border-radius:22px}.title h1{font-size:34px;margin:0 0 8px}.title p{margin:0;color:var(--muted)}.listen{margin-top:10px;color:var(--muted);font-size:13px}.badge{display:inline-flex;gap:8px;align-items:center;border:1px solid #14532d;background:#052e16;color:#bbf7d0;padding:10px 14px;border-radius:999px;font-weight:700;white-space:nowrap}.dot{width:9px;height:9px;border-radius:99px;background:var(--green);box-shadow:0 0 16px var(--green)}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:22px}.metric{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;min-height:108px;position:relative;overflow:hidden}.metric:before{content:"";position:absolute;left:0;top:18px;bottom:18px;width:6px;border-radius:6px;background:var(--accent,var(--blue))}.metric .label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;margin-left:14px}.metric .value{font-size:25px;font-weight:800;margin:12px 0 0 14px}.grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:18px}.panel h2{margin:0 0 14px;font-size:21px}.panel p{color:var(--muted)}.section-kicker{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}.action-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:12px}.button,button{width:100%;padding:12px 14px;border:0;border-radius:11px;background:var(--blue);color:white;font-weight:750;cursor:pointer}.button:hover,button:hover{filter:brightness(1.08)}.primary button{background:var(--blue)}.secondary button{background:#3f3f46}.purple button{background:var(--purple)}.danger button{background:var(--red)}.amber button{background:var(--amber)}.cyan button{background:#0891b2}.muted{color:var(--muted);font-size:13px}.desc{color:var(--muted);font-size:12px;margin-top:7px;line-height:1.35}.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}label{font-size:13px;color:#d4d4d8;font-weight:700}input,select{width:100%;margin:7px 0 12px;padding:11px 12px;border-radius:10px;border:1px solid #52525b;background:#09090b;color:#f4f4f5}pre{white-space:pre-wrap;word-break:break-word;background:#050505;border:1px solid var(--line);border-radius:14px;padding:15px;max-height:560px;overflow:auto;color:#d4d4d8}.split{display:grid;grid-template-columns:1fr 1fr;gap:12px}.footer-note{color:var(--muted);font-size:12px;line-height:1.5}@media(max-width:920px){.content{padding:18px}.topbar{display:block}.badge{margin-top:16px}.grid{grid-template-columns:1fr}.split{grid-template-columns:1fr}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.content{padding:28px;max-width:1240px;margin:0 auto}.topbar{display:flex;gap:18px;align-items:flex-start;justify-content:space-between;margin-bottom:22px;padding:20px 22px;background:#111111;border:1px solid var(--line);border-radius:22px}.title h1{font-size:34px;margin:0 0 8px}.title p{margin:0;color:var(--muted)}.listen{margin-top:10px;color:var(--muted);font-size:13px}.badge{display:inline-flex;gap:8px;align-items:center;border:1px solid #14532d;background:#052e16;color:#bbf7d0;padding:10px 14px;border-radius:999px;font-weight:700;white-space:nowrap}.dot{width:9px;height:9px;border-radius:99px;background:var(--green);box-shadow:0 0 16px var(--green)}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:22px}.metric{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;min-height:108px;position:relative;overflow:hidden}.metric:before{content:"";position:absolute;left:0;top:18px;bottom:18px;width:6px;border-radius:6px;background:var(--accent,var(--blue))}.metric .label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;margin-left:14px}.metric .value{font-size:25px;font-weight:800;margin:12px 0 0 14px}.grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:18px}.panel h2{margin:0 0 14px;font-size:21px}.panel p{color:var(--muted)}.section-kicker{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}.action-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:12px}.button,button{width:100%;padding:12px 14px;border:0;border-radius:11px;background:var(--blue);color:white;font-weight:750;cursor:pointer}.button:hover,button:hover{filter:brightness(1.08)}.primary button{background:var(--blue)}.secondary button{background:#3f3f46}.purple button{background:var(--purple)}.danger button{background:var(--red)}.amber button{background:var(--amber)}.cyan button{background:#0891b2}.muted{color:var(--muted);font-size:13px}.desc{color:var(--muted);font-size:12px;margin-top:7px;line-height:1.35}.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}label{font-size:13px;color:#d4d4d8;font-weight:700}input,select{width:100%;margin:7px 0 12px;padding:11px 12px;border-radius:10px;border:1px solid #52525b;background:#09090b;color:#f4f4f5}pre{white-space:pre-wrap;word-break:break-word;background:#050505;border:1px solid var(--line);border-radius:14px;padding:15px;max-height:560px;overflow:auto;color:#d4d4d8}.split{display:grid;grid-template-columns:1fr 1fr;gap:12px}.footer-note{color:var(--muted);font-size:12px;line-height:1.5}.modal{border:1px solid var(--line);border-radius:18px;background:var(--panel);color:var(--text);padding:0;width:min(560px,calc(100vw - 32px));box-shadow:0 30px 90px rgba(0,0,0,.55)}.modal::backdrop{background:rgba(0,0,0,.72)}.modal-inner{padding:20px}.modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}.modal-head h2{margin:0;font-size:22px}.modal-close{width:auto;background:#3f3f46;padding:8px 12px}.modal-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}.modal .danger-btn{background:var(--red)}@media(max-width:920px){.content{padding:18px}.topbar{display:block}.badge{margin-top:16px}.grid{grid-template-columns:1fr}.split{grid-template-columns:1fr}.modal-actions{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -105,7 +104,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 
     <div>
       <section class="panel"><div class="section-kicker">СТАТУС</div><h2>Системный статус</h2><pre>{{.Status}}</pre></section>
-      <section class="panel"><div class="section-kicker">ОБНОВЛЕНИЯ</div><h2>Обновления</h2><div class="action-grid">{{range actionsIn .Actions "updates"}}<form method="post" action="/action" class="{{.Tone}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}{{range actionsIn .Actions "sources"}}<form method="post" action="/action" class="{{.Tone}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}</div></section>
+      <section class="panel"><div class="section-kicker">ОБНОВЛЕНИЯ</div><h2>Обновления</h2><div class="action-grid">{{range actionsIn .Actions "updates"}}<form method="post" action="/action" class="{{.Tone}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}{{range actionsIn .Actions "sources"}}<form method="post" action="/action" class="{{.Tone}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}<div class="danger"><button type="button" onclick="document.getElementById('xrayCoreModal').showModal()">Обновить Xray-core</button><div class="desc">Выбрать канал, backup и restart перед обновлением</div></div></div></section>
       <section class="panel"><div class="section-kicker">ДИАГНОСТИКА</div><h2>Диагностика и обслуживание</h2><div class="action-grid">{{range actionsIn .Actions "diagnostics"}}<form method="post" action="/action" class="{{.Tone}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}{{range actionsIn .Actions "maintenance"}}<form method="post" action="/action" class="{{.Tone}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}</div></section>
       <section class="panel"><div class="section-kicker">ЛОГИ</div><h2>Логи и история</h2><div class="action-grid">{{range actionsIn .Actions "logs"}}<form method="post" action="/action" class="{{.Tone}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}</div></section>
     </div>
@@ -114,6 +113,26 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
   {{if .Output}}<section class="panel"><div class="section-kicker">ВЫВОД</div><h2>Вывод команды</h2><pre>{{.Output}}</pre></section>{{end}}
   <section class="panel"><div class="section-kicker">НАСТРОЙКИ</div><h2>Настройки</h2><p class="footer-note">Этот опциональный LAN dashboard работает на настроенном адресе прослушивания. Используй его только в доверенной локальной сети. VLESS/URL источники отправляются как password-поля и не выводятся обратно на страницу.</p></section>
 </main>
+
+<dialog class="modal" id="xrayCoreModal">
+  <form method="post" action="/xray-core-update" class="modal-inner">
+    <input type="hidden" name="token" value="{{.Token}}">
+    <div class="modal-head"><div><h2>Обновление Xray-core</h2><p class="footer-note">Выбери параметры обновления. Команда будет выполнена без интерактивного CLI-меню.</p></div><button class="modal-close" type="button" onclick="document.getElementById('xrayCoreModal').close()">Закрыть</button></div>
+    <label>Канал обновления</label>
+    <select name="channel">
+      <option value="latest">Stable/latest</option>
+      <option value="prerelease">Pre-release</option>
+      <option value="tag">Specific tag</option>
+    </select>
+    <label>Tag для Specific tag</label>
+    <input name="tag" placeholder="например v26.5.9">
+    <div class="split">
+      <div><label>Backup текущего бинарника</label><select name="backup"><option value="1">создать backup</option><option value="0">без backup</option></select></div>
+      <div><label>Restart сервисов после обновления</label><select name="restart"><option value="1">перезапустить</option><option value="0">не перезапускать</option></select></div>
+    </div>
+    <div class="modal-actions"><button class="danger-btn" type="submit">Запустить обновление</button><button type="button" onclick="document.getElementById('xrayCoreModal').close()">Отмена</button></div>
+  </form>
+</dialog>
 </body>
 </html>`))
 
@@ -135,6 +154,7 @@ func main() {
 	mux.HandleFunc("/set-source", post(token, handleSetSource, listen))
 	mux.HandleFunc("/set-selector", post(token, handleSetSelector, listen))
 	mux.HandleFunc("/set-recovery", post(token, handleSetRecovery, listen))
+	mux.HandleFunc("/xray-core-update", post(token, handleXrayCoreUpdate, listen))
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		log.Fatalf("не удалось слушать %s: %v", listen, err)
@@ -345,6 +365,39 @@ func handleSetRecovery(r *http.Request) string {
 		return "ОШИБКА: " + err.Error()
 	}
 	return "AUTO_RECOVER_PRIMARY=" + v + "\n" + runCommand([]string{"/opt/etc/init.d/S26vless-go-watchdog", "restart"}, 30*time.Second)
+}
+
+func handleXrayCoreUpdate(r *http.Request) string {
+	channel := strings.TrimSpace(r.FormValue("channel"))
+	tag := strings.TrimSpace(r.FormValue("tag"))
+	backup := strings.TrimSpace(r.FormValue("backup"))
+	restart := strings.TrimSpace(r.FormValue("restart"))
+
+	cmd := []string{"/opt/bin/vless-go-xray-core-update", "--yes"}
+	switch channel {
+	case "latest", "stable", "":
+		cmd = append(cmd, "--channel", "latest")
+	case "prerelease":
+		cmd = append(cmd, "--channel", "prerelease")
+	case "tag":
+		if tag == "" {
+			return "ОШИБКА: для Specific tag нужно указать tag, например v26.5.9"
+		}
+		cmd = append(cmd, "--tag", tag)
+	default:
+		return "ОШИБКА: неизвестный канал обновления: " + channel
+	}
+
+	if backup == "0" {
+		cmd = append(cmd, "--no-backup")
+	} else {
+		cmd = append(cmd, "--backup")
+	}
+	if restart == "0" {
+		cmd = append(cmd, "--no-restart")
+	}
+
+	return "$ " + strings.Join(cmd, " ") + "\n" + runCommand(cmd, 300*time.Second)
 }
 
 func runCommand(cmd []string, timeout time.Duration) string {

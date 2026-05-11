@@ -141,7 +141,40 @@ Web UI открывает эти Full Go операции:
   - перезапустить watchdog
   - показать историю переключений
   - предпросмотр очистки
-  - обновить Xray-core с backup
+  - обновить Xray-core через всплывающее окно выбора параметров
+```
+
+## Обновление Xray-core из Web UI
+
+Кнопка `Обновить Xray-core` открывает всплывающее окно, а не запускает интерактивное CLI-меню.
+
+В окне можно выбрать:
+
+```text
+канал обновления:
+  - Stable/latest
+  - Pre-release
+  - Specific tag
+
+backup:
+  - создать backup текущего бинарника
+  - без backup
+
+restart:
+  - перезапустить сервисы после обновления
+  - не перезапускать сервисы
+```
+
+После подтверждения Web UI запускает существующий helper `vless-go-xray-core-update` с неинтерактивными аргументами, например:
+
+```sh
+/opt/bin/vless-go-xray-core-update --yes --channel latest --backup
+```
+
+или:
+
+```sh
+/opt/bin/vless-go-xray-core-update --yes --tag v26.5.9 --backup --no-restart
 ```
 
 VLESS/URL источники принимаются формой, но не выводятся обратно на страницу.
