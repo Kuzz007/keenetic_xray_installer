@@ -48,24 +48,24 @@ type pageData struct {
 }
 
 var actions = []action{
-	{ID: "status", Label: "Refresh status", Description: "Show failover status", Command: []string{"/opt/bin/vless-go-failover", "status"}, Timeout: 10 * time.Second, Group: "overview"},
-	{ID: "watchdog-status", Label: "Watchdog status", Description: "Show watchdog daemon status", Command: []string{"/opt/bin/vless-go-watchdog", "status"}, Timeout: 10 * time.Second, Group: "overview"},
-	{ID: "doctor", Label: "Run doctor", Description: "Run full diagnostics", Command: []string{"/opt/bin/vless-go-doctor"}, Timeout: 90 * time.Second, Group: "diagnostics"},
-	{ID: "switch-primary", Label: "Switch to primary", Description: "Activate primary source", Command: []string{"/opt/bin/vless-go-failover", "switch", "primary"}, Timeout: 60 * time.Second, Group: "failover"},
-	{ID: "switch-backup", Label: "Switch to backup", Description: "Activate backup source", Command: []string{"/opt/bin/vless-go-failover", "switch", "backup"}, Timeout: 60 * time.Second, Group: "failover", Danger: true},
-	{ID: "update-all", Label: "Update active config", Description: "Regenerate active Xray config", Command: []string{"/opt/bin/vless-go-failover", "update-active"}, Timeout: 90 * time.Second, Group: "sources"},
-	{ID: "auto-update-run", Label: "Run auto-update", Description: "Run selector-aware auto-update now", Command: []string{"/opt/bin/vless-go-auto-update", "run"}, Timeout: 120 * time.Second, Group: "updates"},
-	{ID: "restart-xray", Label: "Restart Xray", Description: "Restart S24xray", Command: []string{"/opt/etc/init.d/S24xray", "restart"}, Timeout: 30 * time.Second, Group: "maintenance"},
-	{ID: "restart-watchdog", Label: "Restart watchdog", Description: "Restart S26vless-go-watchdog", Command: []string{"/opt/etc/init.d/S26vless-go-watchdog", "restart"}, Timeout: 30 * time.Second, Group: "watchdog"},
-	{ID: "history", Label: "Switch history", Description: "Show recent switch history", Command: []string{"/opt/bin/vless-go-history", "tail", "80"}, Timeout: 20 * time.Second, Group: "logs"},
-	{ID: "cleanup-dry-run", Label: "Cleanup dry-run", Description: "Preview safe cleanup", Command: []string{"/opt/bin/vless-go-cleanup", "--dry-run"}, Timeout: 30 * time.Second, Group: "maintenance"},
-	{ID: "xray-core-update", Label: "Xray-core update", Description: "Update Xray-core with backup", Command: []string{"/opt/bin/vless-go-xray-core-update", "--backup"}, Timeout: 240 * time.Second, Group: "updates", Danger: true},
+	{ID: "status", Label: "Обновить статус", Description: "Показать статус failover", Command: []string{"/opt/bin/vless-go-failover", "status"}, Timeout: 10 * time.Second, Group: "overview"},
+	{ID: "watchdog-status", Label: "Статус watchdog", Description: "Показать статус daemon watchdog", Command: []string{"/opt/bin/vless-go-watchdog", "status"}, Timeout: 10 * time.Second, Group: "overview"},
+	{ID: "doctor", Label: "Запустить doctor", Description: "Полная диагностика установки", Command: []string{"/opt/bin/vless-go-doctor"}, Timeout: 90 * time.Second, Group: "diagnostics"},
+	{ID: "switch-primary", Label: "Переключить на основной", Description: "Активировать primary source", Command: []string{"/opt/bin/vless-go-failover", "switch", "primary"}, Timeout: 60 * time.Second, Group: "failover"},
+	{ID: "switch-backup", Label: "Переключить на резервный", Description: "Активировать backup source", Command: []string{"/opt/bin/vless-go-failover", "switch", "backup"}, Timeout: 60 * time.Second, Group: "failover", Danger: true},
+	{ID: "update-all", Label: "Обновить активный конфиг", Description: "Перегенерировать активный Xray config", Command: []string{"/opt/bin/vless-go-failover", "update-active"}, Timeout: 90 * time.Second, Group: "sources"},
+	{ID: "auto-update-run", Label: "Запустить автообновление", Description: "Выполнить selector-aware auto-update сейчас", Command: []string{"/opt/bin/vless-go-auto-update", "run"}, Timeout: 120 * time.Second, Group: "updates"},
+	{ID: "restart-xray", Label: "Перезапустить Xray", Description: "Перезапустить S24xray", Command: []string{"/opt/etc/init.d/S24xray", "restart"}, Timeout: 30 * time.Second, Group: "maintenance"},
+	{ID: "restart-watchdog", Label: "Перезапустить watchdog", Description: "Перезапустить S26vless-go-watchdog", Command: []string{"/opt/etc/init.d/S26vless-go-watchdog", "restart"}, Timeout: 30 * time.Second, Group: "watchdog"},
+	{ID: "history", Label: "История переключений", Description: "Показать последние переключения", Command: []string{"/opt/bin/vless-go-history", "tail", "80"}, Timeout: 20 * time.Second, Group: "logs"},
+	{ID: "cleanup-dry-run", Label: "Проверка очистки", Description: "Предпросмотр безопасной очистки", Command: []string{"/opt/bin/vless-go-cleanup", "--dry-run"}, Timeout: 30 * time.Second, Group: "maintenance"},
+	{ID: "xray-core-update", Label: "Обновить Xray-core", Description: "Обновить Xray-core с созданием backup", Command: []string{"/opt/bin/vless-go-xray-core-update", "--backup"}, Timeout: 240 * time.Second, Group: "updates", Danger: true},
 }
 
 var page = template.Must(template.New("page").Funcs(template.FuncMap{
 	"actionsIn": actionsIn,
 }).Parse(`<!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -79,55 +79,55 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 <div class="layout">
 <aside class="sidebar">
   <div class="brand">VLESS Go</div>
-  <div class="subtitle">Operations Console<br>Listen: {{.Listen}}</div>
+  <div class="subtitle">Панель управления<br>Адрес: {{.Listen}}</div>
   <nav class="nav">
-    <a class="active" href="#overview">Overview</a>
-    <a href="#sources">Sources</a>
+    <a class="active" href="#overview">Обзор</a>
+    <a href="#sources">Источники</a>
     <a href="#failover">Failover</a>
     <a href="#watchdog">Watchdog</a>
-    <a href="#updates">Updates</a>
-    <a href="#diagnostics">Diagnostics</a>
-    <a href="#logs">Logs</a>
-    <a href="#settings">Settings</a>
+    <a href="#updates">Обновления</a>
+    <a href="#diagnostics">Диагностика</a>
+    <a href="#logs">Логи</a>
+    <a href="#settings">Настройки</a>
   </nav>
 </aside>
 <main class="content">
   <section class="topbar anchor" id="overview">
-    <div class="title"><h1>Overview</h1><p>Full Go/Entware dashboard for Xray VLESS failover.</p></div>
+    <div class="title"><h1>Обзор</h1><p>Dashboard Full Go/Entware для Xray VLESS failover.</p></div>
     <div class="badge"><span class="dot"></span>{{.HealthState}}</div>
   </section>
 
   <section class="cards">
-    <div class="metric" style="--accent:var(--green)"><div class="label">Active slot</div><div class="value">{{.Active}}</div></div>
-    <div class="metric" style="--accent:var(--cyan)"><div class="label">Primary</div><div class="value">{{.PrimaryState}}</div></div>
-    <div class="metric" style="--accent:var(--purple)"><div class="label">Backup</div><div class="value">{{.BackupState}}</div></div>
+    <div class="metric" style="--accent:var(--green)"><div class="label">Активный слот</div><div class="value">{{.Active}}</div></div>
+    <div class="metric" style="--accent:var(--cyan)"><div class="label">Основной</div><div class="value">{{.PrimaryState}}</div></div>
+    <div class="metric" style="--accent:var(--purple)"><div class="label">Резервный</div><div class="value">{{.BackupState}}</div></div>
     <div class="metric" style="--accent:var(--amber)"><div class="label">Watchdog</div><div class="value">{{.WatchdogState}}</div></div>
   </section>
 
   <div class="grid">
     <div>
-      <section class="panel anchor" id="failover"><h2>Failover Control</h2><div class="action-grid">
+      <section class="panel anchor" id="failover"><h2>Управление failover</h2><div class="action-grid">
         {{range actionsIn .Actions "failover"}}<form method="post" action="/action" class="{{if .Danger}}danger{{else}}purple{{end}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}
         {{range actionsIn .Actions "overview"}}<form method="post" action="/action" class="secondary"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}
       </div></section>
 
-      <section class="panel anchor" id="sources"><h2>Sources</h2><form method="post" action="/set-source"><input type="hidden" name="token" value="{{.Token}}"><div class="form-grid"><div><label>Slot</label><select name="slot"><option value="primary">primary</option><option value="backup">backup</option></select></div><div><label>Selector</label><input name="selector" placeholder="first or index:7" value="first"></div></div><label>VLESS link or subscription URL</label><input name="source" type="password" autocomplete="off" placeholder="vless://... or https://..."><button type="submit">Save source</button></form><p class="footer-note">Private source values are accepted by form but never rendered back into the page.</p></section>
+      <section class="panel anchor" id="sources"><h2>Источники</h2><form method="post" action="/set-source"><input type="hidden" name="token" value="{{.Token}}"><div class="form-grid"><div><label>Слот</label><select name="slot"><option value="primary">primary / основной</option><option value="backup">backup / резервный</option></select></div><div><label>Selector</label><input name="selector" placeholder="first или index:7" value="first"></div></div><label>VLESS-ссылка или URL подписки</label><input name="source" type="password" autocomplete="off" placeholder="vless://... или https://..."><button type="submit">Сохранить источник</button></form><p class="footer-note">Приватные значения источников принимаются формой, но не выводятся обратно на страницу.</p></section>
 
-      <section class="panel"><h2>Selectors</h2><form method="post" action="/set-selector"><input type="hidden" name="token" value="{{.Token}}"><div class="split"><div><label>Primary selector</label><input name="primary" value="{{.PrimarySelector}}"></div><div><label>Backup selector</label><input name="backup" value="{{.BackupSelector}}"></div></div><button type="submit">Save selectors</button></form></section>
+      <section class="panel"><h2>Selectors</h2><form method="post" action="/set-selector"><input type="hidden" name="token" value="{{.Token}}"><div class="split"><div><label>Selector основного</label><input name="primary" value="{{.PrimarySelector}}"></div><div><label>Selector резервного</label><input name="backup" value="{{.BackupSelector}}"></div></div><button type="submit">Сохранить selectors</button></form></section>
 
-      <section class="panel anchor" id="watchdog"><h2>Watchdog</h2><form method="post" action="/set-recovery"><input type="hidden" name="token" value="{{.Token}}"><label>backup → primary recovery</label><select name="enabled"><option value="1">enabled</option><option value="0">disabled</option></select><button type="submit">Set recovery and restart watchdog</button><p class="footer-note">Current AUTO_RECOVER_PRIMARY={{.Recovery}}</p></form><div class="action-grid">{{range actionsIn .Actions "watchdog"}}<form method="post" action="/action" class="secondary"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}</div></section>
+      <section class="panel anchor" id="watchdog"><h2>Watchdog</h2><form method="post" action="/set-recovery"><input type="hidden" name="token" value="{{.Token}}"><label>Возврат с backup на primary</label><select name="enabled"><option value="1">включён</option><option value="0">выключен</option></select><button type="submit">Сохранить и перезапустить watchdog</button><p class="footer-note">Текущее значение AUTO_RECOVER_PRIMARY={{.Recovery}}</p></form><div class="action-grid">{{range actionsIn .Actions "watchdog"}}<form method="post" action="/action" class="secondary"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}</div></section>
     </div>
 
     <div>
-      <section class="panel"><h2>System Status</h2><pre>{{.Status}}</pre></section>
-      <section class="panel anchor" id="updates"><h2>Updates</h2><div class="action-grid">{{range actionsIn .Actions "updates"}}<form method="post" action="/action" class="{{if .Danger}}danger{{else}}cyan{{end}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}{{range actionsIn .Actions "sources"}}<form method="post" action="/action" class="cyan"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}</div></section>
-      <section class="panel anchor" id="diagnostics"><h2>Diagnostics & Maintenance</h2><div class="action-grid">{{range actionsIn .Actions "diagnostics"}}<form method="post" action="/action"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}{{range actionsIn .Actions "maintenance"}}<form method="post" action="/action" class="secondary"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}</div></section>
-      <section class="panel anchor" id="logs"><h2>Logs & History</h2><div class="action-grid">{{range actionsIn .Actions "logs"}}<form method="post" action="/action" class="secondary"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}</div></section>
+      <section class="panel"><h2>Системный статус</h2><pre>{{.Status}}</pre></section>
+      <section class="panel anchor" id="updates"><h2>Обновления</h2><div class="action-grid">{{range actionsIn .Actions "updates"}}<form method="post" action="/action" class="{{if .Danger}}danger{{else}}cyan{{end}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}{{range actionsIn .Actions "sources"}}<form method="post" action="/action" class="cyan"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}</div></section>
+      <section class="panel anchor" id="diagnostics"><h2>Диагностика и обслуживание</h2><div class="action-grid">{{range actionsIn .Actions "diagnostics"}}<form method="post" action="/action"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}{{range actionsIn .Actions "maintenance"}}<form method="post" action="/action" class="secondary"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}</div></section>
+      <section class="panel anchor" id="logs"><h2>Логи и история</h2><div class="action-grid">{{range actionsIn .Actions "logs"}}<form method="post" action="/action" class="secondary"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="token" value="{{$.Token}}"><button type="submit">{{.Label}}</button><div class="desc">{{.Description}}</div></form>{{end}}</div></section>
     </div>
   </div>
 
-  {{if .Output}}<section class="panel"><h2>Command Output</h2><pre>{{.Output}}</pre></section>{{end}}
-  <section class="panel anchor" id="settings"><h2>Settings</h2><p class="footer-note">This optional LAN dashboard runs on the configured listen address. Keep it available only on a trusted local network. Source URLs are submitted as password fields and are not printed back to the page.</p></section>
+  {{if .Output}}<section class="panel"><h2>Вывод команды</h2><pre>{{.Output}}</pre></section>{{end}}
+  <section class="panel anchor" id="settings"><h2>Настройки</h2><p class="footer-note">Этот опциональный LAN dashboard работает на настроенном адресе прослушивания. Используй его только в доверенной локальной сети. VLESS/URL источники отправляются как password-поля и не выводятся обратно на страницу.</p></section>
 </main>
 </div>
 </body>
@@ -137,7 +137,7 @@ func main() {
 	listen := envOrConfig()
 	token, err := ensureToken(tokenPath)
 	if err != nil {
-		log.Fatalf("token: %v", err)
+		log.Fatalf("токен: %v", err)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -153,9 +153,9 @@ func main() {
 	mux.HandleFunc("/set-recovery", post(token, handleSetRecovery, listen))
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
-		log.Fatalf("listen %s: %v", listen, err)
+		log.Fatalf("не удалось слушать %s: %v", listen, err)
 	}
-	log.Printf("vless-go-web listening on http://%s", listen)
+	log.Printf("vless-go-web запущен: http://%s", listen)
 	log.Fatal(http.Serve(ln, mux))
 }
 
@@ -172,11 +172,11 @@ func actionsIn(items []action, group string) []action {
 func post(token string, fn func(*http.Request) string, listen string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			http.Error(w, "POST required", http.StatusMethodNotAllowed)
+			http.Error(w, "нужен POST-запрос", http.StatusMethodNotAllowed)
 			return
 		}
 		if r.FormValue("token") != token {
-			http.Error(w, "invalid token", http.StatusForbidden)
+			http.Error(w, "неверный токен", http.StatusForbidden)
 			return
 		}
 		render(w, listen, token, fn(r))
@@ -278,12 +278,12 @@ func parseStatus(status, key, def string) string {
 func healthLabel(status string) string {
 	lower := strings.ToLower(status)
 	if strings.Contains(lower, "daemon: running") || strings.Contains(lower, "daemon: alive") {
-		return "ONLINE"
+		return "ОНЛАЙН"
 	}
 	if strings.Contains(lower, "not running") || strings.Contains(lower, "fail") {
-		return "CHECK NEEDED"
+		return "НУЖНА ПРОВЕРКА"
 	}
-	return "READY"
+	return "ГОТОВ"
 }
 
 func quickStatus() string {
@@ -301,7 +301,7 @@ func runAction(id string) string {
 			return "$ " + strings.Join(a.Command, " ") + "\n" + runCommand(a.Command, a.Timeout)
 		}
 	}
-	return "unknown action: " + id
+	return "неизвестное действие: " + id
 }
 
 func handleSetSource(r *http.Request) string {
@@ -312,13 +312,13 @@ func handleSetSource(r *http.Request) string {
 		selector = "first"
 	}
 	if slot != "primary" && slot != "backup" {
-		return "ERROR: invalid slot"
+		return "ОШИБКА: неверный слот"
 	}
 	if source == "" {
-		return "ERROR: source is empty"
+		return "ОШИБКА: источник пустой"
 	}
 	cmd := []string{"/opt/bin/vless-go-failover", "set-" + slot, source, "--selector", selector}
-	return "$ /opt/bin/vless-go-failover set-" + slot + " <hidden> --selector " + selector + "\n" + runCommand(cmd, 90*time.Second)
+	return "$ /opt/bin/vless-go-failover set-" + slot + " <скрыто> --selector " + selector + "\n" + runCommand(cmd, 90*time.Second)
 }
 
 func handleSetSelector(r *http.Request) string {
@@ -339,12 +339,12 @@ func handleSetSelector(r *http.Request) string {
 func handleSetRecovery(r *http.Request) string {
 	v := r.FormValue("enabled")
 	if v != "0" && v != "1" {
-		return "ERROR: invalid recovery value"
+		return "ОШИБКА: неверное значение recovery"
 	}
 	conf := "/opt/etc/xray/vless-go-watchdog.conf"
 	data, err := os.ReadFile(conf)
 	if err != nil {
-		return "ERROR: " + err.Error()
+		return "ОШИБКА: " + err.Error()
 	}
 	lines := strings.Split(string(data), "\n")
 	found := false
@@ -358,17 +358,17 @@ func handleSetRecovery(r *http.Request) string {
 		lines = append(lines, "AUTO_RECOVER_PRIMARY="+v)
 	}
 	if err := os.WriteFile(conf, []byte(strings.Join(lines, "\n")), 0600); err != nil {
-		return "ERROR: " + err.Error()
+		return "ОШИБКА: " + err.Error()
 	}
 	return "AUTO_RECOVER_PRIMARY=" + v + "\n" + runCommand([]string{"/opt/etc/init.d/S26vless-go-watchdog", "restart"}, 30*time.Second)
 }
 
 func runCommand(cmd []string, timeout time.Duration) string {
 	if len(cmd) == 0 {
-		return "empty command"
+		return "пустая команда"
 	}
 	if _, err := os.Stat(cmd[0]); err != nil {
-		return fmt.Sprintf("not found: %s", cmd[0])
+		return fmt.Sprintf("не найдено: %s", cmd[0])
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -378,10 +378,10 @@ func runCommand(cmd []string, timeout time.Duration) string {
 	c.Stderr = &out
 	err := c.Run()
 	if ctx.Err() == context.DeadlineExceeded {
-		return out.String() + "\nERROR: command timed out"
+		return out.String() + "\nОШИБКА: команда выполнялась слишком долго"
 	}
 	if err != nil {
-		return out.String() + "\nERROR: " + err.Error()
+		return out.String() + "\nОШИБКА: " + err.Error()
 	}
 	return out.String()
 }

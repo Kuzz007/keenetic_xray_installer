@@ -36,7 +36,7 @@ if command -v vless-go-doctor >/dev/null 2>&1; then
 elif command -v minimal-go-status >/dev/null 2>&1; then
     minimal-go-status
 else
-    echo "No Go status command found. Check installer output."
+    echo "Go-команда статуса не найдена. Проверь вывод установщика."
 fi
 ```
 
@@ -52,16 +52,23 @@ failover-go
 vless-go-web-install
 ```
 
-Для существующих установок helper можно поставить напрямую:
+Для существующих установок можно запустить installer напрямую:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/vless-go-web-install.sh | sh
 ```
 
+Если нужно добавить helper-команду `vless-go-web-install` в `/opt/bin`, используй две отдельные команды:
+
+```sh
+curl -fsSL -o /opt/bin/vless-go-web-install https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/vless-go-web-install.sh
+chmod +x /opt/bin/vless-go-web-install
+```
+
 После установки скрипт покажет готовый адрес для браузера, например:
 
 ```text
-Open in browser:
+Открой в браузере:
   http://192.168.1.1:18088/
 ```
 
