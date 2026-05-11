@@ -6,7 +6,7 @@ on:
       tag:
         description: Release tag to create/update
         required: false
-        default: 0.1.2-go-experimental
+        default: 0.1.3-go-experimental
   push:
     branches:
       - main
@@ -21,7 +21,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     env:
-      RELEASE_TAG: ${{ github.event.inputs.tag || '0.1.2-go-experimental' }}
+      RELEASE_TAG: ${{ github.event.inputs.tag || '0.1.3-go-experimental' }}
       ASSET_NAME: xray-failover-go-linux-arm64
     steps:
       - name: Checkout
@@ -48,9 +48,15 @@ jobs:
           set -e
           NOTES_FILE="dist/release-notes.md"
           cat > "$NOTES_FILE" <<'EOF'
-          ## 0.1.2-go-experimental
+          ## 0.1.3-go-experimental
 
           Experimental Go edition build for Keenetic/Entware VLESS failover.
+
+          Includes watchdog backup health handling cleanup from PR #36:
+
+          - clearer backup health failure logging
+          - primary recovery probes are skipped while backup itself is unhealthy
+          - primary recovery success counter resets on backup health failure
 
           This release publishes the linux/arm64 Go resolver/generator asset required by fresh install:
 
@@ -61,7 +67,7 @@ jobs:
           Main install scripts can download it from:
 
           ```text
-          https://github.com/Kuzz007/keenetic_xray_installer/releases/download/0.1.2-go-experimental/xray-failover-go-linux-arm64
+          https://github.com/Kuzz007/keenetic_xray_installer/releases/download/0.1.3-go-experimental/xray-failover-go-linux-arm64
           ```
 
           This is still an experimental Go edition release.
