@@ -2,8 +2,7 @@
 set -e
 
 XRAY_DIR="/opt/etc/xray"
-GO_EXPERIMENTAL_TAG="${GO_EXPERIMENTAL_TAG:-0.1.2-go-experimental}"
-GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${GO_EXPERIMENTAL_TAG}/xray-failover-go-linux-arm64}"
+GO_EXPERIMENTAL_TAG="${GO_EXPERIMENTAL_TAG:-0.1.3-go-experimental}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 WATCHDOG_BRANCH="${WATCHDOG_BRANCH:-$REPO_BRANCH}"
 RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
@@ -38,6 +37,30 @@ TMP_DIR="/opt/tmp"
 LOCK_DIR="${VLESS_GO_LOCK_DIR:-/opt/var/run/vless-go.lock}"
 LOCK_WAIT="${VLESS_GO_LOCK_WAIT:-30}"
 LOCK_HELD="0"
+
+detect_entware_arch() {
+    if command -v opkg >/dev/null 2>&1; then
+        opkg print-architecture 2>/dev/null | awk '
+            $2 != "all" && ($3 + 0) >= max { arch = $2; max = $3 + 0 }
+            END { if (arch != "") print arch }
+        '
+    fi
+}
+
+asset_name_for_arch() {
+    ARCH="$1"
+    case "$ARCH" in
+        aarch64-3.10|aarch64*) echo "xray-failover-go-linux-arm64" ;;
+        mipsel-3.4|mipsel*|mipselsf-k3.4|mipselsf*) echo "xray-failover-go-linux-mipsle" ;;
+        *) echo "" ;;
+    esac
+}
+
+ENTWARE_ARCH="${ENTWARE_ARCH:-$(detect_entware_arch)}"
+[ -n "$ENTWARE_ARCH" ] || ENTWARE_ARCH="$(uname -m 2>/dev/null || echo unknown)"
+GO_ASSET_NAME="${GO_ASSET_NAME:-$(asset_name_for_arch "$ENTWARE_ARCH")}"
+[ -n "$GO_ASSET_NAME" ] || { echo "ERROR: unsupported architecture for Go resolver: $ENTWARE_ARCH" >&2; exit 1; }
+GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${GO_EXPERIMENTAL_TAG}/${GO_ASSET_NAME}}"
 
 usage() {
     echo "Usage: xray-go-installer-update [--no-restart] [--no-binary] [--no-watchdog] [--no-doctor] [--no-helpers] [--no-menu] [--no-xray-core-updater] [--first]"
@@ -135,7 +158,7 @@ if [ ! -s "$PRIMARY_STORE" ]; then echo "ERROR: no saved primary source found. R
 
 if [ "$NO_BINARY" = "0" ]; then
     TMP_BIN="$TMP_DIR/xray-failover-go.$$"
-    echo "Updating Go resolver/generator..."
+    echo "Updating Go resolver/generator for $ENTWARE_ARCH ($GO_ASSET_NAME)..."
     curl -fL -o "$TMP_BIN" "$GO_BINARY_URL"
     chmod +x "$TMP_BIN"
     mv "$TMP_BIN" "$GO_RESOLVER"
@@ -179,6 +202,8 @@ if [ "$NO_RESTART" = "0" ]; then
 fi
 
 echo "Experimental Go edition updated."
+echo "Detected architecture: $ENTWARE_ARCH"
+echo "Go resolver asset: $GO_ASSET_NAME"
 echo "Primary source: $PRIMARY_STORE"
 echo "Backup source: $BACKUP_STORE"
 echo "Active slot: $(sed -n '1p' "$ACTIVE_STORE" 2>/dev/null || echo unknown)"
