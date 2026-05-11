@@ -1,76 +1,83 @@
-# Optional VLESS Go Web UI
+# Опциональный VLESS Go Web UI
 
-`vless-go-web` is an optional web dashboard for the Full Go/Entware edition.
+`vless-go-web` — опциональный web-dashboard для Full Go/Entware редакции.
 
-It is not installed or started by default. Install it only when you want a browser UI on top of the existing Full Go commands.
+Он не устанавливается и не запускается автоматически. Ставь его только если нужен браузерный интерфейс поверх существующих Full Go команд.
 
-## Install
+## Установка
 
-On fresh Full Go installs, the helper is included as:
+В новых Full Go установках helper уже доступен как:
 
 ```sh
 vless-go-web-install
 ```
 
-For existing installs, install directly from GitHub raw:
+Для существующих установок можно поставить напрямую из GitHub raw:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/vless-go-web-install.sh | sh
 ```
 
-## Open in browser
+Если нужно добавить сам helper в `/opt/bin`, используй две отдельные команды:
 
-After installation the script prints the ready-to-use LAN address, for example:
+```sh
+curl -fsSL -o /opt/bin/vless-go-web-install https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/vless-go-web-install.sh
+chmod +x /opt/bin/vless-go-web-install
+```
+
+## Открыть в браузере
+
+После установки скрипт напечатает готовый LAN-адрес, например:
 
 ```text
-Open in browser:
+Открой в браузере:
   http://192.168.1.1:18088/
 ```
 
-By default the service listens on:
+По умолчанию сервис слушает:
 
 ```text
 0.0.0.0:18088
 ```
 
-Use it only on a trusted LAN. Do not expose this port to the internet.
+Используй dashboard только в доверенной локальной сети. Не открывай этот порт в интернет.
 
-## Dashboard layout
+## Layout dashboard
 
-The UI uses an Operations Console layout:
+Интерфейс использует стиль Operations Console:
 
 ```text
-Sidebar:
-  Overview
-  Sources
+Левое меню:
+  Обзор
+  Источники
   Failover
   Watchdog
-  Updates
-  Diagnostics
-  Logs
-  Settings
+  Обновления
+  Диагностика
+  Логи
+  Настройки
 
-Overview:
-  Active slot
-  Primary state
-  Backup state
-  Watchdog state
-  Health badge
+Обзор:
+  Активный слот
+  Статус основного источника
+  Статус резервного источника
+  Статус watchdog
+  Общий health badge
 
-Main panels:
-  Failover Control
-  Sources
+Основные панели:
+  Управление failover
+  Источники
   Selectors
   Watchdog
-  Updates
-  Diagnostics & Maintenance
-  Logs & History
-  Command Output
+  Обновления
+  Диагностика и обслуживание
+  Логи и история
+  Вывод команды
 ```
 
-The dashboard remains a single self-contained Go binary. It does not require Node, React, Python, external CSS or external JavaScript.
+Dashboard остаётся одним self-contained Go binary. Ему не нужны Node, React, Python, внешний CSS или внешний JavaScript.
 
-## Start/stop
+## Запуск и остановка
 
 ```sh
 /opt/etc/init.d/S27vless-go-web start
@@ -79,75 +86,75 @@ The dashboard remains a single self-contained Go binary. It does not require Nod
 /opt/etc/init.d/S27vless-go-web status
 ```
 
-## Change listen address
+## Изменить адрес прослушивания
 
-Edit:
+Открой конфиг:
 
 ```sh
 vi /opt/etc/xray/vless-go-web.conf
 ```
 
-Examples:
+Примеры:
 
 ```text
 LISTEN="0.0.0.0:18088"
 LISTEN="192.168.1.1:18088"
 ```
 
-Then restart:
+Затем перезапусти сервис:
 
 ```sh
 /opt/etc/init.d/S27vless-go-web restart
 ```
 
-## Token
+## Токен
 
-A form token is generated during installation and stored at:
+Form token создаётся во время установки и хранится здесь:
 
 ```text
 /opt/etc/xray/vless-go-web.token
 ```
 
-The token is used internally by the UI forms to protect POST actions.
+Токен используется внутренними формами UI для защиты POST-действий.
 
-## Current UI controls
+## Текущие возможности UI
 
-The web UI exposes these Full Go operations:
+Web UI открывает эти Full Go операции:
 
 ```text
-Status and diagnostics:
-  - refresh status
-  - watchdog status
+Статус и диагностика:
+  - обновить статус
+  - статус watchdog
   - doctor
 
-Profile switching:
-  - switch to primary
-  - switch to backup
+Переключение профилей:
+  - переключить на основной
+  - переключить на резервный
 
-Profile management:
-  - set primary or backup VLESS/subscription URL
-  - set primary and backup selectors
+Управление профилями:
+  - задать primary или backup VLESS/subscription URL
+  - задать primary и backup selectors
 
-Automation:
-  - update active config
-  - run auto-update now
-  - enable/disable backup -> primary recovery
+Автоматизация:
+  - обновить активный конфиг
+  - запустить auto-update сейчас
+  - включить/выключить возврат backup -> primary
 
-Maintenance:
-  - restart Xray
-  - restart watchdog
-  - show switch history
-  - cleanup dry-run
-  - Xray-core update with backup
+Обслуживание:
+  - перезапустить Xray
+  - перезапустить watchdog
+  - показать историю переключений
+  - предпросмотр очистки
+  - обновить Xray-core с backup
 ```
 
-Source URLs are accepted by form but are not rendered back into the page.
+VLESS/URL источники принимаются формой, но не выводятся обратно на страницу.
 
-The UI uses the existing command-line helpers under `/opt/bin` and does not replace them.
+UI использует существующие CLI helper’ы из `/opt/bin` и не заменяет их.
 
 ## Release assets
 
-The `Publish Go experimental release` workflow publishes these optional web UI binaries:
+Workflow `Publish Go experimental release` публикует эти опциональные web UI binaries:
 
 ```text
 vless-go-web-linux-arm64
@@ -156,4 +163,4 @@ vless-go-web-linux-mipsle
 vless-go-web-linux-mipsle.sha256
 ```
 
-The installer automatically selects the correct asset from the `latest` release based on Entware architecture.
+Installer сам выбирает правильный asset из `latest` release по Entware architecture.
