@@ -40,6 +40,20 @@ else
 fi
 ```
 
+Меню Full Go/Entware запускается командой:
+
+```sh
+failover-go
+```
+
+Для Minimal Go используются лёгкие команды:
+
+```sh
+minimal-go-status
+minimal-go-switch primary
+minimal-go-switch backup
+```
+
 ## Legacy auto-установщик
 
 Главный legacy-скрипт проекта:
