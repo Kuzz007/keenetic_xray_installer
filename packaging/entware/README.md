@@ -17,7 +17,7 @@ opkg update
 opkg install ca-certificates wget-ssl
 opkg remove wget-nossl 2>/dev/null || true
 mkdir -p /opt/etc/opkg
-echo 'src/gz failover-go https://github.com/Kuzz007/keenetic_xray_installer/releases/download/0.1.2-go-experimental' > /opt/etc/opkg/failover-go.conf
+echo 'src/gz failover-go https://github.com/Kuzz007/keenetic_xray_installer/releases/download/0.1.3-go-experimental' > /opt/etc/opkg/failover-go.conf
 opkg update
 opkg install failover-go
 ```
@@ -95,20 +95,20 @@ tag: <existing GitHub Release tag>
 Optional inputs:
 
 ```text
-version: 0.1.2-go-experimental
+version: 0.1.3-go-experimental
 arch: aarch64-3.10
 ```
 
 ## Install from GitHub Release feed manually
 
-For release tag `0.1.2-go-experimental`, users can add the feed URL directly:
+For release tag `0.1.3-go-experimental`, users can add the feed URL directly:
 
 ```sh
 opkg update
 opkg install ca-certificates wget-ssl
 opkg remove wget-nossl 2>/dev/null || true
 mkdir -p /opt/etc/opkg
-echo 'src/gz failover-go https://github.com/Kuzz007/keenetic_xray_installer/releases/download/0.1.2-go-experimental' > /opt/etc/opkg/failover-go.conf
+echo 'src/gz failover-go https://github.com/Kuzz007/keenetic_xray_installer/releases/download/0.1.3-go-experimental' > /opt/etc/opkg/failover-go.conf
 opkg update
 opkg install failover-go
 ```
