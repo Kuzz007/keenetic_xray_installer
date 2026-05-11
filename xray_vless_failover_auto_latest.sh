@@ -5,13 +5,15 @@ set -e
 # Does not replace legacy xray_vless_failover_auto.sh.
 # Chooses between:
 #   - Go/Entware latest feed edition for normal /opt storage
-#   - Minimal-next legacy-compatible edition for low /opt storage
+#   - Minimal Go edition for low /opt storage
 
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main}"
 GO_FEED_URL="${GO_FEED_URL:-$REPO_BASE/scripts/install-entware-feed.sh}"
+MINIMAL_GO_URL="${MINIMAL_GO_URL:-$REPO_BASE/xray_vless_failover_minimal_go.sh}"
 MINIMAL_NEXT_URL="${MINIMAL_NEXT_URL:-$REPO_BASE/xray_vless_failover_minimal_next.sh}"
 
 GO_TMP="/opt/tmp/install-entware-feed.latest.sh"
+MINIMAL_GO_TMP="/opt/tmp/xray_vless_failover_minimal_go.sh"
 MINIMAL_NEXT_TMP="/opt/tmp/xray_vless_failover_minimal_next.sh"
 
 THRESHOLD_KB="${THRESHOLD_KB:-80000}"
@@ -20,14 +22,15 @@ ASSUME_YES="${ASSUME_YES:-0}"
 
 usage() {
     cat <<'USAGE'
-Usage: xray_vless_failover_auto_latest.sh [--go|--minimal|--auto] [--yes]
+Usage: xray_vless_failover_auto_latest.sh [--go|--minimal-go|--minimal-next|--auto] [--yes]
 
 Environment overrides:
-  EDITION=auto|go|minimal
+  EDITION=auto|go|minimal-go|minimal-next
   THRESHOLD_KB=80000
   ASSUME_YES=1
   REPO_BASE=https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main
   GO_FEED_URL=<url>
+  MINIMAL_GO_URL=<url>
   MINIMAL_NEXT_URL=<url>
 
 This script does not modify legacy xray_vless_failover_auto.sh.
@@ -37,7 +40,8 @@ USAGE
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --go) EDITION="go"; shift ;;
-        --minimal) EDITION="minimal"; shift ;;
+        --minimal|--minimal-go) EDITION="minimal-go"; shift ;;
+        --minimal-next|--legacy-minimal) EDITION="minimal-next"; shift ;;
         --auto) EDITION="auto"; shift ;;
         -y|--yes) ASSUME_YES="1"; shift ;;
         -h|--help|help) usage; exit 0 ;;
@@ -103,13 +107,14 @@ FREE_KB="$(df -k /opt 2>/dev/null | awk 'NR==2 { print $4 }')"
 [ -n "$FREE_KB" ] || FREE_KB="0"
 
 case "$EDITION" in
-    auto|go|minimal) ;;
-    *) echo "ERROR: unsupported EDITION=$EDITION; use auto, go or minimal" >&2; exit 1 ;;
+    auto|go|minimal-go|minimal-next) ;;
+    minimal) EDITION="minimal-go" ;;
+    *) echo "ERROR: unsupported EDITION=$EDITION; use auto, go, minimal-go or minimal-next" >&2; exit 1 ;;
 esac
 
 if [ "$EDITION" = "auto" ]; then
     if [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
-        SELECTED="minimal"
+        SELECTED="minimal-go"
     else
         SELECTED="go"
     fi
@@ -123,20 +128,37 @@ Full/Go threshold: ${THRESHOLD_KB} KB
 Selected edition: $SELECTED
 EOF
 
-if [ "$SELECTED" = "minimal" ]; then
-    cat <<'EOF'
+case "$SELECTED" in
+    minimal-go)
+        cat <<'EOF'
 
-Minimal-next edition:
+Minimal Go edition:
+  - direct vless:// links only
+  - primary/backup failover
+  - no subscriptions
+  - no python3
+  - no Entware feed package
+  - intended for low-storage Entware installs around 40 MB free
+EOF
+        confirm_install "Minimal Go"
+        download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go"
+        exec "$MINIMAL_GO_TMP"
+        ;;
+    minimal-next)
+        cat <<'EOF'
+
+Minimal-next legacy-compatible edition:
   - direct vless:// links only
   - no subscriptions
   - no python3
-  - no cron auto-update
-  - intended for low-storage Entware installs
+  - legacy shell backend
+  - kept as compatibility fallback
 EOF
-    confirm_install "Minimal-next"
-    download_installer "$MINIMAL_NEXT_URL" "$MINIMAL_NEXT_TMP" "Minimal-next"
-    exec "$MINIMAL_NEXT_TMP"
-fi
+        confirm_install "Minimal-next legacy-compatible"
+        download_installer "$MINIMAL_NEXT_URL" "$MINIMAL_NEXT_TMP" "Minimal-next"
+        exec "$MINIMAL_NEXT_TMP"
+        ;;
+esac
 
 cat <<'EOF'
 
