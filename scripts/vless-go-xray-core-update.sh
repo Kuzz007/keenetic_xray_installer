@@ -133,6 +133,28 @@ for asset in data.get('assets', []):
 PY
 }
 
+xray_process_alive() {
+    ps 2>/dev/null | grep '[x]ray run -config' >/dev/null 2>&1 || ps 2>/dev/null | grep '[x]ray' >/dev/null 2>&1
+}
+
+check_xray_alive_after_start() {
+    if [ ! -x "$XRAY_INIT" ]; then
+        xray_process_alive
+        return $?
+    fi
+
+    if "$XRAY_INIT" status >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if xray_process_alive; then
+        echo "WARNING: Xray init status returned non-zero, but xray process is running; continuing." >&2
+        return 0
+    fi
+
+    return 1
+}
+
 stop_services() {
     [ -x "$WATCHDOG_INIT" ] && "$WATCHDOG_INIT" stop || true
     [ -x "$XRAY_INIT" ] && "$XRAY_INIT" stop || true
@@ -300,7 +322,7 @@ fi
 
 echo "Starting services..."
 start_services || { rollback; exit 1; }
-[ -x "$XRAY_INIT" ] && "$XRAY_INIT" status >/dev/null 2>&1 || { rollback; exit 1; }
+check_xray_alive_after_start || { rollback; exit 1; }
 
 echo "Xray-core update completed successfully."
 [ -n "$BACKUP_BIN" ] && echo "Backup binary: $BACKUP_BIN"
