@@ -55,6 +55,58 @@ valid_selector() { VALUE="$1"; case "$VALUE" in first) return 0 ;; index:[1-9]*[
 check_selector() { FILE="$1"; LABEL="$2"; VALUE="$(read_first "$FILE")"; if [ -z "$VALUE" ]; then warn "$LABEL selector missing: $FILE"; return 0; fi; if valid_selector "$VALUE"; then ok "$LABEL selector: $VALUE"; else fail "$LABEL selector invalid: $VALUE"; fi; }
 xray_bin() { if has_cmd xray; then command -v xray; elif [ -x /opt/sbin/xray ]; then echo /opt/sbin/xray; elif [ -x /opt/bin/xray ]; then echo /opt/bin/xray; else echo ""; fi; }
 
+opkg_bin() { if has_cmd opkg; then command -v opkg; elif [ -x /opt/bin/opkg ]; then echo /opt/bin/opkg; else echo ""; fi; }
+
+detect_entware_arch() {
+    OPKG_BIN="$(opkg_bin)"
+    [ -n "$OPKG_BIN" ] || return 0
+    "$OPKG_BIN" print-architecture 2>/dev/null | awk '
+        $2 != "all" && ($3 + 0) >= max { arch = $2; max = $3 + 0 }
+        END { if (arch != "") print arch }
+    '
+}
+
+asset_name_for_arch() {
+    ARCH="$1"
+    case "$ARCH" in
+        aarch64-3.10|aarch64*|arm64) echo "xray-failover-go-linux-arm64" ;;
+        mips|mipsel|mipsel-*|mipsel_*|mipselsf-*|mipselsf_*|mipsel-3.4|mipsel-3.4_kn|mipselsf-k3.4|mipselsf-k3.4_kn) echo "xray-failover-go-linux-mipsle" ;;
+        *) echo "" ;;
+    esac
+}
+
+check_architecture() {
+    OPKG_BIN="$(opkg_bin)"
+    if [ -n "$OPKG_BIN" ]; then ok "opkg path for architecture detection: $OPKG_BIN"; else fail "opkg not found for architecture detection"; fi
+
+    ENTWARE_ARCH="$(detect_entware_arch)"
+    UNAME_ARCH="$(uname -m 2>/dev/null || echo unknown)"
+    [ -n "$ENTWARE_ARCH" ] && ok "Entware architecture: $ENTWARE_ARCH" || warn "Entware architecture could not be detected via opkg print-architecture"
+    [ -n "$UNAME_ARCH" ] && ok "kernel architecture: $UNAME_ARCH" || warn "kernel architecture could not be detected via uname -m"
+
+    ARCH_FOR_ASSET="$ENTWARE_ARCH"
+    [ -n "$ARCH_FOR_ASSET" ] || ARCH_FOR_ASSET="$UNAME_ARCH"
+    EXPECTED_ASSET="$(asset_name_for_arch "$ARCH_FOR_ASSET")"
+    if [ -n "$EXPECTED_ASSET" ]; then ok "expected Go resolver asset: $EXPECTED_ASSET"; else fail "unsupported architecture for Go resolver asset: $ARCH_FOR_ASSET"; fi
+
+    GO_BIN=""
+    if has_cmd xray-failover-go; then GO_BIN="$(command -v xray-failover-go)"; elif [ -x /opt/bin/xray-failover-go ]; then GO_BIN="/opt/bin/xray-failover-go"; fi
+    [ -n "$GO_BIN" ] || { fail "xray-failover-go binary not found for architecture check"; return 0; }
+
+    if has_cmd file; then
+        FILE_OUT="$(file "$GO_BIN" 2>/dev/null || true)"
+        [ -n "$FILE_OUT" ] && echo "  $FILE_OUT"
+        case "$EXPECTED_ASSET:$FILE_OUT" in
+            xray-failover-go-linux-arm64:*ARM aarch64*|xray-failover-go-linux-arm64:*ARM64*|xray-failover-go-linux-arm64:*aarch64*) ok "Go resolver binary architecture matches expected arm64 asset" ;;
+            xray-failover-go-linux-mipsle:*MIPS*LSB*|xray-failover-go-linux-mipsle:*MIPS*little-endian*|xray-failover-go-linux-mipsle:*mipsle*) ok "Go resolver binary architecture matches expected mipsle asset" ;;
+            :*) warn "cannot compare Go resolver binary architecture because expected asset is unknown" ;;
+            *) warn "Go resolver binary architecture may not match expected asset: $EXPECTED_ASSET" ;;
+        esac
+    else
+        warn "file command not found; cannot inspect Go resolver ELF architecture"
+    fi
+}
+
 check_storage() {
     if df -k /opt >/tmp/vless-go-doctor.df.$$ 2>/dev/null; then
         awk 'NR==2 { total=$2; used=$3; avail=$4; pct=$5; printf "  /opt: total=%.1f MB used=%.1f MB free=%.1f MB use=%s\n", total/1024, used/1024, avail/1024, pct }' /tmp/vless-go-doctor.df.$$
@@ -146,6 +198,9 @@ done
 
 section "Storage"
 check_storage
+
+section "Architecture"
+check_architecture
 
 section "Go resolver"
 check_go_resolver
