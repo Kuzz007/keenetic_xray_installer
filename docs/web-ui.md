@@ -79,21 +79,38 @@ A form token is generated during installation and stored at:
 
 The token is used internally by the UI forms to protect POST actions.
 
-## MVP actions
+## Current UI controls
 
-The first MVP exposes these Full Go operations:
+The web UI exposes these Full Go operations:
 
 ```text
-status
-watchdog status
-doctor
-switch to primary
-switch to backup
-restart Xray
-restart watchdog
-show switch history
-cleanup dry-run
+Status and diagnostics:
+  - status
+  - watchdog status
+  - doctor
+
+Profile switching:
+  - switch to primary
+  - switch to backup
+
+Profile management:
+  - set primary or backup VLESS/subscription URL
+  - set primary and backup selectors
+
+Automation:
+  - update active config
+  - run auto-update now
+  - enable/disable backup -> primary recovery
+
+Maintenance:
+  - restart Xray
+  - restart watchdog
+  - show switch history
+  - cleanup dry-run
+  - Xray-core update with backup
 ```
+
+Source URLs are accepted by form but are not rendered back into the page.
 
 The UI uses the existing command-line helpers under `/opt/bin` and does not replace them.
 
