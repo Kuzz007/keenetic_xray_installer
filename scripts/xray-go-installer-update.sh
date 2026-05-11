@@ -2,7 +2,7 @@
 set -e
 
 XRAY_DIR="/opt/etc/xray"
-GO_EXPERIMENTAL_TAG="${GO_EXPERIMENTAL_TAG:-0.1.3-go-experimental}"
+GO_EXPERIMENTAL_TAG="${GO_EXPERIMENTAL_TAG:-latest}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 WATCHDOG_BRANCH="${WATCHDOG_BRANCH:-$REPO_BRANCH}"
 RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
