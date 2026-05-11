@@ -297,7 +297,9 @@ handle_daemon_backup() {
         log "Daemon health OK on backup"
     else
         DAEMON_BACKUP_FAIL_COUNT="$((DAEMON_BACKUP_FAIL_COUNT + 1))"
-        log "Daemon health FAIL on backup: $DAEMON_BACKUP_FAIL_COUNT/$FAILOVER_FAILURES_REQUIRED"
+        DAEMON_RECOVERY_SUCCESS_COUNT="0"
+        log "Daemon health FAIL on backup: $DAEMON_BACKUP_FAIL_COUNT consecutive failures; staying on backup and skipping primary recovery probe this cycle"
+        return 0
     fi
 
     [ "$AUTO_RECOVER_PRIMARY" = "1" ] || return 0
