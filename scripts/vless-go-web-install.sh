@@ -6,7 +6,8 @@ WEB_BIN="/opt/bin/vless-go-web"
 WEB_CONF="/opt/etc/xray/vless-go-web.conf"
 WEB_TOKEN="/opt/etc/xray/vless-go-web.token"
 WEB_INIT="/opt/etc/init.d/S27vless-go-web"
-WEB_LISTEN="${WEB_LISTEN:-127.0.0.1:18088}"
+WEB_LISTEN="${WEB_LISTEN:-0.0.0.0:18088}"
+WEB_PORT="${WEB_PORT:-18088}"
 TMP_DIR="/opt/tmp"
 
 opkg_bin() { if command -v opkg >/dev/null 2>&1; then command -v opkg; elif [ -x /opt/bin/opkg ]; then echo /opt/bin/opkg; else echo ""; fi; }
@@ -27,6 +28,18 @@ asset_name_for_arch() {
 
 need_cmd() {
     command -v "$1" >/dev/null 2>&1 || { echo "ERROR: required command not found: $1" >&2; exit 1; }
+}
+
+detect_lan_ip() {
+    if command -v ndmc >/dev/null 2>&1; then
+        {
+            ndmc -c "show interface Home" 2>/dev/null || true
+            ndmc -c "show interface Bridge0" 2>/dev/null || true
+        } | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' | awk '$1 ~ /^192\.168\./ || $1 ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./ || $1 ~ /^10\./ { print; exit }'
+    fi
+    if command -v ip >/dev/null 2>&1; then
+        ip -4 route show scope link 2>/dev/null | awk '/ src / { for (i=1; i<=NF; i++) if ($i == "src") { print $(i+1); exit } }'
+    fi
 }
 
 need_cmd curl
@@ -79,8 +92,11 @@ chmod +x "$WEB_INIT"
 
 "$WEB_INIT" restart || "$WEB_INIT" start || true
 
-TOKEN="$(sed -n '1p' "$WEB_TOKEN" 2>/dev/null || true)"
 LISTEN="$(grep '^LISTEN=' "$WEB_CONF" 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '"' || echo "$WEB_LISTEN")"
+PORT="$(echo "$LISTEN" | awk -F: '{print $NF}')"
+[ -n "$PORT" ] || PORT="$WEB_PORT"
+LAN_IP="${WEB_LAN_IP:-$(detect_lan_ip | awk 'NF { print; exit }')}"
+[ -n "$LAN_IP" ] || LAN_IP="192.168.1.1"
 
 echo ""
 echo "vless-go-web installed."
@@ -89,8 +105,8 @@ echo "Config:  $WEB_CONF"
 echo "Token:   $WEB_TOKEN"
 echo "Listen:  $LISTEN"
 echo ""
-echo "Open locally or through SSH tunnel:"
-echo "  http://$LISTEN/"
+echo "Open in browser:"
+echo "  http://$LAN_IP:$PORT/"
 echo ""
-echo "If exposed beyond localhost, protect access at the network level."
+echo "Keep this address available only on your trusted LAN. Do not expose it to the internet."
 echo "Form token is stored in: $WEB_TOKEN"

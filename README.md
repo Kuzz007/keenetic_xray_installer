@@ -58,7 +58,14 @@ vless-go-web-install
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/vless-go-web-install.sh | sh
 ```
 
-По умолчанию web-интерфейс слушает только `127.0.0.1:18088`. Подробности: `docs/web-ui.md`.
+После установки скрипт покажет готовый адрес для браузера, например:
+
+```text
+Open in browser:
+  http://192.168.1.1:18088/
+```
+
+Web-интерфейс должен быть доступен только в доверенной локальной сети. Подробности: `docs/web-ui.md`.
 
 Для Minimal Go используются лёгкие команды:
 
