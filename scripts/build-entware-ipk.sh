@@ -11,11 +11,6 @@ PKG_DIR="$BUILD_DIR/${PKG_NAME}_${PKG_VERSION}_${PKG_ARCH}"
 CONTROL_SRC="$ROOT_DIR/packaging/entware/failover-go/control"
 OUT_IPK="$OUT_DIR/${PKG_NAME}_${PKG_VERSION}_${PKG_ARCH}.ipk"
 
-if ! command -v ar >/dev/null 2>&1; then
-    echo "ERROR: ar command not found. Install binutils or run this workflow on Ubuntu." >&2
-    exit 1
-fi
-
 mkdir -p "$OUT_DIR"
 rm -rf "$BUILD_DIR"
 mkdir -p "$PKG_DIR/CONTROL" "$PKG_DIR/opt/bin" "$PKG_DIR/opt/libexec"
@@ -57,7 +52,11 @@ sed \
     "$CONTROL_SRC" > "$PKG_DIR/CONTROL/control"
 chmod 644 "$PKG_DIR/CONTROL/control"
 
-# Build data.tar.gz and control.tar.gz from inside package root.
+# Entware on Keenetic uses gzip-tar .ipk packages, not Debian ar .deb layout.
+# Official package example:
+#   ./debian-binary
+#   ./data.tar.gz
+#   ./control.tar.gz
 (
     cd "$PKG_DIR"
     tar --numeric-owner --owner=0 --group=0 -czf "$BUILD_DIR/data.tar.gz" ./opt
@@ -69,8 +68,10 @@ echo '2.0' > "$BUILD_DIR/debian-binary"
 rm -f "$OUT_IPK"
 (
     cd "$BUILD_DIR"
-    ar r "$OUT_IPK" debian-binary control.tar.gz data.tar.gz >/dev/null
+    tar -czf "$OUT_IPK" ./debian-binary ./data.tar.gz ./control.tar.gz
 )
 
 sha256sum "$OUT_IPK" > "$OUT_IPK.sha256"
 ls -lh "$OUT_IPK" "$OUT_IPK.sha256"
+echo "Package layout:"
+tar -tzf "$OUT_IPK"
