@@ -39,8 +39,15 @@ LOCK_WAIT="${VLESS_GO_LOCK_WAIT:-30}"
 LOCK_HELD="0"
 
 detect_entware_arch() {
+    OPKG_BIN=""
     if command -v opkg >/dev/null 2>&1; then
-        opkg print-architecture 2>/dev/null | awk '
+        OPKG_BIN="$(command -v opkg)"
+    elif [ -x /opt/bin/opkg ]; then
+        OPKG_BIN="/opt/bin/opkg"
+    fi
+
+    if [ -n "$OPKG_BIN" ]; then
+        "$OPKG_BIN" print-architecture 2>/dev/null | awk '
             $2 != "all" && ($3 + 0) >= max { arch = $2; max = $3 + 0 }
             END { if (arch != "") print arch }
         '
@@ -50,8 +57,8 @@ detect_entware_arch() {
 asset_name_for_arch() {
     ARCH="$1"
     case "$ARCH" in
-        aarch64-3.10|aarch64*) echo "xray-failover-go-linux-arm64" ;;
-        mipsel-3.4|mipsel*|mipselsf-k3.4|mipselsf*) echo "xray-failover-go-linux-mipsle" ;;
+        aarch64-3.10|aarch64*|arm64) echo "xray-failover-go-linux-arm64" ;;
+        mips|mipsel|mipsel-*|mipsel_*|mipselsf-*|mipselsf_*|mipsel-3.4|mipsel-3.4_kn|mipselsf-k3.4|mipselsf-k3.4_kn) echo "xray-failover-go-linux-mipsle" ;;
         *) echo "" ;;
     esac
 }
