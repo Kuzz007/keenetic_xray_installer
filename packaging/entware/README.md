@@ -6,13 +6,15 @@ This repository can build and publish first-party Entware feeds for the experime
 
 The bootstrap installer detects Entware architecture with `opkg print-architecture` and selects the matching GitHub Release feed.
 
-| Entware architecture | Feed release tag | Go resolver asset |
-| --- | --- | --- |
-| `aarch64-3.10` | `0.1.3-go-experimental` | `xray-failover-go-linux-arm64` |
-| `mipsel-3.4` | `0.1.3-go-experimental-mipsel-3.4` | `xray-failover-go-linux-mipsle` |
-| `mipselsf-k3.4` | `0.1.3-go-experimental-mipselsf-k3.4` | `xray-failover-go-linux-mipsle` |
+| Entware architecture | Latest feed release tag | Versioned feed release tag | Go resolver asset |
+| --- | --- | --- | --- |
+| `aarch64-3.10` | `latest` | `0.1.3-go-experimental` | `xray-failover-go-linux-arm64` |
+| `mipsel-3.4` / `mipsel-3.4_kn` | `latest-mipsel-3.4` | `0.1.3-go-experimental-mipsel-3.4` | `xray-failover-go-linux-mipsle` |
+| `mipselsf-k3.4` / `mipselsf-k3.4_kn` | `latest-mipselsf-k3.4` | `0.1.3-go-experimental-mipselsf-k3.4` | `xray-failover-go-linux-mipsle` |
 
 Architecture-specific feed tags are used because each GitHub Release feed root contains one `Packages` and `Packages.gz` pair.
+
+The default install channel is `latest`. Set `BASE_REPO_TAG=0.1.3-go-experimental` or `REPO_TAG=<tag>` to pin a versioned feed.
 
 ## One-line install from GitHub Release feed
 
@@ -86,24 +88,56 @@ opkg update
 opkg install failover-go
 ```
 
-## Publish release feed assets
+## Publish latest release assets
 
-The `Release Entware Feed` workflow publishes these assets to a GitHub Release:
+First publish the architecture-independent Go resolver assets:
 
 ```text
-Packages
-Packages.gz
-failover-go_<version>_<arch>.ipk
-failover-go_<version>_<arch>.ipk.sha256
-entware-feed_<version>_<arch>.tar.gz
-entware-feed_<version>_<arch>.tar.gz.sha256
+Actions -> Publish Go experimental release -> Run workflow
+
+tag: latest
 ```
 
-The workflow can be started manually with:
+This uploads:
+
+```text
+xray-failover-go-linux-arm64
+xray-failover-go-linux-arm64.sha256
+xray-failover-go-linux-mipsle
+xray-failover-go-linux-mipsle.sha256
+```
+
+Then publish architecture-specific Entware feeds:
 
 ```text
 Actions -> Release Entware Feed -> Run workflow
+
+tag: latest
+version: 0.1.3-go-experimental
+arch: aarch64-3.10
 ```
+
+```text
+Actions -> Release Entware Feed -> Run workflow
+
+tag: latest-mipsel-3.4
+version: 0.1.3-go-experimental
+arch: mipsel-3.4
+```
+
+Optional, if needed for a separate mipselsf feed tag:
+
+```text
+Actions -> Release Entware Feed -> Run workflow
+
+tag: latest-mipselsf-k3.4
+version: 0.1.3-go-experimental
+arch: mipselsf-k3.4
+```
+
+## Publish versioned release feed assets
+
+The same workflow can publish pinned version tags.
 
 For `aarch64-3.10`:
 
@@ -129,15 +163,32 @@ version: 0.1.3-go-experimental
 arch: mipselsf-k3.4
 ```
 
-## Install from GitHub Release feed manually
+The `Release Entware Feed` workflow publishes these assets to the selected GitHub Release:
 
-For `aarch64-3.10`:
-
-```sh
-echo 'src/gz failover-go https://github.com/Kuzz007/keenetic_xray_installer/releases/download/0.1.3-go-experimental' > /opt/etc/opkg/failover-go.conf
+```text
+Packages
+Packages.gz
+failover-go_<version>_<arch>.ipk
+failover-go_<version>_<arch>.ipk.sha256
+entware-feed_<version>_<arch>.tar.gz
+entware-feed_<version>_<arch>.tar.gz.sha256
 ```
 
-For `mipsel-3.4`:
+## Install from GitHub Release feed manually
+
+For latest `aarch64-3.10`:
+
+```sh
+echo 'src/gz failover-go https://github.com/Kuzz007/keenetic_xray_installer/releases/download/latest' > /opt/etc/opkg/failover-go.conf
+```
+
+For latest `mipsel-3.4`:
+
+```sh
+echo 'src/gz failover-go https://github.com/Kuzz007/keenetic_xray_installer/releases/download/latest-mipsel-3.4' > /opt/etc/opkg/failover-go.conf
+```
+
+For pinned `mipsel-3.4`:
 
 ```sh
 echo 'src/gz failover-go https://github.com/Kuzz007/keenetic_xray_installer/releases/download/0.1.3-go-experimental-mipsel-3.4' > /opt/etc/opkg/failover-go.conf
