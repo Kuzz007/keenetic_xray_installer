@@ -1,6 +1,6 @@
 # Optional VLESS Go Web UI
 
-`vless-go-web` is an optional web interface for the Full Go/Entware edition.
+`vless-go-web` is an optional web dashboard for the Full Go/Entware edition.
 
 It is not installed or started by default. Install it only when you want a browser UI on top of the existing Full Go commands.
 
@@ -34,6 +34,41 @@ By default the service listens on:
 ```
 
 Use it only on a trusted LAN. Do not expose this port to the internet.
+
+## Dashboard layout
+
+The UI uses an Operations Console layout:
+
+```text
+Sidebar:
+  Overview
+  Sources
+  Failover
+  Watchdog
+  Updates
+  Diagnostics
+  Logs
+  Settings
+
+Overview:
+  Active slot
+  Primary state
+  Backup state
+  Watchdog state
+  Health badge
+
+Main panels:
+  Failover Control
+  Sources
+  Selectors
+  Watchdog
+  Updates
+  Diagnostics & Maintenance
+  Logs & History
+  Command Output
+```
+
+The dashboard remains a single self-contained Go binary. It does not require Node, React, Python, external CSS or external JavaScript.
 
 ## Start/stop
 
@@ -81,7 +116,7 @@ The web UI exposes these Full Go operations:
 
 ```text
 Status and diagnostics:
-  - status
+  - refresh status
   - watchdog status
   - doctor
 
