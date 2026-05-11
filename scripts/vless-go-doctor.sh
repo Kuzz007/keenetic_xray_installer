@@ -100,7 +100,7 @@ check_architecture() {
         if [ "$EXPECTED_ASSET" = "xray-failover-go-linux-arm64" ]; then
             if echo "$FILE_OUT" | grep -Eiq 'aarch64|ARM64|ARM aarch64'; then ok "Go resolver binary architecture matches expected arm64 asset"; else warn "Go resolver binary architecture may not match expected arm64 asset"; fi
         elif [ "$EXPECTED_ASSET" = "xray-failover-go-linux-mipsle" ]; then
-            if echo "$FILE_OUT" | grep -Eiq 'MIPS.*(LSB|little-endian)|mipsle'; then ok "Go resolver binary architecture matches expected mipsle asset"; else warn "Go resolver binary architecture may not match expected mipsle asset"; fi
+            if echo "$FILE_OUT" | grep -Eiq '(LSB.*MIPS|MIPS.*(LSB|little-endian)|mipsle)'; then ok "Go resolver binary architecture matches expected mipsle asset"; else warn "Go resolver binary architecture may not match expected mipsle asset"; fi
         else
             warn "cannot compare Go resolver binary architecture because expected asset is unknown"
         fi
@@ -139,6 +139,7 @@ check_xray_init_status() {
         sed 's/^/  /' /tmp/vless-go-doctor.status.$$
         if "$XRAY_INIT" start >/tmp/vless-go-doctor.xray-start.$$ 2>&1 || "$XRAY_INIT" restart >/tmp/vless-go-doctor.xray-start.$$ 2>&1; then
             ok "Xray init start command completed"
+            sleep 2
             if "$XRAY_INIT" status >/tmp/vless-go-doctor.status.$$ 2>&1; then ok "Xray init status after repair: alive"; else warn "Xray init status is still not alive after repair"; sed 's/^/  /' /tmp/vless-go-doctor.status.$$; fi
         else
             warn "Xray init start failed"
@@ -161,6 +162,18 @@ detect_lan_router_ip() {
 }
 
 proxy0_exists() { ndmc -c "show interface $PROXY_IFACE" >/tmp/vless-go-doctor.proxy0.$$ 2>&1; }
+proxy0_running_config() { ndmc -c "show running-config" 2>/dev/null | awk -v iface="$PROXY_IFACE" '
+    $1 == "interface" && $2 == iface { in_block = 1; print; next }
+    in_block && $0 == "!" { print; exit }
+    in_block { print }
+'; }
+proxy0_has_socks5() {
+    if grep -qi 'socks5' /tmp/vless-go-doctor.proxy0.$$ 2>/dev/null; then return 0; fi
+    proxy0_running_config >/tmp/vless-go-doctor.proxy0-running.$$ 2>/dev/null || true
+    grep -qi 'proxy protocol socks5' /tmp/vless-go-doctor.proxy0-running.$$ 2>/dev/null || return 1
+    grep -qi "proxy upstream .* $SOCKS_PORT" /tmp/vless-go-doctor.proxy0-running.$$ 2>/dev/null || return 1
+    return 0
+}
 
 apply_proxy0_settings() {
     router_ip="$(detect_lan_router_ip | awk 'NF { print; exit }')"
@@ -178,15 +191,15 @@ apply_proxy0_settings() {
 }
 
 check_proxy0() {
-    rm -f /tmp/vless-go-doctor.proxy0.$$ 2>/dev/null || true
+    rm -f /tmp/vless-go-doctor.proxy0.$$ /tmp/vless-go-doctor.proxy0-running.$$ 2>/dev/null || true
     if ! has_cmd ndmc; then warn "ndmc not found; cannot check or create $PROXY_IFACE"; return 0; fi
     if proxy0_exists; then
         ok "$PROXY_IFACE interface exists"
-        if grep -qi 'socks5' /tmp/vless-go-doctor.proxy0.$$ 2>/dev/null; then
+        if proxy0_has_socks5; then
             ok "$PROXY_IFACE appears to be configured for SOCKS5"
         else
             warn "$PROXY_IFACE exists, but SOCKS5 settings were not detected; repairing it"
-            if apply_proxy0_settings && proxy0_exists && grep -qi 'socks5' /tmp/vless-go-doctor.proxy0.$$ 2>/dev/null; then ok "$PROXY_IFACE SOCKS5 settings repaired"; else warn "$PROXY_IFACE repair command ran, but SOCKS5 settings are still not visible"; fi
+            if apply_proxy0_settings && proxy0_exists && proxy0_has_socks5; then ok "$PROXY_IFACE SOCKS5 settings repaired"; else warn "$PROXY_IFACE repair command ran, but SOCKS5 settings are still not visible"; fi
         fi
     else
         warn "$PROXY_IFACE interface not found; creating it"
@@ -196,7 +209,7 @@ check_proxy0() {
             fail "failed to create $PROXY_IFACE interface"
         fi
     fi
-    rm -f /tmp/vless-go-doctor.proxy0.$$ 2>/dev/null || true
+    rm -f /tmp/vless-go-doctor.proxy0.$$ /tmp/vless-go-doctor.proxy0-running.$$ 2>/dev/null || true
 }
 
 check_storage() {
