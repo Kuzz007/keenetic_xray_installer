@@ -28,10 +28,16 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh | sh -s -- --minimal-go
 ```
 
-После установки проверь состояние:
+После установки проверь состояние универсальной командой:
 
 ```sh
-vless-go-doctor 2>/dev/null || minimal-go-status
+if command -v vless-go-doctor >/dev/null 2>&1; then
+    vless-go-doctor
+elif command -v minimal-go-status >/dev/null 2>&1; then
+    minimal-go-status
+else
+    echo "No Go status command found. Check installer output."
+fi
 ```
 
 ## Legacy auto-установщик
