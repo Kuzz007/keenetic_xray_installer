@@ -1,9 +1,8 @@
 #!/bin/sh
 set -e
 
-REPO_TAG="${REPO_TAG:-0.1.3-go-experimental}"
+BASE_REPO_TAG="${BASE_REPO_TAG:-0.1.3-go-experimental}"
 FEED_NAME="failover-go"
-FEED_URL="${FEED_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${REPO_TAG}}"
 FEED_DIR="/opt/etc/opkg"
 FEED_FILE="$FEED_DIR/${FEED_NAME}.conf"
 OPKG_CONF="/opt/etc/opkg.conf"
@@ -21,6 +20,25 @@ need_cmd() {
         printf 'ERROR: required command not found: %s\n' "$1" >&2
         exit 1
     fi
+}
+
+detect_entware_arch() {
+    if command -v opkg >/dev/null 2>&1; then
+        opkg print-architecture 2>/dev/null | awk '
+            $2 != "all" && ($3 + 0) >= max { arch = $2; max = $3 + 0 }
+            END { if (arch != "") print arch }
+        '
+    fi
+}
+
+normalize_feed_tag() {
+    ARCH="$1"
+    case "$ARCH" in
+        aarch64-3.10|aarch64*) echo "$BASE_REPO_TAG" ;;
+        mipsel-3.4|mipsel*) echo "${BASE_REPO_TAG}-mipsel-3.4" ;;
+        mipselsf-k3.4|mipselsf*) echo "${BASE_REPO_TAG}-mipselsf-k3.4" ;;
+        *) echo "" ;;
+    esac
 }
 
 clean_stale_feed() {
@@ -44,6 +62,17 @@ clean_stale_feed() {
 }
 
 need_cmd opkg
+
+ENTWARE_ARCH="${ENTWARE_ARCH:-$(detect_entware_arch)}"
+[ -n "$ENTWARE_ARCH" ] || { echo "ERROR: could not detect Entware architecture with opkg print-architecture" >&2; exit 1; }
+
+REPO_TAG="${REPO_TAG:-$(normalize_feed_tag "$ENTWARE_ARCH")}"
+[ -n "$REPO_TAG" ] || { echo "ERROR: unsupported Entware architecture: $ENTWARE_ARCH" >&2; echo "Override with REPO_TAG=<release-tag> FEED_URL=<url> if needed." >&2; exit 1; }
+
+FEED_URL="${FEED_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${REPO_TAG}}"
+
+log "Detected Entware architecture: $ENTWARE_ARCH"
+log "Selected failover-go feed tag: $REPO_TAG"
 
 log "[0/5] Cleaning stale failover-go feed entries..."
 mkdir -p "$FEED_DIR"
