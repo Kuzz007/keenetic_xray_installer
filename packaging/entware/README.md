@@ -1,6 +1,18 @@
 # Entware package feed
 
-This repository can build and publish a first-party Entware feed for the experimental `failover-go` package.
+This repository can build and publish first-party Entware feeds for the experimental `failover-go` package.
+
+## Supported architectures
+
+The bootstrap installer detects Entware architecture with `opkg print-architecture` and selects the matching GitHub Release feed.
+
+| Entware architecture | Feed release tag | Go resolver asset |
+| --- | --- | --- |
+| `aarch64-3.10` | `0.1.3-go-experimental` | `xray-failover-go-linux-arm64` |
+| `mipsel-3.4` | `0.1.3-go-experimental-mipsel-3.4` | `xray-failover-go-linux-mipsle` |
+| `mipselsf-k3.4` | `0.1.3-go-experimental-mipselsf-k3.4` | `xray-failover-go-linux-mipsle` |
+
+Architecture-specific feed tags are used because each GitHub Release feed root contains one `Packages` and `Packages.gz` pair.
 
 ## One-line install from GitHub Release feed
 
@@ -17,7 +29,8 @@ opkg update
 opkg install ca-certificates wget-ssl
 opkg remove wget-nossl 2>/dev/null || true
 mkdir -p /opt/etc/opkg
-echo 'src/gz failover-go https://github.com/Kuzz007/keenetic_xray_installer/releases/download/0.1.3-go-experimental' > /opt/etc/opkg/failover-go.conf
+# The exact release URL is selected automatically from opkg print-architecture.
+echo 'src/gz failover-go https://github.com/Kuzz007/keenetic_xray_installer/releases/download/<selected-release-tag>' > /opt/etc/opkg/failover-go.conf
 opkg update
 opkg install failover-go
 ```
@@ -35,6 +48,12 @@ vless-go-doctor
 ```sh
 chmod +x scripts/build-entware-feed.sh
 scripts/build-entware-feed.sh
+```
+
+Build for a specific architecture:
+
+```sh
+PKG_ARCH=mipsel-3.4 scripts/build-entware-feed.sh
 ```
 
 Output:
@@ -80,42 +99,55 @@ entware-feed_<version>_<arch>.tar.gz
 entware-feed_<version>_<arch>.tar.gz.sha256
 ```
 
-The workflow runs automatically when a release is published. It can also be started manually with:
+The workflow can be started manually with:
 
 ```text
 Actions -> Release Entware Feed -> Run workflow
 ```
 
-Required manual input:
+For `aarch64-3.10`:
 
 ```text
-tag: <existing GitHub Release tag>
-```
-
-Optional inputs:
-
-```text
+tag: 0.1.3-go-experimental
 version: 0.1.3-go-experimental
 arch: aarch64-3.10
 ```
 
-## Install from GitHub Release feed manually
+For `mipsel-3.4`:
 
-For release tag `0.1.3-go-experimental`, users can add the feed URL directly:
-
-```sh
-opkg update
-opkg install ca-certificates wget-ssl
-opkg remove wget-nossl 2>/dev/null || true
-mkdir -p /opt/etc/opkg
-echo 'src/gz failover-go https://github.com/Kuzz007/keenetic_xray_installer/releases/download/0.1.3-go-experimental' > /opt/etc/opkg/failover-go.conf
-opkg update
-opkg install failover-go
+```text
+tag: 0.1.3-go-experimental-mipsel-3.4
+version: 0.1.3-go-experimental
+arch: mipsel-3.4
 ```
 
-Then run the initial setup:
+For `mipselsf-k3.4`:
+
+```text
+tag: 0.1.3-go-experimental-mipselsf-k3.4
+version: 0.1.3-go-experimental
+arch: mipselsf-k3.4
+```
+
+## Install from GitHub Release feed manually
+
+For `aarch64-3.10`:
 
 ```sh
+echo 'src/gz failover-go https://github.com/Kuzz007/keenetic_xray_installer/releases/download/0.1.3-go-experimental' > /opt/etc/opkg/failover-go.conf
+```
+
+For `mipsel-3.4`:
+
+```sh
+echo 'src/gz failover-go https://github.com/Kuzz007/keenetic_xray_installer/releases/download/0.1.3-go-experimental-mipsel-3.4' > /opt/etc/opkg/failover-go.conf
+```
+
+Then run:
+
+```sh
+opkg update
+opkg install failover-go
 xray_vless_failover_go.sh
 failover-go
 vless-go-doctor
