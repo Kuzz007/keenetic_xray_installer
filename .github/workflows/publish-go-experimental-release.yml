@@ -89,7 +89,7 @@ jobs:
           - mipsel/mipselsf architecture-aware postinst and updater
           - doctor architecture diagnostics
           - doctor Xray init and Proxy0 repair/checks
-          - optional Full Go web UI MVP
+          - optional Full Go web UI dashboard
 
           Entware feed assets are published per architecture tag because each feed root contains architecture-specific `Packages` and `Packages.gz` files.
           EOF
@@ -113,17 +113,32 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "$RELEASE_TAG" \
-            dist/xray-failover-go-linux-arm64 \
-            dist/xray-failover-go-linux-arm64.sha256 \
-            dist/xray-failover-go-linux-mipsle \
-            dist/xray-failover-go-linux-mipsle.sha256 \
-            dist/vless-go-web-linux-arm64 \
-            dist/vless-go-web-linux-arm64.sha256 \
-            dist/vless-go-web-linux-mipsle \
-            dist/vless-go-web-linux-mipsle.sha256 \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber
+          set -e
+          ASSETS="
+          dist/xray-failover-go-linux-arm64
+          dist/xray-failover-go-linux-arm64.sha256
+          dist/xray-failover-go-linux-mipsle
+          dist/xray-failover-go-linux-mipsle.sha256
+          dist/vless-go-web-linux-arm64
+          dist/vless-go-web-linux-arm64.sha256
+          dist/vless-go-web-linux-mipsle
+          dist/vless-go-web-linux-mipsle.sha256
+          "
+
+          for asset in $ASSETS; do
+            echo "Uploading $asset"
+            attempt=1
+            until gh release upload "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY" --clobber; do
+              if [ "$attempt" -ge 5 ]; then
+                echo "ERROR: failed to upload $asset after $attempt attempts" >&2
+                exit 1
+              fi
+              sleep_for=$((attempt * 10))
+              echo "WARN: upload failed for $asset; retrying in ${sleep_for}s" >&2
+              sleep "$sleep_for"
+              attempt=$((attempt + 1))
+            done
+          done
 
       - name: Show release download URLs
         run: |
