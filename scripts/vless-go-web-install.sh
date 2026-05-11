@@ -27,7 +27,7 @@ asset_name_for_arch() {
 }
 
 need_cmd() {
-    command -v "$1" >/dev/null 2>&1 || { echo "ERROR: required command not found: $1" >&2; exit 1; }
+    command -v "$1" >/dev/null 2>&1 || { echo "ОШИБКА: не найдена обязательная команда: $1" >&2; exit 1; }
 }
 
 detect_lan_ip() {
@@ -48,12 +48,12 @@ mkdir -p /opt/bin /opt/etc/xray "$TMP_DIR"
 ARCH="${ENTWARE_ARCH:-$(detect_entware_arch)}"
 [ -n "$ARCH" ] || ARCH="$(uname -m 2>/dev/null || echo unknown)"
 ASSET="${WEB_ASSET_NAME:-$(asset_name_for_arch "$ARCH")}"
-[ -n "$ASSET" ] || { echo "ERROR: unsupported architecture for vless-go-web: $ARCH" >&2; exit 1; }
+[ -n "$ASSET" ] || { echo "ОШИБКА: неподдерживаемая архитектура для vless-go-web: $ARCH" >&2; exit 1; }
 URL="${WEB_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${WEB_TAG}/${ASSET}}"
 TMP_BIN="$TMP_DIR/vless-go-web.$$"
 
-echo "Detected architecture: $ARCH"
-echo "Downloading vless-go-web: $URL"
+echo "Определена архитектура: $ARCH"
+echo "Скачиваю vless-go-web: $URL"
 curl -fL -o "$TMP_BIN" "$URL"
 chmod +x "$TMP_BIN"
 mv "$TMP_BIN" "$WEB_BIN"
@@ -99,14 +99,14 @@ LAN_IP="${WEB_LAN_IP:-$(detect_lan_ip | awk 'NF { print; exit }')}"
 [ -n "$LAN_IP" ] || LAN_IP="192.168.1.1"
 
 echo ""
-echo "vless-go-web installed."
-echo "Service: $WEB_INIT"
-echo "Config:  $WEB_CONF"
-echo "Token:   $WEB_TOKEN"
-echo "Listen:  $LISTEN"
+echo "vless-go-web установлен."
+echo "Сервис:  $WEB_INIT"
+echo "Конфиг:  $WEB_CONF"
+echo "Токен:   $WEB_TOKEN"
+echo "Адрес:   $LISTEN"
 echo ""
-echo "Open in browser:"
+echo "Открой в браузере:"
 echo "  http://$LAN_IP:$PORT/"
 echo ""
-echo "Keep this address available only on your trusted LAN. Do not expose it to the internet."
-echo "Form token is stored in: $WEB_TOKEN"
+echo "Используй этот адрес только в доверенной локальной сети. Не открывай порт в интернет."
+echo "Form token хранится здесь: $WEB_TOKEN"
