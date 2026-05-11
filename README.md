@@ -46,6 +46,20 @@ fi
 failover-go
 ```
 
+Опциональный web-интерфейс для Full Go/Entware устанавливается отдельной командой:
+
+```sh
+vless-go-web-install
+```
+
+Для существующих установок helper можно поставить напрямую:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/vless-go-web-install.sh | sh
+```
+
+По умолчанию web-интерфейс слушает только `127.0.0.1:18088`. Подробности: `docs/web-ui.md`.
+
 Для Minimal Go используются лёгкие команды:
 
 ```sh
