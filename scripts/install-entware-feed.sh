@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-BASE_REPO_TAG="${BASE_REPO_TAG:-0.1.3-go-experimental}"
+BASE_REPO_TAG="${BASE_REPO_TAG:-latest}"
 FEED_NAME="failover-go"
 FEED_DIR="/opt/etc/opkg"
 FEED_FILE="$FEED_DIR/${FEED_NAME}.conf"

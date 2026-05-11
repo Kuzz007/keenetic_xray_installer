@@ -68,6 +68,14 @@ jobs:
           architecture: $PKG_ARCH
           ```
 
+          Current latest-channel mapping:
+
+          ```text
+          aarch64-3.10  -> latest
+          mipsel-3.4   -> latest-mipsel-3.4
+          mipselsf-k3.4 -> latest-mipselsf-k3.4
+          ```
+
           This release is architecture-specific because Entware feed roots contain architecture-specific Packages and Packages.gz files.
           EOF
 
