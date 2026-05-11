@@ -2,7 +2,41 @@
 
 Автоматический установщик Xray/VLESS Failover для роутеров Keenetic с Entware.
 
-Главный скрипт проекта:
+## Экспериментальная установка: Auto Latest
+
+> **Экспериментальный скрипт.** Новый auto-установщик использует latest-канал и сам выбирает подходящую Go-линию установки.
+>
+> - если места в `/opt` достаточно — ставит Full Go/Entware через latest feed;
+> - если места мало — ставит Minimal Go без `python3` и без Entware feed package;
+> - старые legacy-скрипты остаются доступными ниже и не заменены.
+
+Рекомендуемая экспериментальная команда:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh | sh
+```
+
+Принудительно Full Go/Entware:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh | sh -s -- --go
+```
+
+Принудительно Minimal Go для роутеров с малым `/opt`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh | sh -s -- --minimal-go
+```
+
+После установки проверь состояние:
+
+```sh
+vless-go-doctor 2>/dev/null || minimal-go-status
+```
+
+## Legacy auto-установщик
+
+Главный legacy-скрипт проекта:
 
 ```text
 xray_vless_failover_auto.sh
@@ -15,13 +49,13 @@ xray_vless_failover_auto.sh
 | Места достаточно | `full`-версию с подписками, failover, обновлением ссылок и служебными командами |
 | Места мало | `minimal`-версию для прямых `vless://` ссылок без тяжёлых зависимостей |
 
-В корне репозитория оставлены три публичных скрипта:
+В корне репозитория оставлены три публичных legacy-скрипта:
 
 | Скрипт | Назначение |
 | --- | --- |
-| `xray_vless_failover_auto.sh` | Рекомендуемый автоустановщик. Сам выбирает full или minimal по доступной памяти |
-| `xray_vless_failover.sh` | Full-установщик, который auto-скрипт использует при достаточном месте |
-| `xray_vless_failover_minimal.sh` | Minimal-установщик, который auto-скрипт предлагает при малом объёме `/opt` |
+| `xray_vless_failover_auto.sh` | Legacy автоустановщик. Сам выбирает full или minimal по доступной памяти |
+| `xray_vless_failover.sh` | Legacy full-установщик, который auto-скрипт использует при достаточном месте |
+| `xray_vless_failover_minimal.sh` | Legacy minimal-установщик, который auto-скрипт предлагает при малом объёме `/opt` |
 
 > Обычно вручную запускать `xray_vless_failover.sh` или `xray_vless_failover_minimal.sh` не нужно. Начинай с auto-установщика.
 
@@ -82,7 +116,7 @@ Minimal-режим предназначен для роутеров, где ма
 
 ## Установка
 
-Запусти на роутере через SSH:
+Запусти legacy auto-установщик на роутере через SSH:
 
 ```sh
 opkg update && opkg install curl ca-bundle && curl -fsSL -o /opt/tmp/xray_vless_failover_auto.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto.sh && sh -n /opt/tmp/xray_vless_failover_auto.sh && chmod +x /opt/tmp/xray_vless_failover_auto.sh && /opt/tmp/xray_vless_failover_auto.sh
