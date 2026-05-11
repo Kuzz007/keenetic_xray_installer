@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO_TAG="${REPO_TAG:-0.1.2-go-experimental}"
+REPO_TAG="${REPO_TAG:-0.1.3-go-experimental}"
 FEED_NAME="failover-go"
 FEED_URL="${FEED_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${REPO_TAG}}"
 FEED_DIR="/opt/etc/opkg"
