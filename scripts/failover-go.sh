@@ -16,6 +16,7 @@ GO_WATCHDOG_CMD="/opt/bin/vless-go-watchdog"
 GO_DOCTOR_CMD="/opt/bin/vless-go-doctor"
 GO_HISTORY_CMD="/opt/bin/vless-go-history"
 GO_CLEANUP_CMD="/opt/bin/vless-go-cleanup"
+GO_RECOVER_CMD="/opt/bin/vless-go-recover"
 GO_INSTALLER_UPDATE_CMD="/opt/bin/xray-go-installer-update"
 
 read_tty() {
@@ -106,6 +107,8 @@ show_status() {
     require_cmd "$GO_FAILOVER_CMD" && "$GO_FAILOVER_CMD" status || true
     echo
     require_cmd "$GO_WATCHDOG_CMD" && "$GO_WATCHDOG_CMD" status || true
+    echo
+    require_cmd "$GO_RECOVER_CMD" && "$GO_RECOVER_CMD" --mode full status || true
     echo
     pause
 }
@@ -229,6 +232,37 @@ configure_auto_update() {
     pause
 }
 
+configure_recovery() {
+    show_header
+    echo "[Тихое recovery-восстановление]"
+    require_cmd "$GO_RECOVER_CMD" || { pause; return 0; }
+    "$GO_RECOVER_CMD" --mode full status || true
+    echo
+    echo "1. Включить ежечасную recovery-проверку по умолчанию"
+    echo "2. Включить с собственным cron-расписанием"
+    echo "3. Отключить recovery-проверку"
+    echo "4. Запустить recovery ladder сейчас"
+    echo "5. Refresh Proxy0 сейчас"
+    echo "6. Restart Xray сейчас"
+    echo "7. Restart watchdog сейчас"
+    echo "0. Назад"
+    echo
+    read_tty "Выберите пункт: "
+    case "$REPLY" in
+        1) "$GO_RECOVER_CMD" --mode full enable-hourly ;;
+        2) read_tty "Введите cron-расписание, например '7 * * * *': "; [ -n "$REPLY" ] && "$GO_RECOVER_CMD" --mode full enable-hourly "$REPLY" || echo "Отменено." ;;
+        3) "$GO_RECOVER_CMD" --mode full disable-hourly ;;
+        4) "$GO_RECOVER_CMD" --mode full run ;;
+        5) "$GO_RECOVER_CMD" --mode full proxy0 ;;
+        6) "$GO_RECOVER_CMD" --mode full xray ;;
+        7) "$GO_RECOVER_CMD" --mode full watchdog ;;
+        0) return 0 ;;
+        *) echo "Неизвестный пункт." ;;
+    esac
+    echo
+    pause
+}
+
 toggle_recovery() {
     show_header
     echo "[Автовозврат с резервного на основной профиль]"
@@ -321,19 +355,20 @@ show_menu() {
     echo "Автоматизация"
     echo " 10. Настроить cron auto-update"
     echo " 11. Включить/выключить backup -> primary recovery"
+    echo " 12. Управление тихим hourly recovery"
     echo
     echo "Журналы"
-    echo " 12. Показать watchdog log"
-    echo " 13. Смотреть watchdog log в реальном времени"
-    echo " 14. Показать историю переключений"
-    echo " 15. Смотреть историю переключений в реальном времени"
+    echo " 13. Показать watchdog log"
+    echo " 14. Смотреть watchdog log в реальном времени"
+    echo " 15. Показать историю переключений"
+    echo " 16. Смотреть историю переключений в реальном времени"
     echo
     echo "Обслуживание"
-    echo " 16. Очистка места на /opt"
+    echo " 17. Очистка места на /opt"
     echo
     echo "Обновления"
-    echo " 17. Обновить Go edition"
-    echo " 18. Обновить Xray-core"
+    echo " 18. Обновить Go edition"
+    echo " 19. Обновить Xray-core"
     echo
     echo "  0. Выход"
     echo
@@ -343,6 +378,26 @@ while true; do
     show_menu
     read_tty "Выберите пункт: "
     case "$REPLY" in
-        1) show_status ;; 2) run_doctor ;; 3) switch_slot primary ;; 4) switch_slot backup ;; 5) replace_source primary ;; 6) replace_source backup ;; 7) set_slot_selector primary ;; 8) set_slot_selector backup ;; 9) update_all_sources ;; 10) configure_auto_update ;; 11) toggle_recovery ;; 12) show_watchdog_log ;; 13) follow_watchdog_log ;; 14) show_switch_history ;; 15) follow_switch_history ;; 16) run_cleanup ;; 17) update_go_edition ;; 18) update_xray_core ;; 0|q|Q|exit|quit|выход|Выход) exit 0 ;; *) echo "Неизвестный пункт."; sleep 1 ;;
+        1) show_status ;;
+        2) run_doctor ;;
+        3) switch_slot primary ;;
+        4) switch_slot backup ;;
+        5) replace_source primary ;;
+        6) replace_source backup ;;
+        7) set_slot_selector primary ;;
+        8) set_slot_selector backup ;;
+        9) update_all_sources ;;
+        10) configure_auto_update ;;
+        11) toggle_recovery ;;
+        12) configure_recovery ;;
+        13) show_watchdog_log ;;
+        14) follow_watchdog_log ;;
+        15) show_switch_history ;;
+        16) follow_switch_history ;;
+        17) run_cleanup ;;
+        18) update_go_edition ;;
+        19) update_xray_core ;;
+        0|q|Q|exit|quit|выход|Выход) exit 0 ;;
+        *) echo "Неизвестный пункт."; sleep 1 ;;
     esac
 done
