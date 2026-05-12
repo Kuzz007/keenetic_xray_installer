@@ -19,7 +19,7 @@ xray-go - единая команда управления Keenetic Xray Go edit
 
 Использование:
   xray-go status
-  xray-go doctor [--verbose]
+  xray-go doctor [--support|--verbose]
   xray-go menu
   xray-go history [--follow]
   xray-go logs watchdog [--follow]
@@ -30,6 +30,11 @@ xray-go - единая команда управления Keenetic Xray Go edit
   xray-go cleanup [--dry-run]
   xray-go version
   xray-go help
+
+Support mode:
+  xray-go doctor --support
+    Безопасный diagnostic output для отправки в поддержку.
+    Не включает verbose detail log, который может содержать метаданные профиля/сервера.
 
 Низкоуровневые команды остаются доступны:
   failover-go
@@ -58,6 +63,24 @@ show_status() {
     else
         echo "ПРЕДУПРЕЖДЕНИЕ: команда watchdog не найдена: $GO_WATCHDOG_CMD" >&2
     fi
+}
+
+run_doctor() {
+    need_exec "$GO_DOCTOR_CMD"
+    case "${1:-}" in
+        --support|support)
+            shift || true
+            if [ "$#" -gt 0 ]; then
+                echo "ОШИБКА: xray-go doctor --support не принимает дополнительные аргументы." >&2
+                exit 2
+            fi
+            echo "[INFO] Support mode: detail log не выводится; raw VLESS/subscription sources не печатаются."
+            "$GO_DOCTOR_CMD"
+            ;;
+        *)
+            "$GO_DOCTOR_CMD" "$@"
+            ;;
+    esac
 }
 
 show_history() {
@@ -121,8 +144,7 @@ case "${1:-help}" in
         ;;
     doctor)
         shift
-        need_exec "$GO_DOCTOR_CMD"
-        "$GO_DOCTOR_CMD" "$@"
+        run_doctor "$@"
         ;;
     menu)
         shift
