@@ -23,8 +23,8 @@ history_log() {
 }
 
 usage() {
-    echo "Usage: vless-go-failover COMMAND [ARGS]"
-    echo "Commands:"
+    echo "Использование: vless-go-failover КОМАНДА [АРГУМЕНТЫ]"
+    echo "Команды:"
     echo "  status"
     echo "  set-primary SRC [--selector first|index:N]"
     echo "  set-backup SRC [--selector first|index:N]"
@@ -67,18 +67,18 @@ validate_selector() {
 validate_source() {
     VALUE="$1"
     case "$VALUE" in
-        '') echo "ERROR: source must not be empty" >&2; return 1 ;;
+        '') echo "ОШИБКА: источник не должен быть пустым" >&2; return 1 ;;
     esac
 
     LINE_COUNT="$(printf '%s\n' "$VALUE" | wc -l | tr -d ' ')"
     if [ "$LINE_COUNT" != "1" ]; then
-        echo "ERROR: source must be a single line" >&2
+        echo "ОШИБКА: источник должен быть одной строкой" >&2
         return 1
     fi
 
     case "$VALUE" in
         vless://*|http://*|https://*) return 0 ;;
-        *) echo "ERROR: source must start with vless://, http://, or https://" >&2; return 1 ;;
+        *) echo "ОШИБКА: источник должен начинаться с vless://, http:// или https://" >&2; return 1 ;;
     esac
 }
 
@@ -100,12 +100,12 @@ slot_selector() {
 save_selector() {
     SLOT="$1"
     VALUE="${2:-first}"
-    validate_selector "$VALUE" || { echo "ERROR: invalid selector: $VALUE (supported: first, index:N)" >&2; exit 1; }
-    FILE="$(selector_file "$SLOT")" || { echo "ERROR: invalid slot: $SLOT" >&2; exit 1; }
+    validate_selector "$VALUE" || { echo "ОШИБКА: некорректный selector: $VALUE (поддерживается: first, index:N)" >&2; exit 1; }
+    FILE="$(selector_file "$SLOT")" || { echo "ОШИБКА: некорректный слот: $SLOT" >&2; exit 1; }
     mkdir -p "$XRAY_DIR"
     printf '%s\n' "$VALUE" > "$FILE"
     chmod 600 "$FILE" 2>/dev/null || true
-    echo "Saved $SLOT selector: $VALUE"
+    echo "Selector для $SLOT сохранён: $VALUE"
 }
 
 save_source() {
@@ -113,25 +113,25 @@ save_source() {
     VALUE="$2"
     SELECTOR="${3:-first}"
     validate_source "$VALUE" || exit 1
-    FILE="$(slot_file "$SLOT")" || { echo "ERROR: invalid slot: $SLOT" >&2; exit 1; }
+    FILE="$(slot_file "$SLOT")" || { echo "ОШИБКА: некорректный слот: $SLOT" >&2; exit 1; }
     mkdir -p "$XRAY_DIR"
     printf '%s\n' "$VALUE" > "$FILE"
     chmod 600 "$FILE" 2>/dev/null || true
-    echo "Saved $SLOT source: $FILE"
+    echo "Источник $SLOT сохранён: $FILE"
     save_selector "$SLOT" "$SELECTOR"
 }
 
 parse_set_args() {
     SET_SOURCE=""
     SET_SELECTOR="first"
-    [ "$#" -ge 1 ] || { echo "ERROR: source is required" >&2; exit 1; }
+    [ "$#" -ge 1 ] || { echo "ОШИБКА: требуется источник" >&2; exit 1; }
     SET_SOURCE="$1"
     validate_source "$SET_SOURCE" || exit 1
     shift
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --selector)
-                [ "$#" -ge 2 ] || { echo "ERROR: --selector requires value" >&2; exit 1; }
+                [ "$#" -ge 2 ] || { echo "ОШИБКА: --selector требует значение" >&2; exit 1; }
                 SET_SELECTOR="$2"
                 shift 2
                 ;;
@@ -139,7 +139,7 @@ parse_set_args() {
                 SET_SELECTOR="first"
                 shift
                 ;;
-            *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
+            *) echo "ОШИБКА: неизвестный аргумент: $1" >&2; usage >&2; exit 1 ;;
         esac
     done
 }
@@ -152,12 +152,12 @@ parse_update_flags() {
         case "$1" in
             --first) FIRST="1"; SELECTOR="first"; shift ;;
             --selector)
-                [ "$#" -ge 2 ] || { echo "ERROR: --selector requires value" >&2; exit 1; }
+                [ "$#" -ge 2 ] || { echo "ОШИБКА: --selector требует значение" >&2; exit 1; }
                 SELECTOR="$2"
                 shift 2
                 ;;
             --no-restart) NO_RESTART="1"; shift ;;
-            *) echo "ERROR: unknown flag: $1" >&2; usage >&2; exit 1 ;;
+            *) echo "ОШИБКА: неизвестный флаг: $1" >&2; usage >&2; exit 1 ;;
         esac
     done
 }
@@ -170,7 +170,7 @@ run_update() {
     parse_update_flags "$@"
 
     validate_source "$SOURCE_VALUE" || { history_log failed_update slot="$SLOT" reason=invalid_source; exit 1; }
-    [ -x "$GO_UPDATE_CMD" ] || { history_log failed_update slot="$SLOT" reason=missing_update_command; echo "ERROR: update command not found: $GO_UPDATE_CMD" >&2; exit 1; }
+    [ -x "$GO_UPDATE_CMD" ] || { history_log failed_update slot="$SLOT" reason=missing_update_command; echo "ОШИБКА: команда обновления не найдена: $GO_UPDATE_CMD" >&2; exit 1; }
 
     if [ -z "$SELECTOR" ]; then
         case "$SLOT" in
@@ -178,7 +178,7 @@ run_update() {
             *) SELECTOR="first" ;;
         esac
     fi
-    validate_selector "$SELECTOR" || { history_log failed_update slot="$SLOT" selector="$SELECTOR" reason=invalid_selector; echo "ERROR: invalid selector: $SELECTOR" >&2; exit 1; }
+    validate_selector "$SELECTOR" || { history_log failed_update slot="$SLOT" selector="$SELECTOR" reason=invalid_selector; echo "ОШИБКА: некорректный selector: $SELECTOR" >&2; exit 1; }
 
     vless_go_acquire_lock "vless-go-failover:$SLOT"
     trap 'vless_go_release_lock 2>/dev/null || true' EXIT INT TERM
@@ -211,36 +211,36 @@ run_update() {
         *) history_log "$ACTION" slot="$SLOT" selector="$SELECTOR" no_restart="$NO_RESTART" ;;
     esac
 
-    echo "Active VLESS slot: $SLOT"
-    echo "Active VLESS selector: $SELECTOR"
+    echo "Активный VLESS слот: $SLOT"
+    echo "Активный VLESS selector: $SELECTOR"
 }
 
 status() {
-    echo "Failover-lite status:"
-    [ -s "$ACTIVE_STORE" ] && echo "  active: $(sed -n '1p' "$ACTIVE_STORE")" || echo "  active: unknown"
+    echo "Статус failover-lite:"
+    [ -s "$ACTIVE_STORE" ] && echo "  активный слот: $(sed -n '1p' "$ACTIVE_STORE")" || echo "  активный слот: неизвестен"
     if [ -s "$PRIMARY_STORE" ]; then
-        echo "  primary: configured"
-        echo "  primary selector: $(slot_selector primary)"
+        echo "  основной профиль: настроен"
+        echo "  selector основного профиля: $(slot_selector primary)"
     else
-        echo "  primary: not configured"
+        echo "  основной профиль: не настроен"
     fi
     if [ -s "$BACKUP_STORE" ]; then
-        echo "  backup: configured"
-        echo "  backup selector: $(slot_selector backup)"
+        echo "  резервный профиль: настроен"
+        echo "  selector резервного профиля: $(slot_selector backup)"
     else
-        echo "  backup: not configured"
+        echo "  резервный профиль: не настроен"
     fi
-    [ -s "$SOURCE_STORE" ] && echo "  current source: configured" || echo "  current source: not configured"
+    [ -s "$SOURCE_STORE" ] && echo "  текущий источник: настроен" || echo "  текущий источник: не настроен"
 }
 
 case "${1:-status}" in
     status) status ;;
     set-primary) shift; parse_set_args "$@"; save_source primary "$SET_SOURCE" "$SET_SELECTOR" ;;
     set-backup) shift; parse_set_args "$@"; save_source backup "$SET_SOURCE" "$SET_SELECTOR" ;;
-    set-selector) shift; [ "$#" -ge 2 ] || { echo "ERROR: set-selector requires slot and selector" >&2; exit 1; }; save_selector "$1" "$2" ;;
-    switch) shift; [ "$#" -ge 1 ] || { echo "ERROR: switch requires primary or backup" >&2; exit 1; }; SLOT="$1"; shift; SOURCE_VALUE="$(slot_source "$SLOT")" || { history_log failed_switch to="$SLOT" reason=source_not_configured; echo "ERROR: $SLOT source is not configured" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "switch" "$@" ;;
-    update-active) shift; if [ -s "$ACTIVE_STORE" ]; then SLOT="$(sed -n '1p' "$ACTIVE_STORE")"; SOURCE_VALUE="$(slot_source "$SLOT" 2>/dev/null || true)"; else SLOT="current"; SOURCE_VALUE=""; fi; [ -n "$SOURCE_VALUE" ] || SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE" 2>/dev/null || true)"; [ -n "$SOURCE_VALUE" ] || { history_log failed_update reason=no_active_source; echo "ERROR: no active source found" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "update-active" "$@" ;;
-    sync-primary) [ -s "$SOURCE_STORE" ] || { echo "ERROR: current source is not configured" >&2; exit 1; }; save_source primary "$(sed -n '1p' "$SOURCE_STORE")" "first"; printf '%s\n' primary > "$ACTIVE_STORE"; chmod 600 "$ACTIVE_STORE" 2>/dev/null || true ;;
+    set-selector) shift; [ "$#" -ge 2 ] || { echo "ОШИБКА: set-selector требует слот и selector" >&2; exit 1; }; save_selector "$1" "$2" ;;
+    switch) shift; [ "$#" -ge 1 ] || { echo "ОШИБКА: switch требует primary или backup" >&2; exit 1; }; SLOT="$1"; shift; SOURCE_VALUE="$(slot_source "$SLOT")" || { history_log failed_switch to="$SLOT" reason=source_not_configured; echo "ОШИБКА: источник $SLOT не настроен" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "switch" "$@" ;;
+    update-active) shift; if [ -s "$ACTIVE_STORE" ]; then SLOT="$(sed -n '1p' "$ACTIVE_STORE")"; SOURCE_VALUE="$(slot_source "$SLOT" 2>/dev/null || true)"; else SLOT="current"; SOURCE_VALUE=""; fi; [ -n "$SOURCE_VALUE" ] || SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE" 2>/dev/null || true)"; [ -n "$SOURCE_VALUE" ] || { history_log failed_update reason=no_active_source; echo "ОШИБКА: активный источник не найден" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "update-active" "$@" ;;
+    sync-primary) [ -s "$SOURCE_STORE" ] || { echo "ОШИБКА: текущий источник не настроен" >&2; exit 1; }; save_source primary "$(sed -n '1p' "$SOURCE_STORE")" "first"; printf '%s\n' primary > "$ACTIVE_STORE"; chmod 600 "$ACTIVE_STORE" 2>/dev/null || true ;;
     -h|--help|help) usage ;;
-    *) echo "ERROR: unknown command: $1" >&2; usage >&2; exit 1 ;;
+    *) echo "ОШИБКА: неизвестная команда: $1" >&2; usage >&2; exit 1 ;;
 esac
