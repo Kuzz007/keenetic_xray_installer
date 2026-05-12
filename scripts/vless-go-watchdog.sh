@@ -38,7 +38,7 @@ DEFAULT_SCHEDULE="*/5 * * * *"
 [ -n "${CHECK_URLS:-}" ] || CHECK_URLS="$CHECK_URL"
 
 usage() {
-    echo "Usage: vless-go-watchdog check | daemon | status | enable [CRON_SCHEDULE] | disable | run-primary | run-backup | probe-primary"
+    echo "Использование: vless-go-watchdog check | daemon | status | enable [CRON] | disable | run-primary | run-backup | probe-primary"
 }
 
 log() {
@@ -68,7 +68,7 @@ get_xray_bin() {
 }
 
 ensure_failover_cmd() {
-    [ -x "$FAILOVER_CMD" ] || { log "ERROR: failover command not found: $FAILOVER_CMD"; exit 1; }
+    [ -x "$FAILOVER_CMD" ] || { log "ОШИБКА: команда failover не найдена: $FAILOVER_CMD"; exit 1; }
 }
 
 curl_check_url() {
@@ -93,7 +93,7 @@ curl_check_url() {
 
     ERR_MSG="$(tr '\n' ' ' < "$TMP_ERR" 2>/dev/null | sed 's/[[:space:]][[:space:]]*/ /g')"
     rm -f "$TMP_OUT" "$TMP_ERR" 2>/dev/null || true
-    log_detail "Health check URL failed rc=$RC url=$URL error=$ERR_MSG"
+    log_detail "Проверка endpoint не прошла rc=$RC url=$URL error=$ERR_MSG"
     return "$RC"
 }
 
@@ -107,7 +107,7 @@ check_socks_target_once() {
         fi
     done
 
-    log "Health check failed for all endpoints"
+    log "Проверка связи не прошла по всем endpoint"
     return 1
 }
 
@@ -118,12 +118,12 @@ check_socks_target() {
 
     while [ "$ATTEMPT" -le "$CHECK_RETRIES" ]; do
         if check_socks_target_once "$TARGET_HOST" "$TARGET_PORT"; then
-            [ "$ATTEMPT" = "1" ] || log "Health check OK on retry $ATTEMPT/$CHECK_RETRIES"
+            [ "$ATTEMPT" = "1" ] || log "Проверка связи OK после повтора $ATTEMPT/$CHECK_RETRIES"
             return 0
         fi
 
         if [ "$ATTEMPT" -lt "$CHECK_RETRIES" ]; then
-            log "Health check attempt $ATTEMPT/$CHECK_RETRIES failed; retrying in ${CHECK_RETRY_DELAY}s"
+            log "Попытка проверки $ATTEMPT/$CHECK_RETRIES не прошла; повтор через ${CHECK_RETRY_DELAY}s"
             sleep "$CHECK_RETRY_DELAY"
         fi
         ATTEMPT="$((ATTEMPT + 1))"
@@ -138,9 +138,9 @@ check_socks() {
 
 refresh_proxy0_if_needed() {
     [ "$PROXY0_REFRESH" = "1" ] || return 0
-    command -v ndmc >/dev/null 2>&1 || { log "Proxy0 refresh skipped: ndmc not found"; return 0; }
+    command -v ndmc >/dev/null 2>&1 || { log "Обновление Proxy0 пропущено: ndmc не найден"; return 0; }
 
-    log "Refreshing $PROXY_IFACE interface"
+    log "Перезапуск интерфейса $PROXY_IFACE"
     ndmc -c "interface $PROXY_IFACE down" >> "$DETAIL_LOG_FILE" 2>&1 || true
     sleep 1
     ndmc -c "interface $PROXY_IFACE up" >> "$DETAIL_LOG_FILE" 2>&1 || true
@@ -150,7 +150,7 @@ switch_to() {
     SLOT="$1"
     REASON="${2:-manual}"
     ensure_failover_cmd
-    log "Switching to $SLOT"
+    log "Переключение на $SLOT"
 
     TMP_SWITCH="/tmp/vless-go-watchdog.switch.$$"
     set +e
@@ -162,26 +162,26 @@ switch_to() {
     rm -f "$TMP_SWITCH" 2>/dev/null || true
 
     if [ "$RC" -ne 0 ]; then
-        log "ERROR: switch to $SLOT failed; see detail log."
+        log "ОШИБКА: переключение на $SLOT не удалось; см. detail log."
         history_log failed_switch source=watchdog reason="$REASON" to="$SLOT" rc="$RC"
         return "$RC"
     fi
 
-    log "Switch to $SLOT completed"
+    log "Переключение на $SLOT завершено"
     refresh_proxy0_if_needed
     if [ "$POST_SWITCH_DELAY" -gt 0 ] 2>/dev/null; then
-        log "Waiting ${POST_SWITCH_DELAY}s after switch"
+        log "Ожидание ${POST_SWITCH_DELAY}s после переключения"
         sleep "$POST_SWITCH_DELAY"
     fi
     return 0
 }
 
 probe_primary() {
-    [ -s "$PRIMARY_STORE" ] || { log "Primary source is not configured; cannot probe primary."; return 1; }
-    [ -x "$GO_RESOLVER" ] || { log "Go resolver/generator not found: $GO_RESOLVER"; return 1; }
+    [ -s "$PRIMARY_STORE" ] || { log "Основной источник не настроен; probe primary невозможен."; return 1; }
+    [ -x "$GO_RESOLVER" ] || { log "Go resolver/generator не найден: $GO_RESOLVER"; return 1; }
 
     XRAY_BIN="$(get_xray_bin)"
-    [ -n "$XRAY_BIN" ] || { log "Xray binary not found; cannot probe primary."; return 1; }
+    [ -n "$XRAY_BIN" ] || { log "Xray binary не найден; probe primary невозможен."; return 1; }
 
     PRIMARY_VALUE="$(sed -n '1p' "$PRIMARY_STORE")"
     TMP_CONFIG="/opt/tmp/vless-go-recovery-primary.$$.$RANDOM.json"
@@ -206,13 +206,13 @@ probe_primary() {
     RC="$?"
     set -e
     cat "$TMP_RESOLVER_LOG" >> "$DETAIL_LOG_FILE" 2>/dev/null || true
-    [ "$RC" -eq 0 ] || { log "Primary recovery probe config generation failed; see detail log."; cleanup_probe; return 1; }
+    [ "$RC" -eq 0 ] || { log "Генерация config для recovery probe основного профиля не прошла; см. detail log."; cleanup_probe; return 1; }
 
     set +e
     "$XRAY_BIN" run -test -config "$TMP_CONFIG" >> "$DETAIL_LOG_FILE" 2>&1
     RC="$?"
     set -e
-    [ "$RC" -eq 0 ] || { log "Primary recovery probe config validation failed; see detail log."; cleanup_probe; return 1; }
+    [ "$RC" -eq 0 ] || { log "Валидация config для recovery probe основного профиля не прошла; см. detail log."; cleanup_probe; return 1; }
 
     "$XRAY_BIN" run -config "$TMP_CONFIG" >"$TMP_XRAY_LOG" 2>&1 &
     TEST_PID="$!"
@@ -220,7 +220,7 @@ probe_primary() {
 
     if ! kill -0 "$TEST_PID" 2>/dev/null; then
         cat "$TMP_XRAY_LOG" >> "$DETAIL_LOG_FILE" 2>/dev/null || true
-        log "Primary recovery probe Xray did not start; see detail log."
+        log "Тестовый Xray для recovery probe не запустился; см. detail log."
         cleanup_probe
         return 1
     fi
@@ -238,24 +238,24 @@ probe_primary() {
 
 check_and_switch() {
     SLOT="$(active_slot)"
-    log "Checking active slot: $SLOT via SOCKS $SOCKS_HOST:$SOCKS_PORT"
+    log "Проверка активного слота: $SLOT через SOCKS $SOCKS_HOST:$SOCKS_PORT"
 
     if check_socks; then
-        log "Health check OK on $SLOT"
+        log "Проверка связи OK на $SLOT"
         return 0
     fi
 
-    log "Health check FAILED on $SLOT"
+    log "Проверка связи FAILED на $SLOT"
     if [ "$SLOT" = "primary" ]; then
-        [ -s "$BACKUP_STORE" ] || { log "Backup is not configured; cannot fail over."; return 1; }
+        [ -s "$BACKUP_STORE" ] || { log "Резервный профиль не настроен; failover невозможен."; return 1; }
         switch_to backup cron_failover
-        if check_socks; then log "Health check OK after switching to backup"; history_log daemon_failover from=primary to=backup result=ok source=cron; return 0; fi
-        log "Health check still FAILED after switching to backup"
+        if check_socks; then log "Проверка связи OK после переключения на backup"; history_log daemon_failover from=primary to=backup result=ok source=cron; return 0; fi
+        log "Проверка связи всё ещё FAILED после переключения на backup"
         history_log failed_switch source=cron from=primary to=backup reason=post_switch_health_failed
         return 1
     fi
 
-    log "Active slot is not primary; not switching automatically."
+    log "Активный слот не primary; автоматическое переключение не выполняется."
     return 1
 }
 
@@ -265,26 +265,26 @@ handle_daemon_primary() {
 
     if check_socks; then
         DAEMON_FAIL_COUNT="0"
-        log "Daemon health OK on primary"
+        log "Daemon health OK на primary"
         return 0
     fi
 
     DAEMON_FAIL_COUNT="$((DAEMON_FAIL_COUNT + 1))"
-    log "Daemon health FAIL on primary: $DAEMON_FAIL_COUNT/$FAILOVER_FAILURES_REQUIRED"
+    log "Daemon health FAIL на primary: $DAEMON_FAIL_COUNT/$FAILOVER_FAILURES_REQUIRED"
 
     if [ "$DAEMON_FAIL_COUNT" -ge "$FAILOVER_FAILURES_REQUIRED" ]; then
         if [ -s "$BACKUP_STORE" ]; then
-            log "Failover threshold reached; switching primary -> backup"
+            log "Достигнут порог failover; переключение primary -> backup"
             if switch_to backup daemon_failover && check_socks; then
-                log "Daemon failover to backup OK"
+                log "Daemon failover на backup OK"
                 history_log daemon_failover from=primary to=backup result=ok failures="$FAILOVER_FAILURES_REQUIRED"
                 DAEMON_RECOVERY_COOLDOWN="$RECOVERY_COOLDOWN_CYCLES"
             else
-                log "Daemon failover to backup did not pass health check"
+                log "Daemon failover на backup не прошёл health-check"
                 history_log failed_switch source=daemon from=primary to=backup reason=post_switch_health_failed
             fi
         else
-            log "Backup is not configured; cannot fail over."
+            log "Резервный профиль не настроен; failover невозможен."
             history_log failed_switch source=daemon from=primary to=backup reason=backup_not_configured
         fi
         DAEMON_FAIL_COUNT="0"
@@ -294,39 +294,39 @@ handle_daemon_primary() {
 handle_daemon_backup() {
     if check_socks; then
         DAEMON_BACKUP_FAIL_COUNT="0"
-        log "Daemon health OK on backup"
+        log "Daemon health OK на backup"
     else
         DAEMON_BACKUP_FAIL_COUNT="$((DAEMON_BACKUP_FAIL_COUNT + 1))"
         DAEMON_RECOVERY_SUCCESS_COUNT="0"
-        log "Daemon health FAIL on backup: $DAEMON_BACKUP_FAIL_COUNT consecutive failures; staying on backup and skipping primary recovery probe this cycle"
+        log "Daemon health FAIL на backup: подряд ошибок $DAEMON_BACKUP_FAIL_COUNT; остаёмся на backup и пропускаем probe primary в этом цикле"
         return 0
     fi
 
     [ "$AUTO_RECOVER_PRIMARY" = "1" ] || return 0
 
     if [ "$DAEMON_RECOVERY_COOLDOWN" -gt 0 ]; then
-        log "Primary recovery probe cooldown: $DAEMON_RECOVERY_COOLDOWN cycles remaining"
+        log "Cooldown recovery probe primary: осталось циклов $DAEMON_RECOVERY_COOLDOWN"
         DAEMON_RECOVERY_COOLDOWN="$((DAEMON_RECOVERY_COOLDOWN - 1))"
         return 0
     fi
 
-    log "Probing primary recovery on temporary SOCKS port $RECOVERY_TEST_PORT"
+    log "Проверка восстановления primary на временном SOCKS порту $RECOVERY_TEST_PORT"
     if probe_primary; then
         DAEMON_RECOVERY_SUCCESS_COUNT="$((DAEMON_RECOVERY_SUCCESS_COUNT + 1))"
-        log "Primary recovery probe OK: $DAEMON_RECOVERY_SUCCESS_COUNT/$RECOVERY_SUCCESSES_REQUIRED"
+        log "Recovery probe primary OK: $DAEMON_RECOVERY_SUCCESS_COUNT/$RECOVERY_SUCCESSES_REQUIRED"
     else
         DAEMON_RECOVERY_SUCCESS_COUNT="0"
-        log "Primary recovery probe FAILED"
+        log "Recovery probe primary FAILED"
         return 0
     fi
 
     if [ "$DAEMON_RECOVERY_SUCCESS_COUNT" -ge "$RECOVERY_SUCCESSES_REQUIRED" ]; then
-        log "Recovery threshold reached; switching backup -> primary"
+        log "Достигнут порог recovery; переключение backup -> primary"
         if switch_to primary daemon_recovery && check_socks; then
-            log "Daemon recovery to primary OK"
+            log "Daemon recovery на primary OK"
             history_log daemon_recovery from=backup to=primary result=ok successes="$RECOVERY_SUCCESSES_REQUIRED"
         else
-            log "Daemon recovery to primary did not pass health check"
+            log "Daemon recovery на primary не прошёл health-check"
             history_log failed_recovery source=daemon from=backup to=primary reason=post_switch_health_failed
         fi
         DAEMON_RECOVERY_SUCCESS_COUNT="0"
@@ -337,21 +337,21 @@ handle_daemon_backup() {
 run_daemon() {
     mkdir -p "$(dirname "$PID_FILE")" /opt/var/log
     echo "$$" > "$PID_FILE"
-    trap 'rm -f "$PID_FILE"; log "Daemon stopped"; exit 0' INT TERM
+    trap 'rm -f "$PID_FILE"; log "Daemon остановлен"; exit 0' INT TERM
 
     DAEMON_FAIL_COUNT="0"
     DAEMON_BACKUP_FAIL_COUNT="0"
     DAEMON_RECOVERY_SUCCESS_COUNT="0"
     DAEMON_RECOVERY_COOLDOWN="0"
 
-    log "Daemon started: interval=${WATCHDOG_INTERVAL}s failover_failures_required=$FAILOVER_FAILURES_REQUIRED check_retries=$CHECK_RETRIES auto_recover_primary=$AUTO_RECOVER_PRIMARY post_switch_delay=${POST_SWITCH_DELAY}s proxy0_refresh=$PROXY0_REFRESH"
+    log "Daemon запущен: interval=${WATCHDOG_INTERVAL}s failover_failures_required=$FAILOVER_FAILURES_REQUIRED check_retries=$CHECK_RETRIES auto_recover_primary=$AUTO_RECOVER_PRIMARY post_switch_delay=${POST_SWITCH_DELAY}s proxy0_refresh=$PROXY0_REFRESH"
 
     while true; do
         SLOT="$(active_slot)"
         case "$SLOT" in
             primary) handle_daemon_primary ;;
             backup) handle_daemon_backup ;;
-            *) log "Daemon active slot is unknown: $SLOT" ;;
+            *) log "Daemon: активный слот неизвестен: $SLOT" ;;
         esac
         sleep "$WATCHDOG_INTERVAL"
     done
@@ -377,46 +377,46 @@ enable_cron() {
     remove_cron
     printf '%s %s check >> %s 2>&1 # %s\n' "$SCHEDULE" "/opt/bin/vless-go-watchdog" "$LOG_FILE" "$MARKER" >> "$CRON_FILE"
     chmod 600 "$CRON_FILE" 2>/dev/null || true
-    echo "Enabled VLESS Go watchdog cron: $SCHEDULE"
+    echo "Cron watchdog включён: $SCHEDULE"
 }
 
 disable_cron() {
     remove_cron
-    echo "Disabled VLESS Go watchdog cron."
+    echo "Cron watchdog отключён."
 }
 
 daemon_status_line() {
     if [ -s "$PID_FILE" ]; then
         PID="$(cat "$PID_FILE" 2>/dev/null || true)"
-        if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then echo "running pid=$PID"; return 0; fi
+        if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then echo "запущен pid=$PID"; return 0; fi
     fi
-    echo "not running"
+    echo "не запущен"
 }
 
 status() {
     ensure_cron_files
-    echo "VLESS Go watchdog status:"
-    echo "  active: $(active_slot)"
-    [ -s "$PRIMARY_STORE" ] && echo "  primary: configured" || echo "  primary: not configured"
-    [ -s "$BACKUP_STORE" ] && echo "  backup: configured" || echo "  backup: not configured"
+    echo "Статус VLESS Go watchdog:"
+    echo "  активный слот: $(active_slot)"
+    [ -s "$PRIMARY_STORE" ] && echo "  основной профиль: настроен" || echo "  основной профиль: не настроен"
+    [ -s "$BACKUP_STORE" ] && echo "  резервный профиль: настроен" || echo "  резервный профиль: не настроен"
     echo "  SOCKS: $SOCKS_HOST:$SOCKS_PORT"
-    echo "  check URLs: $CHECK_URLS"
-    echo "  check retries: $CHECK_RETRIES"
-    echo "  check retry delay: ${CHECK_RETRY_DELAY}s"
-    echo "  daemon interval: ${WATCHDOG_INTERVAL}s"
-    echo "  failover failures required: $FAILOVER_FAILURES_REQUIRED"
-    echo "  recovery successes required: $RECOVERY_SUCCESSES_REQUIRED"
-    echo "  auto recover primary: $AUTO_RECOVER_PRIMARY"
-    echo "  recovery test port: $RECOVERY_TEST_PORT"
-    echo "  recovery cooldown cycles: $RECOVERY_COOLDOWN_CYCLES"
-    echo "  post switch delay: ${POST_SWITCH_DELAY}s"
-    echo "  Proxy0 refresh: $PROXY0_REFRESH"
+    echo "  URL проверки: $CHECK_URLS"
+    echo "  попыток проверки: $CHECK_RETRIES"
+    echo "  задержка между попытками: ${CHECK_RETRY_DELAY}s"
+    echo "  интервал daemon: ${WATCHDOG_INTERVAL}s"
+    echo "  ошибок до failover: $FAILOVER_FAILURES_REQUIRED"
+    echo "  успешных recovery probe: $RECOVERY_SUCCESSES_REQUIRED"
+    echo "  авто recovery primary: $AUTO_RECOVER_PRIMARY"
+    echo "  порт recovery test: $RECOVERY_TEST_PORT"
+    echo "  cooldown recovery: $RECOVERY_COOLDOWN_CYCLES"
+    echo "  задержка после переключения: ${POST_SWITCH_DELAY}s"
+    echo "  обновление Proxy0: $PROXY0_REFRESH"
     echo "  daemon: $(daemon_status_line)"
     echo "  config: $CONFIG_FILE"
     echo "  log: $LOG_FILE"
     echo "  detail log: $DETAIL_LOG_FILE"
-    if grep "# $MARKER" "$CRON_FILE" >/dev/null 2>&1; then echo "  cron: enabled"; grep "# $MARKER" "$CRON_FILE"; else echo "  cron: disabled"; fi
-    if ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then echo "  crond: running"; else echo "  crond: not running or not visible"; fi
+    if grep "# $MARKER" "$CRON_FILE" >/dev/null 2>&1; then echo "  cron: включён"; grep "# $MARKER" "$CRON_FILE"; else echo "  cron: отключён"; fi
+    if ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then echo "  crond: запущен"; else echo "  crond: не запущен или не виден"; fi
 }
 
 case "${1:-check}" in
@@ -425,9 +425,9 @@ case "${1:-check}" in
     status) status ;;
     enable) shift; enable_cron "${1:-}" ;;
     disable) disable_cron ;;
-    run-primary) switch_to primary manual; check_socks && { log "Health check OK on primary"; history_log manual_switch to=primary result=ok; } || { log "Health check FAILED on primary"; history_log failed_switch source=manual to=primary reason=health_failed; exit 1; } ;;
-    run-backup) switch_to backup manual; check_socks && { log "Health check OK on backup"; history_log manual_switch to=backup result=ok; } || { log "Health check FAILED on backup"; history_log failed_switch source=manual to=backup reason=health_failed; exit 1; } ;;
-    probe-primary) probe_primary && log "Primary recovery probe OK" || { log "Primary recovery probe FAILED"; exit 1; } ;;
+    run-primary) switch_to primary manual; check_socks && { log "Проверка связи OK на primary"; history_log manual_switch to=primary result=ok; } || { log "Проверка связи FAILED на primary"; history_log failed_switch source=manual to=primary reason=health_failed; exit 1; } ;;
+    run-backup) switch_to backup manual; check_socks && { log "Проверка связи OK на backup"; history_log manual_switch to=backup result=ok; } || { log "Проверка связи FAILED на backup"; history_log failed_switch source=manual to=backup reason=health_failed; exit 1; } ;;
+    probe-primary) probe_primary && log "Recovery probe primary OK" || { log "Recovery probe primary FAILED"; exit 1; } ;;
     -h|--help|help) usage ;;
-    *) echo "ERROR: unknown command: $1" >&2; usage >&2; exit 1 ;;
+    *) echo "ОШИБКА: неизвестная команда: $1" >&2; usage >&2; exit 1 ;;
 esac
