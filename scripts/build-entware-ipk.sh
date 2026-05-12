@@ -32,6 +32,7 @@ copy_readable() {
 }
 
 copy_exec "$ROOT_DIR/xray_vless_failover_go.sh" "$PKG_DIR/opt/bin/xray_vless_failover_go.sh"
+copy_exec "$ROOT_DIR/scripts/xray-go.sh" "$PKG_DIR/opt/bin/xray-go"
 copy_exec "$ROOT_DIR/scripts/failover-go.sh" "$PKG_DIR/opt/bin/failover-go"
 copy_exec "$ROOT_DIR/scripts/vless-go-update.sh" "$PKG_DIR/opt/bin/vless-go-update"
 copy_exec "$ROOT_DIR/scripts/vless-go-auto-update.sh" "$PKG_DIR/opt/bin/vless-go-auto-update"
