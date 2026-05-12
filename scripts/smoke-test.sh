@@ -3,9 +3,11 @@ set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 FAILURES=0
+WARNINGS=0
 
 info() { printf '%s\n' "$*"; }
 ok() { printf '[OK] %s\n' "$*"; }
+warn() { printf '[WARN] %s\n' "$*"; WARNINGS=$((WARNINGS + 1)); }
 fail() { printf '[FAIL] %s\n' "$*"; FAILURES=$((FAILURES + 1)); }
 
 check_file_exists() {
@@ -31,17 +33,17 @@ check_syntax() {
     fi
 }
 
-check_executable() {
+check_executable_hint() {
     path="$1"
     if [ ! -f "$ROOT_DIR/$path" ]; then
-        fail "executable check skipped, missing: $path"
+        warn "executable check skipped, missing: $path"
         return 0
     fi
 
     if [ -x "$ROOT_DIR/$path" ]; then
-        ok "executable: $path"
+        ok "executable in checkout: $path"
     else
-        fail "not executable: $path"
+        warn "not executable in checkout: $path"
     fi
 }
 
@@ -79,6 +81,7 @@ for path in \
 
 info ""
 info "== Runtime helper executable bits =="
+info "Executable bits are warnings because install/update/package flows chmod helpers during deployment."
 for path in \
     scripts/xray-go.sh \
     scripts/xray-go-installer-update.sh \
@@ -95,15 +98,15 @@ for path in \
     scripts/vless-go-web-install.sh \
     scripts/build-entware-ipk.sh
     do
-        check_executable "$path"
+        check_executable_hint "$path"
     done
 
 info ""
 info "== Summary =="
 if [ "$FAILURES" -eq 0 ]; then
-    ok "smoke test passed"
+    ok "smoke test passed with $WARNINGS warning(s)"
     exit 0
 fi
 
-fail "smoke test failed: $FAILURES issue(s)"
+fail "smoke test failed: $FAILURES issue(s), $WARNINGS warning(s)"
 exit 1
