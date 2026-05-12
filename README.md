@@ -41,6 +41,8 @@ xray-go menu
 Полезные команды Full Go/Entware:
 
 ```sh
+xray-go recover status
+xray-go recover enable-hourly
 xray-go history
 xray-go logs watchdog
 xray-go update
@@ -56,6 +58,7 @@ vless-go-doctor
 vless-go-failover
 vless-go-history
 vless-go-cleanup
+vless-go-recover
 vless-go-xray-core-update
 xray-go-installer-update
 ```
@@ -79,6 +82,50 @@ else
     echo "Go-команда статуса не найдена. Проверь вывод установщика."
 fi
 ```
+
+## Тихое восстановление без SSH
+
+Full Go/Entware включает recovery helper для случаев, когда Proxy0, Xray или watchdog зависли, но к роутеру не хочется подключаться по SSH вручную.
+
+Включить ежечасную тихую проверку:
+
+```sh
+xray-go recover enable-hourly
+```
+
+Проверить статус:
+
+```sh
+xray-go recover status
+```
+
+Отключить:
+
+```sh
+xray-go recover disable-hourly
+```
+
+Поведение hourly recovery:
+
+```text
+если SOCKS/Xray health OK:
+  ничего не делает и не шумит
+
+если health failed:
+  1. refresh Proxy0: interface Proxy0 down/up
+  2. restart Xray
+  3. restart watchdog
+  4. если active=primary и backup настроен — switch primary -> backup
+  5. если всё равно плохо — пишет в лог, но НЕ ребутит роутер автоматически
+```
+
+Лог действий recovery:
+
+```text
+/opt/var/log/vless-go-recover.log
+```
+
+Router reboot намеренно не выполняется автоматически, чтобы не получить reboot loop при внешней проблеме у провайдера, DNS или upstream-сервера.
 
 ## Optional Web UI
 
@@ -162,6 +209,7 @@ Full Go/Entware подходит для обычной установки на U
 - основной и резервный профиль;
 - автоматический failover;
 - возврат на основной профиль после восстановления;
+- тихое ежечасное recovery-восстановление Proxy0/Xray/watchdog;
 - обновление VLESS-ссылок;
 - обновление подписок;
 - автообновление подписок через cron;
@@ -205,6 +253,7 @@ Minimal Go предназначен для роутеров, где мало м�
 ```sh
 xray-go status
 xray-go doctor
+xray-go recover status
 ```
 
 Ручной SOCKS-check:
@@ -228,6 +277,12 @@ xray-go logs watchdog
 xray-go logs watchdog --follow
 xray-go history
 xray-go history --follow
+```
+
+Recovery log:
+
+```sh
+tail -n 80 /opt/var/log/vless-go-recover.log
 ```
 
 History не должен хранить raw VLESS URL, UUID, server address или subscription URL.
