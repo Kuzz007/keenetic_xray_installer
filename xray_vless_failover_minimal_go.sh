@@ -13,6 +13,7 @@ DAEMON="/opt/bin/xray-minimal-go-failover-daemon"
 STATUS_CMD="/opt/bin/minimal-go-status"
 SWITCH_CMD="/opt/bin/minimal-go-switch"
 UPDATE_CMD="/opt/bin/minimal-go-update"
+RECOVER_CMD="/opt/bin/vless-go-recover"
 
 PRIMARY_STORE="$XRAY_DIR/minimal-go-primary.url"
 BACKUP_STORE="$XRAY_DIR/minimal-go-backup.url"
@@ -28,12 +29,17 @@ CHECK_RETRIES="${CHECK_RETRIES:-2}"
 FAILOVER_FAILURES_REQUIRED="${FAILOVER_FAILURES_REQUIRED:-2}"
 RECOVERY_SUCCESSES_REQUIRED="${RECOVERY_SUCCESSES_REQUIRED:-2}"
 AUTO_RECOVER_PRIMARY="${AUTO_RECOVER_PRIMARY:-1}"
+ENABLE_HOURLY_RECOVERY="${ENABLE_HOURLY_RECOVERY:-1}"
+HOURLY_RECOVERY_SCHEDULE="${HOURLY_RECOVERY_SCHEDULE:-7 * * * *}"
 TEMP_HOST="127.0.0.1"
 TEMP_PRIMARY_PORT="19080"
 TEMP_BACKUP_PORT="19081"
 PROXY_IFACE="${PROXY_IFACE:-Proxy0}"
 TMP_DIR="/opt/tmp"
 GO_TAG="${GO_TAG:-latest}"
+REPO_BRANCH="${REPO_BRANCH:-main}"
+RAW_BASE="https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}"
+RECOVER_URL="${RECOVER_URL:-${RAW_BASE}/scripts/vless-go-recover.sh}"
 ASSUME_YES="${ASSUME_YES:-0}"
 
 usage() {
@@ -43,15 +49,19 @@ Usage: xray_vless_failover_minimal_go.sh [--yes]
 Minimal Go edition:
   - direct vless:// links only
   - primary/backup failover
+  - quiet hourly recovery for Proxy0/Xray/daemon
   - no python3
   - no Entware feed package
   - downloads only xray-failover-go from GitHub Release when missing
 
 Environment:
   GO_TAG=latest
+  REPO_BRANCH=main
   ASSUME_YES=1
   SOCKS_PORT=10808
   CHECK_INTERVAL=15
+  ENABLE_HOURLY_RECOVERY=1
+  HOURLY_RECOVERY_SCHEDULE='7 * * * *'
 USAGE
 }
 
@@ -75,9 +85,21 @@ get_xray_bin() { if command -v xray >/dev/null 2>&1; then command -v xray; elif 
 detect_entware_arch() { OPKG_BIN="$(opkg_bin)"; [ -n "$OPKG_BIN" ] || return 0; "$OPKG_BIN" print-architecture 2>/dev/null | awk '$2 != "all" && ($3+0) >= max { arch=$2; max=$3+0 } END { if (arch != "") print arch }'; }
 asset_name_for_arch() { case "$1" in aarch64-3.10|aarch64*|arm64) echo xray-failover-go-linux-arm64 ;; mips|mipsel|mipsel-*|mipsel_*|mipselsf-*|mipselsf_*|mipsel-3.4|mipsel-3.4_kn|mipselsf-k3.4|mipselsf-k3.4_kn) echo xray-failover-go-linux-mipsle ;; *) echo "" ;; esac; }
 
+ensure_cron() {
+    mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
+    touch /opt/var/spool/cron/crontabs/root 2>/dev/null || true
+    chmod 600 /opt/var/spool/cron/crontabs/root 2>/dev/null || true
+    if ! command -v crond >/dev/null 2>&1; then
+        opkg install cron >/dev/null 2>&1 || opkg install cronie >/dev/null 2>&1 || opkg install busybox-cron >/dev/null 2>&1 || echo "WARN: cron package not installed; hourly recovery may require manual cron setup."
+    fi
+    if command -v crond >/dev/null 2>&1 && ! ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then
+        if [ -x /opt/etc/init.d/S10cron ]; then /opt/etc/init.d/S10cron start >/dev/null 2>&1 || true; elif [ -x /opt/etc/init.d/S10crond ]; then /opt/etc/init.d/S10crond start >/dev/null 2>&1 || true; else crond -c /opt/var/spool/cron/crontabs >/dev/null 2>&1 || crond >/dev/null 2>&1 || true; fi
+    fi
+}
+
 install_packages() {
     command -v opkg >/dev/null 2>&1 || { echo "ERROR: opkg not found. Entware is required." >&2; exit 1; }
-    mkdir -p "$TMP_DIR" "$XRAY_DIR" /opt/bin /opt/var/log
+    mkdir -p "$TMP_DIR" "$XRAY_DIR" /opt/bin /opt/libexec /opt/var/log
     opkg update
     command -v curl >/dev/null 2>&1 || opkg install curl ca-bundle
     opkg install ca-bundle >/dev/null 2>&1 || true
@@ -85,6 +107,7 @@ install_packages() {
         echo "Installing xray-core/xray..."
         opkg install xray-core || opkg install xray || { echo "ERROR: failed to install xray." >&2; exit 1; }
     fi
+    ensure_cron
 }
 
 install_go_resolver() {
@@ -96,6 +119,18 @@ install_go_resolver() {
     echo "Downloading Go resolver: $URL"
     curl -fL -o "$GO_RESOLVER" "$URL"
     chmod +x "$GO_RESOLVER"
+}
+
+install_recover_helper() {
+    echo "Installing quiet recovery helper..."
+    tmp="$TMP_DIR/vless-go-recover.$$"
+    if [ -f scripts/vless-go-recover.sh ]; then
+        cp scripts/vless-go-recover.sh "$tmp"
+    else
+        curl -fL -o "$tmp" "$RECOVER_URL"
+    fi
+    mv "$tmp" "$RECOVER_CMD"
+    chmod +x "$RECOVER_CMD"
 }
 
 detect_lan_ip() {
@@ -158,19 +193,12 @@ TEMP_BACKUP_PORT="19081"
 
 get_xray_bin() { if command -v xray >/dev/null 2>&1; then command -v xray; elif [ -x /opt/sbin/xray ]; then echo /opt/sbin/xray; elif [ -x /opt/bin/xray ]; then echo /opt/bin/xray; else echo ""; fi; }
 write_history() { mkdir -p "$(dirname "$HISTORY_LOG")"; echo "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date) $*" >> "$HISTORY_LOG"; }
-
 source_for_slot() { case "$1" in primary) cat "$PRIMARY_STORE" ;; backup) cat "$BACKUP_STORE" ;; *) return 1 ;; esac; }
-
 generate_config() { slot="$1"; source="$2"; listen="$3"; port="$4"; output="$5"; "$GO_RESOLVER" -input "$source" -output "$output" -listen "$listen" -port "$port" -profile "vless-out" -first; }
-
 test_config() { bin="$(get_xray_bin)"; [ -n "$bin" ] || return 1; "$bin" run -test -config "$1" >/dev/null 2>&1 || "$bin" test -config "$1" >/dev/null 2>&1; }
-
 health_check() { host="$1"; port="$2"; for url in $CHECK_URLS; do curl -fsS --socks5-hostname "$host:$port" --connect-timeout 5 --max-time 10 "$url" >/dev/null 2>&1 && return 0; done; return 1; }
-
 wait_socks() { i=0; while [ "$i" -lt 10 ]; do netstat -lnt 2>/dev/null | grep -q ":$SOCKS_PORT" && return 0; sleep 1; i=$((i+1)); done; return 1; }
-
 switch_slot() { slot="$1"; source="$(source_for_slot "$slot")" || return 1; tmp="$TMP_DIR/minimal-go-$slot.$$.json"; old="$TMP_DIR/minimal-go-before-switch.$$.json"; generate_config "$slot" "$source" "$SOCKS_LISTEN" "$SOCKS_PORT" "$tmp" || return 1; test_config "$tmp" || return 1; cp "$XRAY_CONFIG" "$old" 2>/dev/null || true; cp "$tmp" "$XRAY_CONFIG"; chmod 600 "$XRAY_CONFIG" 2>/dev/null || true; "$XRAY_INIT" restart || "$XRAY_INIT" start || { [ -s "$old" ] && cp "$old" "$XRAY_CONFIG"; return 1; }; wait_socks || return 1; health_check "127.0.0.1" "$SOCKS_PORT" || return 1; echo "$slot" > "$ACTIVE_STORE"; write_history "switch target=$slot"; rm -f "$tmp" "$old"; }
-
 test_temp_slot() { slot="$1"; port="$2"; source="$(source_for_slot "$slot")" || return 1; tmp="$TMP_DIR/minimal-go-test-$slot.$$.json"; log="$TMP_DIR/minimal-go-test-$slot.$$.log"; bin="$(get_xray_bin)"; generate_config "$slot" "$source" "$TEMP_HOST" "$port" "$tmp" || return 1; test_config "$tmp" || return 1; "$bin" run -config "$tmp" >"$log" 2>&1 & pid="$!"; sleep 3; kill -0 "$pid" 2>/dev/null || { cat "$log" 2>/dev/null; return 1; }; health_check "$TEMP_HOST" "$port"; rc="$?"; kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; rm -f "$tmp" "$log"; return "$rc"; }
 COMMON
     chmod 644 /opt/libexec/minimal-go-common.sh
@@ -196,6 +224,7 @@ echo "  SOCKS: 127.0.0.1:$SOCKS_PORT"
 echo "  Xray: $([ -x "$XRAY_INIT" ] && "$XRAY_INIT" status 2>/dev/null | sed -n '1p' || echo init_missing)"
 echo "  health: $(health_check 127.0.0.1 "$SOCKS_PORT" && echo OK || echo FAIL)"
 echo "  history: $HISTORY_LOG"
+[ -x /opt/bin/vless-go-recover ] && /opt/bin/vless-go-recover --mode minimal status || true
 STATUS
     chmod +x "$STATUS_CMD"
 
@@ -273,8 +302,15 @@ INIT
     chmod +x "$FAILOVER_INIT"
 }
 
+enable_hourly_recovery_default() {
+    [ "$ENABLE_HOURLY_RECOVERY" = "1" ] || return 0
+    [ -x "$RECOVER_CMD" ] || return 0
+    "$RECOVER_CMD" --mode minimal enable-hourly "$HOURLY_RECOVERY_SCHEDULE" >/dev/null 2>&1 || echo "WARN: failed to enable hourly recovery. Run: vless-go-recover --mode minimal enable-hourly"
+}
+
 install_packages
 install_go_resolver
+install_recover_helper
 
 if [ ! -s "$PRIMARY_STORE" ]; then
     ask_value "Primary vless:// URL: " PRIMARY_URL
@@ -304,6 +340,7 @@ confirm "Generate primary config and start Xray/Minimal Go failover"
 "$SWITCH_CMD" primary
 configure_proxy0
 "$FAILOVER_INIT" restart || "$FAILOVER_INIT" start || true
+enable_hourly_recovery_default
 
 echo ""
 echo "Minimal Go installed."
@@ -311,5 +348,7 @@ echo "Commands:"
 echo "  minimal-go-status"
 echo "  minimal-go-switch primary|backup"
 echo "  minimal-go-update primary|backup 'vless://...'"
+echo "  vless-go-recover --mode minimal status"
+echo "  vless-go-recover --mode minimal enable-hourly"
 echo "  /opt/etc/init.d/S25xray-minimal-go-failover restart"
 "$STATUS_CMD" || true

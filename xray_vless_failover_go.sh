@@ -42,6 +42,8 @@ START_WATCHDOG="${START_WATCHDOG:-1}"
 INSTALL_UPDATER="${INSTALL_UPDATER:-1}"
 INSTALL_DOCTOR="${INSTALL_DOCTOR:-1}"
 AUTO_RECOVER_PRIMARY="${AUTO_RECOVER_PRIMARY:-1}"
+ENABLE_HOURLY_RECOVERY="${ENABLE_HOURLY_RECOVERY:-1}"
+HOURLY_RECOVERY_SCHEDULE="${HOURLY_RECOVERY_SCHEDULE:-7 * * * *}"
 
 read_tty() { prompt="$1"; if [ -r /dev/tty ]; then printf "%s" "$prompt" >/dev/tty; IFS= read -r REPLY </dev/tty; else printf "%s" "$prompt" >&2; IFS= read -r REPLY; fi; }
 get_xray_bin() { if command -v xray >/dev/null 2>&1; then command -v xray; elif [ -x /opt/bin/xray ]; then echo "/opt/bin/xray"; else echo ""; fi; }
@@ -53,8 +55,8 @@ ensure_cron() {
     touch /opt/var/spool/cron/crontabs/root 2>/dev/null || true
     chmod 600 /opt/var/spool/cron/crontabs/root 2>/dev/null || true
     if ! command -v crond >/dev/null 2>&1; then
-        echo "Устанавливаю cron для опционального автообновления подписок..."
-        opkg install cron >/dev/null 2>&1 || opkg install cronie >/dev/null 2>&1 || opkg install busybox-cron >/dev/null 2>&1 || echo "ПРЕДУПРЕЖДЕНИЕ: cron установить не удалось. Для vless-go-auto-update enable может понадобиться ручная настройка cron."
+        echo "Устанавливаю cron для опционального автообновления/recovery..."
+        opkg install cron >/dev/null 2>&1 || opkg install cronie >/dev/null 2>&1 || opkg install busybox-cron >/dev/null 2>&1 || echo "ПРЕДУПРЕЖДЕНИЕ: cron установить не удалось. Для cron-команд может понадобиться ручная настройка cron."
     fi
     if command -v crond >/dev/null 2>&1 && ! ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then
         if [ -x /opt/etc/init.d/S10cron ]; then /opt/etc/init.d/S10cron start >/dev/null 2>&1 || true; elif [ -x /opt/etc/init.d/S10crond ]; then /opt/etc/init.d/S10crond start >/dev/null 2>&1 || true; else crond -c /opt/var/spool/cron/crontabs >/dev/null 2>&1 || crond >/dev/null 2>&1 || true; fi
@@ -105,13 +107,19 @@ install_watchdog() { echo "[9/12] Установка watchdog и recovery suppor
 start_watchdog() { echo "[10/12] Запуск watchdog..."; if [ "$START_WATCHDOG" = "1" ] && [ -x "$GO_WATCHDOG_INIT" ]; then "$GO_WATCHDOG_INIT" restart || "$GO_WATCHDOG_INIT" start || true; else echo "Watchdog не запущен. Запуск вручную: $GO_WATCHDOG_INIT start"; fi; }
 start_xray() { echo "[11/12] Проверка и запуск Xray..."; xray_bin="$(get_xray_bin)"; if [ -z "$xray_bin" ]; then echo "ОШИБКА: бинарник xray не найден." >&2; exit 1; fi; if ! "$xray_bin" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1; then "$xray_bin" test -config "$XRAY_CONFIG"; fi; "$INIT_SCRIPT" restart || "$INIT_SCRIPT" start; }
 
+enable_hourly_recovery_default() {
+    [ "$ENABLE_HOURLY_RECOVERY" = "1" ] || return 0
+    [ -x "$RECOVER_CMD" ] || return 0
+    "$RECOVER_CMD" --mode full enable-hourly "$HOURLY_RECOVERY_SCHEDULE" >/dev/null 2>&1 || echo "ПРЕДУПРЕЖДЕНИЕ: не удалось включить hourly recovery. Запуск вручную: xray-go recover enable-hourly"
+}
+
 final_summary() {
     echo "[12/12] Итоговая проверка установки..."
     echo; echo "Готово. Experimental Go edition установлена."; echo
     echo "Основные файлы:"; echo "  Xray config: $XRAY_CONFIG"; echo "  Go resolver/generator: $GO_RESOLVER"; echo "  Текущий источник: $SOURCE_STORE"; echo "  Основной источник: $PRIMARY_STORE"; echo "  Резервный источник: $BACKUP_STORE"; echo "  Активный слот: $ACTIVE_STORE"; echo "  Selector primary: $PRIMARY_SELECTOR"; echo "  Selector backup: $BACKUP_SELECTOR"; echo
     echo "Единая команда управления:"; echo "  Статус: xray-go status"; echo "  Диагностика: xray-go doctor"; echo "  Меню: xray-go menu"; echo "  Тихое восстановление: xray-go recover"; echo "  Ежечасная recovery-проверка: xray-go recover enable-hourly"; echo "  Обновить Go edition: xray-go update"; echo "  Обновить Xray-core: xray-go update-core"; echo
     echo "Команды управления:"; echo "  Единый wrapper: $XRAY_GO_CMD"; echo "  Меню: $MENU_CMD"; echo "  Обновить активную подписку: $GO_UPDATE_CMD"; echo "  Failover/switch: $GO_FAILOVER_CMD"; echo "  Auto-update cron: $GO_AUTO_UPDATE_CMD"; echo "  История переключений: $HISTORY_CMD"; echo "  Очистка места: $CLEANUP_CMD"; echo "  Тихое восстановление: $RECOVER_CMD"; echo "  Диагностика: $DOCTOR_CMD"; echo "  Обновить Go edition: $GO_INSTALLER_UPDATE_CMD"; echo "  Обновить Xray-core: $XRAY_CORE_UPDATE_CMD"; echo "  Watchdog: $GO_WATCHDOG_CMD"; echo "  Watchdog init: $GO_WATCHDOG_INIT"; echo "  Watchdog config: $GO_WATCHDOG_CONF"; echo "  Общий lock helper: $LOCK_HELPER"; echo
-    echo "Полезные команды:"; echo "  Открыть меню: xray-go menu"; echo "  Запустить диагностику: xray-go doctor"; echo "  Включить ежечасную тихую recovery-проверку: xray-go recover enable-hourly"; echo "  Проверить recovery-статус: xray-go recover status"; echo "  Очистить место на /opt: xray-go cleanup --dry-run && xray-go cleanup"; echo "  Включить ежедневное автообновление подписок: vless-go-auto-update enable"; echo "  Обновить установленную Go edition без повторного ввода ссылок: xray-go update"; echo "  Переключиться на backup: xray-go switch backup"; echo "  Статус watchdog: xray-go status"; echo
+    echo "Полезные команды:"; echo "  Открыть меню: xray-go menu"; echo "  Запустить диагностику: xray-go doctor"; echo "  Проверить recovery-статус: xray-go recover status"; echo "  Включить/переустановить ежечасную recovery-проверку: xray-go recover enable-hourly"; echo "  Очистить место на /opt: xray-go cleanup --dry-run && xray-go cleanup"; echo "  Включить ежедневное автообновление подписок: vless-go-auto-update enable"; echo "  Обновить установленную Go edition без повторного ввода ссылок: xray-go update"; echo "  Переключиться на backup: xray-go switch backup"; echo "  Статус watchdog: xray-go status"; echo
     echo "Если Proxy0 нужно привязать к конкретному IP роутера:"; echo "  PROXY_UPSTREAM_HOST=192.168.1.1 sh xray_vless_failover_go.sh"
 }
 
@@ -123,7 +131,7 @@ main() {
     printf '%s\n' "$INPUT_VALUE" > "$SOURCE_STORE"; printf '%s\n' "$INPUT_VALUE" > "$PRIMARY_STORE"; printf '%s\n' primary > "$ACTIVE_STORE"; printf '%s\n' first > "$PRIMARY_SELECTOR"; chmod 600 "$SOURCE_STORE" "$PRIMARY_STORE" "$ACTIVE_STORE" "$PRIMARY_SELECTOR" 2>/dev/null || true
     read_tty "Введите резервный VLESS link или subscription URL (опционально, Enter чтобы пропустить): "; BACKUP_VALUE="$REPLY"
     if [ -n "$BACKUP_VALUE" ]; then printf '%s\n' "$BACKUP_VALUE" > "$BACKUP_STORE"; printf '%s\n' first > "$BACKUP_SELECTOR"; chmod 600 "$BACKUP_STORE" "$BACKUP_SELECTOR" 2>/dev/null || true; echo "Резервный источник сохранён: $BACKUP_STORE"; else echo "Резервный источник пропущен. Добавить позже: vless-go-failover set-backup URL_OR_VLESS"; fi
-    resolve_initial_config; install_helpers; install_updater; install_doctor; create_xray_init; configure_proxy0; install_watchdog; start_watchdog; start_xray; final_summary
+    resolve_initial_config; install_helpers; install_updater; install_doctor; create_xray_init; configure_proxy0; install_watchdog; start_watchdog; start_xray; enable_hourly_recovery_default; final_summary
 }
 
 main "$@"
