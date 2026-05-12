@@ -8,6 +8,7 @@ GO_WATCHDOG_CMD="/opt/bin/vless-go-watchdog"
 GO_DOCTOR_CMD="/opt/bin/vless-go-doctor"
 GO_HISTORY_CMD="/opt/bin/vless-go-history"
 GO_CLEANUP_CMD="/opt/bin/vless-go-cleanup"
+GO_RECOVER_CMD="/opt/bin/vless-go-recover"
 GO_INSTALLER_UPDATE_CMD="/opt/bin/xray-go-installer-update"
 XRAY_CORE_UPDATE_CMD="/opt/bin/vless-go-xray-core-update"
 MENU_CMD="/opt/bin/failover-go"
@@ -24,6 +25,7 @@ xray-go - единая команда управления Keenetic Xray Go edit
   xray-go history [--follow]
   xray-go logs watchdog [--follow]
   xray-go logs history [--follow]
+  xray-go recover [status|enable-hourly|disable-hourly|proxy0|xray|watchdog]
   xray-go update [go|xray-core]
   xray-go update-core
   xray-go switch primary|backup
@@ -36,12 +38,20 @@ Support mode:
     Безопасный diagnostic output для отправки в поддержку.
     Не включает verbose detail log, который может содержать метаданные профиля/сервера.
 
+Recovery mode:
+  xray-go recover
+    Тихая self-healing проверка: если всё OK, ничего не делает.
+    При сбое: Proxy0 refresh -> Xray restart -> watchdog restart -> failover.
+  xray-go recover enable-hourly
+    Включить ежечасную тихую cron-проверку.
+
 Низкоуровневые команды остаются доступны:
   failover-go
   vless-go-doctor
   vless-go-failover
   vless-go-history
   vless-go-cleanup
+  vless-go-recover
   vless-go-xray-core-update
   xray-go-installer-update
 EOF
@@ -62,6 +72,12 @@ show_status() {
         "$GO_WATCHDOG_CMD" status || true
     else
         echo "ПРЕДУПРЕЖДЕНИЕ: команда watchdog не найдена: $GO_WATCHDOG_CMD" >&2
+    fi
+    echo
+    if [ -x "$GO_RECOVER_CMD" ]; then
+        "$GO_RECOVER_CMD" status || true
+    else
+        echo "ПРЕДУПРЕЖДЕНИЕ: команда recovery не найдена: $GO_RECOVER_CMD" >&2
     fi
 }
 
@@ -119,6 +135,20 @@ show_logs() {
     esac
 }
 
+run_recover() {
+    need_exec "$GO_RECOVER_CMD"
+    case "${1:-run}" in
+        "") "$GO_RECOVER_CMD" run ;;
+        status|enable-hourly|disable-hourly|proxy0|refresh-proxy0|xray|restart-xray|watchdog|restart-watchdog|run|check)
+            "$GO_RECOVER_CMD" "$@"
+            ;;
+        *)
+            echo "Использование: xray-go recover [status|enable-hourly|disable-hourly|proxy0|xray|watchdog]" >&2
+            exit 2
+            ;;
+    esac
+}
+
 run_update() {
     TARGET="${1:-go}"
     case "$TARGET" in
@@ -158,6 +188,10 @@ case "${1:-help}" in
     logs|log)
         shift
         show_logs "$@"
+        ;;
+    recover)
+        shift
+        run_recover "$@"
         ;;
     update)
         shift
