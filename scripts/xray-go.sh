@@ -37,6 +37,7 @@ Support mode:
   xray-go doctor --support
     Безопасный diagnostic output для отправки в поддержку.
     Не включает verbose detail log, который может содержать метаданные профиля/сервера.
+    Включает safe summary hourly recovery без raw VLESS/subscription sources.
 
 Recovery mode:
   xray-go recover
@@ -64,6 +65,16 @@ need_exec() {
     fi
 }
 
+show_recovery_summary() {
+    echo
+    echo "== Recovery =="
+    if [ -x "$GO_RECOVER_CMD" ]; then
+        "$GO_RECOVER_CMD" status || true
+    else
+        echo "[WARN] recovery helper не найден: $GO_RECOVER_CMD"
+    fi
+}
+
 show_status() {
     need_exec "$GO_FAILOVER_CMD"
     "$GO_FAILOVER_CMD" status || true
@@ -73,12 +84,7 @@ show_status() {
     else
         echo "ПРЕДУПРЕЖДЕНИЕ: команда watchdog не найдена: $GO_WATCHDOG_CMD" >&2
     fi
-    echo
-    if [ -x "$GO_RECOVER_CMD" ]; then
-        "$GO_RECOVER_CMD" status || true
-    else
-        echo "ПРЕДУПРЕЖДЕНИЕ: команда recovery не найдена: $GO_RECOVER_CMD" >&2
-    fi
+    show_recovery_summary
 }
 
 run_doctor() {
@@ -91,7 +97,10 @@ run_doctor() {
                 exit 2
             fi
             echo "[INFO] Support mode: detail log не выводится; raw VLESS/subscription sources не печатаются."
-            "$GO_DOCTOR_CMD"
+            DOCTOR_RC="0"
+            "$GO_DOCTOR_CMD" || DOCTOR_RC="$?"
+            show_recovery_summary
+            exit "$DOCTOR_RC"
             ;;
         *)
             "$GO_DOCTOR_CMD" "$@"
