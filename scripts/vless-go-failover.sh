@@ -68,8 +68,13 @@ validate_source() {
     VALUE="$1"
     case "$VALUE" in
         '') echo "ERROR: source must not be empty" >&2; return 1 ;;
-        *$'\n'*|*$'\r'*) echo "ERROR: source must be a single line" >&2; return 1 ;;
     esac
+
+    LINE_COUNT="$(printf '%s\n' "$VALUE" | wc -l | tr -d ' ')"
+    if [ "$LINE_COUNT" != "1" ]; then
+        echo "ERROR: source must be a single line" >&2
+        return 1
+    fi
 
     case "$VALUE" in
         vless://*|http://*|https://*) return 0 ;;
