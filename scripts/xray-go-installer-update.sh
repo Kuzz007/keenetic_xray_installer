@@ -19,6 +19,8 @@ GO_HISTORY_CMD="/opt/bin/vless-go-history"
 GO_HISTORY_URL="${GO_HISTORY_URL:-${RAW_BASE}/scripts/vless-go-history.sh}"
 GO_CLEANUP_CMD="/opt/bin/vless-go-cleanup"
 GO_CLEANUP_URL="${GO_CLEANUP_URL:-${RAW_BASE}/scripts/vless-go-cleanup.sh}"
+GO_RECOVER_CMD="/opt/bin/vless-go-recover"
+GO_RECOVER_URL="${GO_RECOVER_URL:-${RAW_BASE}/scripts/vless-go-recover.sh}"
 FAILOVER_GO_CMD="/opt/bin/failover-go"
 FAILOVER_GO_URL="${FAILOVER_GO_URL:-${RAW_BASE}/scripts/failover-go.sh}"
 XRAY_CORE_UPDATE_CMD="/opt/bin/vless-go-xray-core-update"
@@ -42,17 +44,9 @@ LOCK_HELD="0"
 
 detect_entware_arch() {
     OPKG_BIN=""
-    if command -v opkg >/dev/null 2>&1; then
-        OPKG_BIN="$(command -v opkg)"
-    elif [ -x /opt/bin/opkg ]; then
-        OPKG_BIN="/opt/bin/opkg"
-    fi
-
+    if command -v opkg >/dev/null 2>&1; then OPKG_BIN="$(command -v opkg)"; elif [ -x /opt/bin/opkg ]; then OPKG_BIN="/opt/bin/opkg"; fi
     if [ -n "$OPKG_BIN" ]; then
-        "$OPKG_BIN" print-architecture 2>/dev/null | awk '
-            $2 != "all" && ($3 + 0) >= max { arch = $2; max = $3 + 0 }
-            END { if (arch != "") print arch }
-        '
+        "$OPKG_BIN" print-architecture 2>/dev/null | awk '$2 != "all" && ($3 + 0) >= max { arch = $2; max = $3 + 0 } END { if (arch != "") print arch }'
     fi
 }
 
@@ -182,6 +176,7 @@ if [ "$NO_HELPERS" = "0" ]; then
     install_executable "$GO_AUTO_UPDATE_URL" "$GO_AUTO_UPDATE_CMD" "vless-go-auto-update helper"
     install_executable "$GO_HISTORY_URL" "$GO_HISTORY_CMD" "vless-go-history helper"
     install_executable "$GO_CLEANUP_URL" "$GO_CLEANUP_CMD" "vless-go-cleanup helper"
+    install_executable "$GO_RECOVER_URL" "$GO_RECOVER_CMD" "vless-go-recover helper"
 fi
 
 [ "$NO_MENU" = "0" ] && install_executable "$FAILOVER_GO_URL" "$FAILOVER_GO_CMD" "failover-go menu"
@@ -225,5 +220,6 @@ echo "Doctor command: $DOCTOR_CMD"
 echo "Lock helper: $LOCK_HELPER"
 echo "History command: $GO_HISTORY_CMD"
 echo "Cleanup command: $GO_CLEANUP_CMD"
+echo "Recovery command: $GO_RECOVER_CMD"
 echo "Menu command: $FAILOVER_GO_CMD"
 echo "Xray-core updater command: $XRAY_CORE_UPDATE_CMD"
