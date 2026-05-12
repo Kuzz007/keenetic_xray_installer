@@ -29,13 +29,16 @@ get_xray_bin() {
 }
 
 usage() {
-    echo "Usage: vless-go-update [--source URL_OR_VLESS] [--selector first|index:N] [--first] [--no-restart]"
+    echo "Usage: vless-go-update [--source URL_OR_VLESS] [--selector first|index:N] [--first] [--no-restart] [--verbose]"
     echo ""
     echo "Options:"
     echo "  --source VALUE      Replace saved VLESS/subscription source before updating."
     echo "  --selector VALUE    Select profile using first or index:N."
     echo "  --first             Select first profile without interactive prompt."
     echo "  --no-restart        Generate and validate config, but do not restart Xray."
+    echo "  --verbose           Show resolver profile/server metadata while generating config."
+    echo ""
+    echo "Default output avoids printing profile/server metadata. Use --verbose only for local debugging."
     echo ""
     echo "When --selector/--first are omitted, vless-go-update reads selector from:"
     echo "  /opt/etc/xray/vless-go.<active-slot>.selector"
@@ -44,6 +47,7 @@ usage() {
 
 FIRST="0"
 NO_RESTART="0"
+VERBOSE="0"
 NEW_SOURCE=""
 SELECTOR=""
 
@@ -66,6 +70,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         --no-restart)
             NO_RESTART="1"
+            shift
+            ;;
+        --verbose|-v)
+            VERBOSE="1"
             shift
             ;;
         -h|--help)
@@ -133,7 +141,8 @@ require_select_index_support() {
 
 SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE")"
 TMP_CONFIG="$TMP_DIR/config.vless-go-update.$$.json"
-trap 'rm -f "$TMP_CONFIG" 2>/dev/null || true; vless_go_release_lock 2>/dev/null || true' EXIT INT TERM
+RESOLVER_LOG="$TMP_DIR/vless-go-update.resolver.$$.log"
+trap 'rm -f "$TMP_CONFIG" "$RESOLVER_LOG" 2>/dev/null || true; vless_go_release_lock 2>/dev/null || true' EXIT INT TERM
 
 case "$SELECTOR" in
     first|'')
@@ -150,13 +159,26 @@ case "$SELECTOR" in
         ;;
 esac
 
+set +e
 "$GO_RESOLVER" \
     -input "$SOURCE_VALUE" \
     -output "$TMP_CONFIG" \
     -listen "$SOCKS_LISTEN" \
     -port "$SOCKS_PORT" \
     -profile "vless-out" \
-    "$@"
+    "$@" >"$RESOLVER_LOG" 2>&1
+RESOLVER_RC="$?"
+set -e
+
+if [ "$RESOLVER_RC" -ne 0 ]; then
+    echo "ERROR: Go resolver failed while generating config." >&2
+    [ -s "$RESOLVER_LOG" ] && sed 's/^/  /' "$RESOLVER_LOG" >&2
+    exit "$RESOLVER_RC"
+fi
+
+if [ "$VERBOSE" = "1" ] && [ -s "$RESOLVER_LOG" ]; then
+    cat "$RESOLVER_LOG"
+fi
 
 XRAY_BIN="$(get_xray_bin)"
 if [ -z "$XRAY_BIN" ]; then
