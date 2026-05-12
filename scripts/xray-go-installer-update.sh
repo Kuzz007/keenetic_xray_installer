@@ -41,22 +41,18 @@ TMP_DIR="/opt/tmp"
 LOCK_DIR="${VLESS_GO_LOCK_DIR:-/opt/var/run/vless-go.lock}"
 LOCK_WAIT="${VLESS_GO_LOCK_WAIT:-30}"
 LOCK_HELD="0"
+ENABLE_HOURLY_RECOVERY="${ENABLE_HOURLY_RECOVERY:-1}"
+HOURLY_RECOVERY_SCHEDULE="${HOURLY_RECOVERY_SCHEDULE:-7 * * * *}"
 
 detect_entware_arch() {
     OPKG_BIN=""
     if command -v opkg >/dev/null 2>&1; then OPKG_BIN="$(command -v opkg)"; elif [ -x /opt/bin/opkg ]; then OPKG_BIN="/opt/bin/opkg"; fi
-    if [ -n "$OPKG_BIN" ]; then
-        "$OPKG_BIN" print-architecture 2>/dev/null | awk '$2 != "all" && ($3 + 0) >= max { arch = $2; max = $3 + 0 } END { if (arch != "") print arch }'
-    fi
+    if [ -n "$OPKG_BIN" ]; then "$OPKG_BIN" print-architecture 2>/dev/null | awk '$2 != "all" && ($3 + 0) >= max { arch = $2; max = $3 + 0 } END { if (arch != "") print arch }'; fi
 }
 
 asset_name_for_arch() {
     ARCH="$1"
-    case "$ARCH" in
-        aarch64-3.10|aarch64*|arm64) echo "xray-failover-go-linux-arm64" ;;
-        mips|mipsel|mipsel-*|mipsel_*|mipselsf-*|mipselsf_*|mipsel-3.4|mipsel-3.4_kn|mipselsf-k3.4|mipselsf-k3.4_kn) echo "xray-failover-go-linux-mipsle" ;;
-        *) echo "" ;;
-    esac
+    case "$ARCH" in aarch64-3.10|aarch64*|arm64) echo "xray-failover-go-linux-arm64" ;; mips|mipsel|mipsel-*|mipsel_*|mipselsf-*|mipselsf_*|mipsel-3.4|mipsel-3.4_kn|mipselsf-k3.4|mipselsf-k3.4_kn) echo "xray-failover-go-linux-mipsle" ;; *) echo "" ;; esac
 }
 
 ENTWARE_ARCH="${ENTWARE_ARCH:-$(detect_entware_arch)}"
@@ -79,6 +75,10 @@ usage() {
     echo "  --no-menu                Не устанавливать/обновлять /opt/bin/failover-go."
     echo "  --no-xray-core-updater   Не устанавливать/обновлять /opt/bin/vless-go-xray-core-update."
     echo "  --first                  Пересобрать активный Xray config с первым профилем подписки."
+    echo ""
+    echo "Environment:"
+    echo "  ENABLE_HOURLY_RECOVERY=0 disables automatic hourly recovery enablement."
+    echo "  HOURLY_RECOVERY_SCHEDULE='7 * * * *' overrides recovery cron schedule."
 }
 
 is_pid_alive() { PID="$1"; [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; }
@@ -102,8 +102,7 @@ acquire_lock() {
         cleanup_stale_lock
         NOW="$(date +%s)"; ELAPSED="$((NOW - START))"
         if [ "$ELAPSED" -ge "$LOCK_WAIT" ]; then
-            OWNER_TEXT="$(cat "$LOCK_DIR/owner" 2>/dev/null || echo unknown)"
-            PID_TEXT="$(cat "$LOCK_DIR/pid" 2>/dev/null || echo unknown)"
+            OWNER_TEXT="$(cat "$LOCK_DIR/owner" 2>/dev/null || echo unknown)"; PID_TEXT="$(cat "$LOCK_DIR/pid" 2>/dev/null || echo unknown)"
             echo "ERROR: VLESS Go lock is busy: owner=$OWNER_TEXT pid=$PID_TEXT path=$LOCK_DIR" >&2
             return 1
         fi
@@ -135,23 +134,8 @@ if ! command -v opkg >/dev/null 2>&1; then echo "ERROR: opkg not found. Entware 
 if ! command -v curl >/dev/null 2>&1; then opkg update; opkg install curl ca-bundle; else opkg install ca-bundle >/dev/null 2>&1 || true; fi
 mkdir -p /opt/bin /opt/libexec "$XRAY_DIR" "$TMP_DIR"
 
-install_executable() {
-    URL="$1"; DEST="$2"; NAME="$3"; TMP_FILE="$TMP_DIR/$(basename "$DEST").$$"
-    echo "Updating $NAME..."
-    curl -fL -o "$TMP_FILE" "$URL"
-    chmod +x "$TMP_FILE"
-    mv "$TMP_FILE" "$DEST"
-    chmod +x "$DEST"
-}
-
-install_readable_helper() {
-    URL="$1"; DEST="$2"; NAME="$3"; TMP_FILE="$TMP_DIR/$(basename "$DEST").$$"
-    echo "Updating $NAME..."
-    curl -fL -o "$TMP_FILE" "$URL"
-    chmod 644 "$TMP_FILE"
-    mv "$TMP_FILE" "$DEST"
-    chmod 644 "$DEST"
-}
+install_executable() { URL="$1"; DEST="$2"; NAME="$3"; TMP_FILE="$TMP_DIR/$(basename "$DEST").$$"; echo "Updating $NAME..."; curl -fL -o "$TMP_FILE" "$URL"; chmod +x "$TMP_FILE"; mv "$TMP_FILE" "$DEST"; chmod +x "$DEST"; }
+install_readable_helper() { URL="$1"; DEST="$2"; NAME="$3"; TMP_FILE="$TMP_DIR/$(basename "$DEST").$$"; echo "Updating $NAME..."; curl -fL -o "$TMP_FILE" "$URL"; chmod 644 "$TMP_FILE"; mv "$TMP_FILE" "$DEST"; chmod 644 "$DEST"; }
 
 if [ ! -s "$PRIMARY_STORE" ] && [ -s "$SOURCE_STORE" ]; then cp "$SOURCE_STORE" "$PRIMARY_STORE"; chmod 600 "$PRIMARY_STORE" 2>/dev/null || true; fi
 if [ ! -s "$ACTIVE_STORE" ]; then echo "primary" > "$ACTIVE_STORE"; chmod 600 "$ACTIVE_STORE" 2>/dev/null || true; fi
@@ -204,6 +188,11 @@ fi
 if [ "$NO_RESTART" = "0" ]; then
     [ -x "$XRAY_INIT" ] && "$XRAY_INIT" restart || "$XRAY_INIT" start || true
     [ -x "$WATCHDOG_INIT" ] && "$WATCHDOG_INIT" restart || "$WATCHDOG_INIT" start || true
+fi
+
+if [ "$ENABLE_HOURLY_RECOVERY" = "1" ] && [ -x "$GO_RECOVER_CMD" ]; then
+    echo "Ensuring hourly recovery is enabled..."
+    "$GO_RECOVER_CMD" --mode full enable-hourly "$HOURLY_RECOVERY_SCHEDULE" >/dev/null 2>&1 || echo "WARNING: failed to enable hourly recovery. Run: xray-go recover enable-hourly" >&2
 fi
 
 echo "Experimental Go edition updated."
