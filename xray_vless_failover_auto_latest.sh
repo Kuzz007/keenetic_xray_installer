@@ -19,15 +19,17 @@ MINIMAL_NEXT_TMP="/opt/tmp/xray_vless_failover_minimal_next.sh"
 THRESHOLD_KB="${THRESHOLD_KB:-80000}"
 EDITION="${EDITION:-auto}"
 ASSUME_YES="${ASSUME_YES:-0}"
+DRY_RUN="${DRY_RUN:-0}"
 
 usage() {
     cat <<'USAGE'
-Usage: xray_vless_failover_auto_latest.sh [--go|--minimal-go|--minimal-next|--auto] [--yes]
+Usage: xray_vless_failover_auto_latest.sh [--go|--minimal-go|--minimal-next|--auto] [--yes] [--dry-run]
 
 Environment overrides:
   EDITION=auto|go|minimal-go|minimal-next
   THRESHOLD_KB=80000
   ASSUME_YES=1
+  DRY_RUN=1
   REPO_BASE=https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main
   GO_FEED_URL=<url>
   MINIMAL_GO_URL=<url>
@@ -44,6 +46,7 @@ while [ "$#" -gt 0 ]; do
         --minimal-next|--legacy-minimal) EDITION="minimal-next"; shift ;;
         --auto) EDITION="auto"; shift ;;
         -y|--yes) ASSUME_YES="1"; shift ;;
+        --dry-run|--check|--print-selection) DRY_RUN="1"; shift ;;
         -h|--help|help) usage; exit 0 ;;
         *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -70,6 +73,30 @@ confirm_install() {
     esac
 }
 
+need_opkg() {
+    if ! command -v opkg >/dev/null 2>&1; then
+        echo "ERROR: opkg not found. Entware is required." >&2
+        exit 1
+    fi
+}
+
+ensure_curl() {
+    if command -v curl >/dev/null 2>&1; then
+        return 0
+    fi
+
+    echo "curl not found. Installing curl via Entware..."
+    need_opkg
+    opkg update
+    opkg install curl ca-certificates || opkg install curl
+
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "ERROR: failed to install curl." >&2
+        echo "Try manually: opkg update && opkg install curl" >&2
+        exit 1
+    fi
+}
+
 download_installer() {
     url="$1"
     output="$2"
@@ -90,21 +117,23 @@ download_installer() {
     chmod +x "$output"
 }
 
-if ! command -v curl >/dev/null 2>&1; then
-    echo "ERROR: curl not found." >&2
-    echo "Run: opkg update && opkg install curl ca-bundle" >&2
-    exit 1
-fi
+space_mb() {
+    kb="$1"
+    awk "BEGIN { printf \"%.1f\", $kb / 1024 }"
+}
 
-if ! command -v opkg >/dev/null 2>&1; then
-    echo "ERROR: opkg not found. Entware is required." >&2
-    exit 1
-fi
-
+need_opkg
+ensure_curl
 mkdir -p /opt/tmp
 
 FREE_KB="$(df -k /opt 2>/dev/null | awk 'NR==2 { print $4 }')"
-[ -n "$FREE_KB" ] || FREE_KB="0"
+case "$FREE_KB" in
+    ''|*[!0-9]*) FREE_KB="0" ;;
+esac
+
+case "$THRESHOLD_KB" in
+    ''|*[!0-9]*) echo "ERROR: THRESHOLD_KB must be numeric, got: $THRESHOLD_KB" >&2; exit 1 ;;
+esac
 
 case "$EDITION" in
     auto|go|minimal-go|minimal-next) ;;
@@ -115,18 +144,30 @@ esac
 if [ "$EDITION" = "auto" ]; then
     if [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
         SELECTED="minimal-go"
+        SELECT_REASON="free /opt space is below threshold"
     else
         SELECTED="go"
+        SELECT_REASON="free /opt space is at or above threshold"
     fi
 else
     SELECTED="$EDITION"
+    SELECT_REASON="explicit edition override"
 fi
 
+FREE_MB="$(space_mb "$FREE_KB")"
+THRESHOLD_MB="$(space_mb "$THRESHOLD_KB")"
+
 cat <<EOF
-Free /opt space: ${FREE_KB} KB
-Full/Go threshold: ${THRESHOLD_KB} KB
+Free /opt space: ${FREE_KB} KB (${FREE_MB} MB)
+Full/Go threshold: ${THRESHOLD_KB} KB (${THRESHOLD_MB} MB)
 Selected edition: $SELECTED
+Selection reason: $SELECT_REASON
 EOF
+
+if [ "$DRY_RUN" = "1" ]; then
+    echo "Dry run: installer selection only; no edition installer executed."
+    exit 0
+fi
 
 case "$SELECTED" in
     minimal-go)
@@ -164,8 +205,7 @@ cat <<'EOF'
 
 Go/Entware latest edition:
   - installs failover-go from GitHub Release feed
-  - auto-selects Entware architecture
-  - supports latest aarch64 and mipsel feeds
+  - auto-selects Entware architecture in feed bootstrap
   - includes vless-go-doctor, watchdog, updater and menu helpers
 EOF
 confirm_install "Go/Entware latest"
