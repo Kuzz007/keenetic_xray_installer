@@ -2,15 +2,15 @@
 
 Автоматический установщик Xray/VLESS Failover для роутеров Keenetic с Entware.
 
-## Экспериментальная установка: Auto Latest
+## Рекомендуемая установка: Auto Latest
 
-> **Экспериментальный скрипт.** Новый auto-установщик использует latest-канал и сам выбирает подходящую Go-линию установки.
->
-> - если места в `/opt` достаточно — ставит Full Go/Entware через latest feed;
-> - если места мало — ставит Minimal Go без `python3` и без Entware feed package;
-> - старые legacy-скрипты остаются доступными ниже и не заменены.
+Если ставишь впервые — используй **Auto Latest**. Он сам выбирает подходящую Go-линию установки:
 
-Рекомендуемая экспериментальная команда:
+- если места в `/opt` достаточно — ставит Full Go/Entware через latest feed;
+- если места мало — ставит Minimal Go без `python3` и без Entware feed package;
+- legacy-скрипты сохранены ниже для старых установок и ручного fallback.
+
+Рекомендуемая команда:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh | sh
@@ -28,11 +28,51 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh | sh -s -- --minimal-go
 ```
 
-После установки проверь состояние универсальной командой:
+## Что делать после установки
+
+Для Full Go/Entware основной вход — единая команда `xray-go`:
 
 ```sh
-if command -v vless-go-doctor >/dev/null 2>&1; then
-    vless-go-doctor
+xray-go status
+xray-go doctor
+xray-go menu
+```
+
+Полезные команды Full Go/Entware:
+
+```sh
+xray-go history
+xray-go logs watchdog
+xray-go update
+xray-go update-core
+xray-go cleanup --dry-run
+```
+
+Низкоуровневые команды также остаются доступны:
+
+```sh
+failover-go
+vless-go-doctor
+vless-go-failover
+vless-go-history
+vless-go-cleanup
+vless-go-xray-core-update
+xray-go-installer-update
+```
+
+Для Minimal Go используются лёгкие команды:
+
+```sh
+minimal-go-status
+minimal-go-switch primary
+minimal-go-switch backup
+```
+
+Если неизвестно, какая линия установилась, проверь так:
+
+```sh
+if command -v xray-go >/dev/null 2>&1; then
+    xray-go status
 elif command -v minimal-go-status >/dev/null 2>&1; then
     minimal-go-status
 else
@@ -40,11 +80,7 @@ else
 fi
 ```
 
-Меню Full Go/Entware запускается командой:
-
-```sh
-failover-go
-```
+## Optional Web UI
 
 Опциональный web-интерфейс для Full Go/Entware устанавливается отдельной командой:
 
@@ -74,15 +110,9 @@ chmod +x /opt/bin/vless-go-web-install
 
 Web-интерфейс должен быть доступен только в доверенной локальной сети. Подробности: `docs/web-ui.md`.
 
-Для Minimal Go используются лёгкие команды:
-
-```sh
-minimal-go-status
-minimal-go-switch primary
-minimal-go-switch backup
-```
-
 ## Legacy auto-установщик
+
+Legacy-скрипты сохранены для старых установок и случаев, когда не нужна новая Go-линия.
 
 Главный legacy-скрипт проекта:
 
@@ -105,24 +135,24 @@ xray_vless_failover_auto.sh
 | `xray_vless_failover.sh` | Legacy full-установщик, который auto-скрипт использует при достаточном месте |
 | `xray_vless_failover_minimal.sh` | Legacy minimal-установщик, который auto-скрипт предлагает при малом объёме `/opt` |
 
-> Обычно вручную запускать `xray_vless_failover.sh` или `xray_vless_failover_minimal.sh` не нужно. Начинай с auto-установщика.
+> Для новой установки обычно начинай с `xray_vless_failover_auto_latest.sh`. Legacy auto используй, если нужна старая линия без Go edition.
 
-## Возможности auto-установщика
+## Возможности Auto Latest
 
 - проверяет Entware и базовые пакеты;
 - определяет свободное место в `/opt`;
-- выбирает подходящий режим установки;
-- предлагает `full`, если памяти достаточно;
-- предлагает `minimal`, если памяти мало;
-- скачивает нужный installer из GitHub;
-- проверяет shell-синтаксис перед запуском;
-- запускает выбранный установщик.
+- выбирает Full Go/Entware или Minimal Go;
+- использует latest channel;
+- поддерживает dry-run/check mode;
+- показывает storage decision;
+- умеет bootstrap `curl`/`ca-bundle` на чистом Entware;
+- сохраняет legacy-скрипты доступными.
 
 ## Чем отличаются режимы
 
-### Full
+### Full Go/Entware
 
-Full-режим подходит для обычной установки на USB/SSD или при достаточном месте во встроенной памяти.
+Full Go/Entware подходит для обычной установки на USB/SSD или при достаточном месте во встроенной памяти.
 
 Поддерживает:
 
@@ -135,13 +165,19 @@ Full-режим подходит для обычной установки на U
 - обновление VLESS-ссылок;
 - обновление подписок;
 - автообновление подписок через cron;
-- команду обновления установщика;
-- меню `failover`;
+- watchdog;
+- doctor;
+- history;
+- cleanup;
+- обновление Go edition;
+- обновление Xray-core;
+- меню `failover-go`;
+- единый wrapper `xray-go`;
 - расширенный health-check.
 
-### Minimal
+### Minimal Go
 
-Minimal-режим предназначен для роутеров, где мало места в `/opt`.
+Minimal Go предназначен для роутеров, где мало места в `/opt`.
 
 Особенности:
 
@@ -162,95 +198,18 @@ Minimal-режим предназначен для роутеров, где ма
 - SSH-доступ к роутеру;
 - доступ в интернет с роутера.
 
-## Установка
-
-Запусти legacy auto-установщик на роутере через SSH:
-
-```sh
-opkg update && opkg install curl ca-bundle && curl -fsSL -o /opt/tmp/xray_vless_failover_auto.sh https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto.sh && sh -n /opt/tmp/xray_vless_failover_auto.sh && chmod +x /opt/tmp/xray_vless_failover_auto.sh && /opt/tmp/xray_vless_failover_auto.sh
-```
-
-После запуска auto-установщик покажет доступное место и предложит подходящий вариант.
-
-## Как работает failover
-
-Установщик использует два профиля:
-
-| Профиль | Назначение |
-| --- | --- |
-| Основной | основной VLESS или профиль из подписки в full-режиме |
-| Резервный | запасной VLESS или профиль из подписки в full-режиме |
-
-Сценарий работы:
-
-1. Пока основной профиль доступен, используется он.
-2. После заданного числа ошибок daemon проверяет резервный профиль.
-3. Если резервный профиль доступен, Xray переключается на него.
-4. Daemon продолжает проверять основной профиль.
-5. После восстановления основной профиль снова становится активным.
-
-## Команды после установки
-
-### Статус
-
-```sh
-vless-failover-status
-```
-
-или меню:
-
-```sh
-failover
-```
-
-### Управление Xray
-
-```sh
-/opt/etc/init.d/S24xray start
-/opt/etc/init.d/S24xray stop
-/opt/etc/init.d/S24xray restart
-/opt/etc/init.d/S24xray status
-```
-
-### Управление failover-daemon
-
-```sh
-/opt/etc/init.d/S25xray-failover start
-/opt/etc/init.d/S25xray-failover stop
-/opt/etc/init.d/S25xray-failover restart
-/opt/etc/init.d/S25xray-failover status
-```
-
-### Обновить VLESS-ссылки
-
-```sh
-vless-failover-update
-```
-
-### Обновить подписки
-
-Доступно в full-режиме:
-
-```sh
-vless-subscription-update
-```
-
-### Обновить установщик
-
-```sh
-failover-installer-update
-```
-
-Команда обновления установщика использует актуальный full installer:
-
-```text
-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover.sh
-```
-
 ## Проверка работы
 
+Для Full Go/Entware:
+
 ```sh
-vless-failover-status
+xray-go status
+xray-go doctor
+```
+
+Ручной SOCKS-check:
+
+```sh
 curl -k --socks5-hostname 192.168.1.1:10808 https://www.gstatic.com/generate_204 -o /dev/null -w 'http_code=%{http_code} time_total=%{time_total}\n'
 ```
 
@@ -260,17 +219,18 @@ curl -k --socks5-hostname 192.168.1.1:10808 https://www.gstatic.com/generate_204
 http_code=204
 ```
 
-## Логи
+## Логи и история
+
+Для Full Go/Entware:
 
 ```sh
-tail -f /opt/var/log/xray-vless-failover.log
+xray-go logs watchdog
+xray-go logs watchdog --follow
+xray-go history
+xray-go history --follow
 ```
 
-История переключений:
-
-```sh
-cat /opt/var/log/xray-vless-switch-history.log
-```
+History не должен хранить raw VLESS URL, UUID, server address или subscription URL.
 
 ## Если мало места в `/opt`
 
@@ -280,11 +240,23 @@ cat /opt/var/log/xray-vless-switch-history.log
 df -h /opt
 ```
 
-Очисти временные файлы и кэш Entware:
+Для Full Go/Entware сначала посмотри безопасный preview очистки:
+
+```sh
+xray-go cleanup --dry-run
+```
+
+Затем выполни очистку:
+
+```sh
+xray-go cleanup
+```
+
+Для legacy/manual cleanup:
 
 ```sh
 rm -rf /opt/tmp/* /opt/var/opkg-lists/* /opt/var/cache/*
 opkg update
 ```
 
-После очистки снова запусти auto-установщик. Он предложит full или minimal по текущему состоянию памяти.
+После очистки снова запусти Auto Latest. Он выберет Full Go/Entware или Minimal Go по текущему состоянию памяти.

@@ -5,6 +5,7 @@ XRAY_DIR="/opt/etc/xray"
 XRAY_CONFIG="$XRAY_DIR/config.json"
 INIT_SCRIPT="/opt/etc/init.d/S24xray"
 GO_RESOLVER="/opt/bin/xray-failover-go"
+XRAY_GO_CMD="/opt/bin/xray-go"
 GO_UPDATE_CMD="/opt/bin/vless-go-update"
 GO_AUTO_UPDATE_CMD="/opt/bin/vless-go-auto-update"
 GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
@@ -79,7 +80,7 @@ install_go_resolver() {
 }
 
 resolve_initial_config() { echo "[3/12] Разбор подписки и генерация Xray config..."; "$GO_RESOLVER" -input "$INPUT_VALUE" -output "$XRAY_CONFIG" -listen "$SOCKS_LISTEN" -port "$SOCKS_PORT" -profile "vless-out" -first; }
-install_helpers() { echo "[4/12] Установка helper-команд Go edition..."; install_script scripts/vless-go-lock.sh "$LOCK_HELPER" 644; install_script scripts/vless-go-update.sh "$GO_UPDATE_CMD" 755; install_script scripts/vless-go-auto-update.sh "$GO_AUTO_UPDATE_CMD" 755; install_script scripts/vless-go-failover.sh "$GO_FAILOVER_CMD" 755; install_script scripts/vless-go-history.sh "$HISTORY_CMD" 755; install_script scripts/vless-go-cleanup.sh "$CLEANUP_CMD" 755; install_script scripts/vless-go-xray-core-update.sh "$XRAY_CORE_UPDATE_CMD" 755; install_script scripts/failover-go.sh "$MENU_CMD" 755; }
+install_helpers() { echo "[4/12] Установка helper-команд Go edition..."; install_script scripts/vless-go-lock.sh "$LOCK_HELPER" 644; install_script scripts/xray-go.sh "$XRAY_GO_CMD" 755; install_script scripts/vless-go-update.sh "$GO_UPDATE_CMD" 755; install_script scripts/vless-go-auto-update.sh "$GO_AUTO_UPDATE_CMD" 755; install_script scripts/vless-go-failover.sh "$GO_FAILOVER_CMD" 755; install_script scripts/vless-go-history.sh "$HISTORY_CMD" 755; install_script scripts/vless-go-cleanup.sh "$CLEANUP_CMD" 755; install_script scripts/vless-go-xray-core-update.sh "$XRAY_CORE_UPDATE_CMD" 755; install_script scripts/failover-go.sh "$MENU_CMD" 755; }
 install_updater() { echo "[5/12] Установка команды обновления Go edition..."; if [ "$INSTALL_UPDATER" = "0" ]; then echo "Установка updater пропущена: INSTALL_UPDATER=0."; return 0; fi; install_script scripts/xray-go-installer-update.sh "$GO_INSTALLER_UPDATE_CMD" 755; }
 install_doctor() { echo "[6/12] Установка диагностики doctor..."; if [ "$INSTALL_DOCTOR" = "0" ]; then echo "Установка doctor пропущена: INSTALL_DOCTOR=0."; return 0; fi; install_script scripts/vless-go-doctor.sh "$DOCTOR_CMD" 755; }
 create_xray_init() { echo "[7/12] Создание init-скрипта Xray..."; mkdir -p "$(dirname "$INIT_SCRIPT")"; cat > "$INIT_SCRIPT" <<INIT
@@ -107,8 +108,9 @@ final_summary() {
     echo "[12/12] Итоговая проверка установки..."
     echo; echo "Готово. Experimental Go edition установлена."; echo
     echo "Основные файлы:"; echo "  Xray config: $XRAY_CONFIG"; echo "  Go resolver/generator: $GO_RESOLVER"; echo "  Текущий источник: $SOURCE_STORE"; echo "  Основной источник: $PRIMARY_STORE"; echo "  Резервный источник: $BACKUP_STORE"; echo "  Активный слот: $ACTIVE_STORE"; echo "  Selector primary: $PRIMARY_SELECTOR"; echo "  Selector backup: $BACKUP_SELECTOR"; echo
-    echo "Команды управления:"; echo "  Меню: $MENU_CMD"; echo "  Обновить активную подписку: $GO_UPDATE_CMD"; echo "  Failover/switch: $GO_FAILOVER_CMD"; echo "  Auto-update cron: $GO_AUTO_UPDATE_CMD"; echo "  История переключений: $HISTORY_CMD"; echo "  Очистка места: $CLEANUP_CMD"; echo "  Диагностика: $DOCTOR_CMD"; echo "  Обновить Go edition: $GO_INSTALLER_UPDATE_CMD"; echo "  Обновить Xray-core: $XRAY_CORE_UPDATE_CMD"; echo "  Watchdog: $GO_WATCHDOG_CMD"; echo "  Watchdog init: $GO_WATCHDOG_INIT"; echo "  Watchdog config: $GO_WATCHDOG_CONF"; echo "  Общий lock helper: $LOCK_HELPER"; echo
-    echo "Полезные команды:"; echo "  Открыть меню: failover-go"; echo "  Запустить диагностику: vless-go-doctor"; echo "  Очистить место на /opt: vless-go-cleanup --dry-run && vless-go-cleanup"; echo "  Включить ежедневное автообновление подписок: vless-go-auto-update enable"; echo "  Обновить установленную Go edition без повторного ввода ссылок: xray-go-installer-update --first"; echo "  Переключиться на backup: vless-go-failover switch backup"; echo "  Статус watchdog: vless-go-watchdog status"; echo
+    echo "Единая команда управления:"; echo "  Статус: xray-go status"; echo "  Диагностика: xray-go doctor"; echo "  Меню: xray-go menu"; echo "  Обновить Go edition: xray-go update"; echo "  Обновить Xray-core: xray-go update-core"; echo
+    echo "Команды управления:"; echo "  Единый wrapper: $XRAY_GO_CMD"; echo "  Меню: $MENU_CMD"; echo "  Обновить активную подписку: $GO_UPDATE_CMD"; echo "  Failover/switch: $GO_FAILOVER_CMD"; echo "  Auto-update cron: $GO_AUTO_UPDATE_CMD"; echo "  История переключений: $HISTORY_CMD"; echo "  Очистка места: $CLEANUP_CMD"; echo "  Диагностика: $DOCTOR_CMD"; echo "  Обновить Go edition: $GO_INSTALLER_UPDATE_CMD"; echo "  Обновить Xray-core: $XRAY_CORE_UPDATE_CMD"; echo "  Watchdog: $GO_WATCHDOG_CMD"; echo "  Watchdog init: $GO_WATCHDOG_INIT"; echo "  Watchdog config: $GO_WATCHDOG_CONF"; echo "  Общий lock helper: $LOCK_HELPER"; echo
+    echo "Полезные команды:"; echo "  Открыть меню: xray-go menu"; echo "  Запустить диагностику: xray-go doctor"; echo "  Очистить место на /opt: xray-go cleanup --dry-run && xray-go cleanup"; echo "  Включить ежедневное автообновление подписок: vless-go-auto-update enable"; echo "  Обновить установленную Go edition без повторного ввода ссылок: xray-go update"; echo "  Переключиться на backup: xray-go switch backup"; echo "  Статус watchdog: xray-go status"; echo
     echo "Если Proxy0 нужно привязать к конкретному IP роутера:"; echo "  PROXY_UPSTREAM_HOST=192.168.1.1 sh xray_vless_failover_go.sh"
 }
 
