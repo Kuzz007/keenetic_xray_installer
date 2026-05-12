@@ -64,6 +64,24 @@ validate_selector() {
     esac
 }
 
+validate_source() {
+    VALUE="$1"
+    case "$VALUE" in
+        '') echo "ERROR: source must not be empty" >&2; return 1 ;;
+    esac
+
+    LINE_COUNT="$(printf '%s\n' "$VALUE" | wc -l | tr -d ' ')"
+    if [ "$LINE_COUNT" != "1" ]; then
+        echo "ERROR: source must be a single line" >&2
+        return 1
+    fi
+
+    case "$VALUE" in
+        vless://*|http://*|https://*) return 0 ;;
+        *) echo "ERROR: source must start with vless://, http://, or https://" >&2; return 1 ;;
+    esac
+}
+
 slot_source() {
     FILE="$(slot_file "$1")" || return 1
     [ -s "$FILE" ] || return 2
@@ -94,6 +112,7 @@ save_source() {
     SLOT="$1"
     VALUE="$2"
     SELECTOR="${3:-first}"
+    validate_source "$VALUE" || exit 1
     FILE="$(slot_file "$SLOT")" || { echo "ERROR: invalid slot: $SLOT" >&2; exit 1; }
     mkdir -p "$XRAY_DIR"
     printf '%s\n' "$VALUE" > "$FILE"
@@ -107,6 +126,7 @@ parse_set_args() {
     SET_SELECTOR="first"
     [ "$#" -ge 1 ] || { echo "ERROR: source is required" >&2; exit 1; }
     SET_SOURCE="$1"
+    validate_source "$SET_SOURCE" || exit 1
     shift
     while [ "$#" -gt 0 ]; do
         case "$1" in
@@ -149,6 +169,7 @@ run_update() {
     shift 3
     parse_update_flags "$@"
 
+    validate_source "$SOURCE_VALUE" || { history_log failed_update slot="$SLOT" reason=invalid_source; exit 1; }
     [ -x "$GO_UPDATE_CMD" ] || { history_log failed_update slot="$SLOT" reason=missing_update_command; echo "ERROR: update command not found: $GO_UPDATE_CMD" >&2; exit 1; }
 
     if [ -z "$SELECTOR" ]; then
@@ -170,12 +191,12 @@ run_update() {
     printf '%s\n' "$SLOT" > "$ACTIVE_STORE"
     chmod 600 "$ACTIVE_STORE" 2>/dev/null || true
 
-    ARGS="--source $SOURCE_VALUE --selector $SELECTOR"
-    [ "$NO_RESTART" = "0" ] || ARGS="$ARGS --no-restart"
-
     set +e
-    # shellcheck disable=SC2086
-    VLESS_GO_LOCK_HELD=1 "$GO_UPDATE_CMD" $ARGS
+    if [ "$NO_RESTART" = "1" ]; then
+        VLESS_GO_LOCK_HELD=1 "$GO_UPDATE_CMD" --source "$SOURCE_VALUE" --selector "$SELECTOR" --no-restart
+    else
+        VLESS_GO_LOCK_HELD=1 "$GO_UPDATE_CMD" --source "$SOURCE_VALUE" --selector "$SELECTOR"
+    fi
     RC="$?"
     set -e
 

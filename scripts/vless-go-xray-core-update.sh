@@ -9,11 +9,19 @@ TMP_DIR="/opt/tmp/vless-go-xray-core-update.$$"
 BACKUP_DIR="/opt/etc/xray/backups"
 RELEASES_API="https://api.github.com/repos/XTLS/Xray-core/releases"
 LATEST_API="https://api.github.com/repos/XTLS/Xray-core/releases/latest"
+LOCK_HELPER="/opt/libexec/vless-go-lock.sh"
 CHANNEL=""
 TAG_OVERRIDE=""
 ASSUME_YES="0"
 NO_RESTART="0"
 BACKUP_ENABLED=""
+
+if [ -s "$LOCK_HELPER" ]; then
+    . "$LOCK_HELPER"
+else
+    vless_go_acquire_lock() { return 0; }
+    vless_go_release_lock() { return 0; }
+fi
 
 usage() {
     echo "Usage: vless-go-xray-core-update [--channel stable|latest|prerelease] [--tag vX.Y.Z] [--yes] [--no-restart] [--backup|--no-backup]"
@@ -55,6 +63,20 @@ get_xray_bin() {
     else
         echo ""
     fi
+}
+
+test_xray_config_with() {
+    BIN="$1"
+    CONFIG="$2"
+    if "$BIN" run -test -config "$CONFIG" >/dev/null 2>&1; then
+        return 0
+    fi
+    if "$BIN" test -config "$CONFIG" >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "ERROR: Xray config validation failed: $CONFIG" >&2
+    "$BIN" run -test -config "$CONFIG" >&2 2>&1 || "$BIN" test -config "$CONFIG" >&2 2>&1 || true
+    return 1
 }
 
 detect_asset_name() {
@@ -231,8 +253,10 @@ if [ "$BACKUP_ENABLED" = "0" ]; then
     fi
 fi
 
+vless_go_acquire_lock "vless-go-xray-core-update"
+trap 'vless_go_release_lock 2>/dev/null || true; rm -rf "$TMP_DIR" 2>/dev/null || true' EXIT INT TERM
+
 mkdir -p "$TMP_DIR" "$BACKUP_DIR"
-trap 'rm -rf "$TMP_DIR" 2>/dev/null || true' EXIT INT TERM
 
 XRAY_BIN="$(get_xray_bin)"
 [ -n "$XRAY_BIN" ] || { echo "ERROR: xray binary not found" >&2; exit 1; }
@@ -280,7 +304,7 @@ echo "New Xray version:"
 
 echo "Testing new Xray with current config before replacing..."
 if [ -s "$XRAY_CONFIG" ]; then
-    "$NEW_XRAY" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1 || "$NEW_XRAY" test -config "$XRAY_CONFIG"
+    test_xray_config_with "$NEW_XRAY" "$XRAY_CONFIG"
 fi
 
 BACKUP_BIN=""
@@ -308,9 +332,7 @@ echo "Installed Xray version:"
 
 if [ -s "$XRAY_CONFIG" ]; then
     echo "Validating installed Xray config..."
-    if ! "$XRAY_BIN" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1; then
-        "$XRAY_BIN" test -config "$XRAY_CONFIG" || { rollback; exit 1; }
-    fi
+    test_xray_config_with "$XRAY_BIN" "$XRAY_CONFIG" || { rollback; exit 1; }
 fi
 
 if [ "$NO_RESTART" = "1" ]; then
