@@ -119,7 +119,7 @@ install_init() {
 
 ENABLED=yes
 PROCS=xray-go-agent-shell
-ARGS="-config $CONF >> $LOG 2>&1"
+ARGS="-config $CONF"
 PREARGS=""
 DESC="Xray Go Shell Agent"
 PATH=/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/usr/sbin:/usr/bin:/sbin:/bin

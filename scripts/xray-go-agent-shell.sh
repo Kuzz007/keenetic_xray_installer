@@ -34,13 +34,19 @@ json_get() {
   sed -n 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | json_unescape
 }
 
+failover_cmd() {
+  if have /opt/bin/vless-go-failover; then echo /opt/bin/vless-go-failover; return 0; fi
+  if have /opt/bin/failover; then echo /opt/bin/failover; return 0; fi
+  return 1
+}
+
 features() {
   out=""
-  if have /opt/bin/xray-go || have /opt/bin/vless-go-failover; then out="$out,status,switch"; fi
-  if have /opt/bin/vless-go-failover; then out="$out,source_update"; fi
-  if have /opt/bin/xray-go || have /opt/bin/vless-go-doctor; then out="$out,doctor"; fi
-  if have /opt/bin/xray-go || have /opt/bin/vless-go-history; then out="$out,history"; fi
-  if have /opt/bin/vless-go-watchdog || [ -f /opt/var/log/vless-go-watchdog.log ]; then out="$out,watchdog"; fi
+  if have /opt/bin/xray-go || failover_cmd >/dev/null 2>&1; then out="$out,status,switch"; fi
+  if failover_cmd >/dev/null 2>&1; then out="$out,source_update"; fi
+  if have /opt/bin/xray-go || have /opt/bin/vless-go-doctor || have /opt/bin/xray-doctor; then out="$out,doctor"; fi
+  if have /opt/bin/xray-go || have /opt/bin/vless-go-history || have /opt/bin/history; then out="$out,history"; fi
+  if have /opt/bin/vless-go-watchdog || have /opt/bin/watchdog || [ -f /opt/var/log/vless-go-watchdog.log ]; then out="$out,watchdog"; fi
   if have /opt/bin/xray-go || have /opt/bin/vless-go-recover; then out="$out,recovery"; fi
   out="${out#,}"
   [ -n "$out" ] || out="status"
@@ -49,7 +55,8 @@ features() {
 
 status_cmd() {
   if have /opt/bin/xray-go; then /opt/bin/xray-go status 2>&1; return $?; fi
-  if have /opt/bin/vless-go-failover; then /opt/bin/vless-go-failover status 2>&1; return $?; fi
+  fc="$(failover_cmd 2>/dev/null || true)"
+  if [ -n "$fc" ]; then "$fc" status 2>&1; return $?; fi
   echo "status command not found"
   return 1
 }
@@ -67,11 +74,12 @@ set_source() {
   source="$3"
   [ -n "$selector" ] || selector="first"
   [ -n "$source" ] || { echo "source is empty"; return 1; }
-  have /opt/bin/vless-go-failover || { echo "not found: /opt/bin/vless-go-failover"; return 1; }
+  fc="$(failover_cmd 2>/dev/null || true)"
+  [ -n "$fc" ] || { echo "not found: /opt/bin/vless-go-failover or /opt/bin/failover"; return 1; }
   mkdir -p /opt/etc/xray/source-backups
   old="/opt/etc/xray/vless-go.$slot"
   if [ -s "$old" ]; then cp "$old" "/opt/etc/xray/source-backups/$(date '+%Y%m%d-%H%M%S').$slot" 2>/dev/null || true; fi
-  /opt/bin/vless-go-failover "set-$slot" "$source" --selector "$selector" 2>&1
+  "$fc" "set-$slot" "$source" --selector "$selector" 2>&1
 }
 
 run_action() {
@@ -83,18 +91,18 @@ run_action() {
     doctor)
       if have /opt/bin/xray-go; then /opt/bin/xray-go doctor --support 2>&1
       elif have /opt/bin/vless-go-doctor; then /opt/bin/vless-go-doctor --support 2>&1
+      elif have /opt/bin/xray-doctor; then /opt/bin/xray-doctor --support 2>&1
       else echo "unsupported action on this router: $action"; return 1; fi ;;
     switch_primary)
       if have /opt/bin/xray-go; then /opt/bin/xray-go switch primary 2>&1
-      elif have /opt/bin/vless-go-failover; then /opt/bin/vless-go-failover switch primary 2>&1
-      else echo "unsupported action on this router: $action"; return 1; fi ;;
+      else fc="$(failover_cmd 2>/dev/null || true)"; [ -n "$fc" ] && "$fc" switch primary 2>&1 || { echo "unsupported action on this router: $action"; return 1; }; fi ;;
     switch_backup)
       if have /opt/bin/xray-go; then /opt/bin/xray-go switch backup 2>&1
-      elif have /opt/bin/vless-go-failover; then /opt/bin/vless-go-failover switch backup 2>&1
-      else echo "unsupported action on this router: $action"; return 1; fi ;;
+      else fc="$(failover_cmd 2>/dev/null || true)"; [ -n "$fc" ] && "$fc" switch backup 2>&1 || { echo "unsupported action on this router: $action"; return 1; }; fi ;;
     history)
       if have /opt/bin/xray-go; then /opt/bin/xray-go history 2>&1
       elif have /opt/bin/vless-go-history; then /opt/bin/vless-go-history 2>&1
+      elif have /opt/bin/history; then /opt/bin/history 2>&1
       else echo "unsupported action on this router: $action"; return 1; fi ;;
     watchdog_log) tail -n 100 /opt/var/log/vless-go-watchdog.log 2>/dev/null || true ;;
     recovery_log) tail -n 100 /opt/var/log/vless-go-recover.log 2>/dev/null || true ;;
