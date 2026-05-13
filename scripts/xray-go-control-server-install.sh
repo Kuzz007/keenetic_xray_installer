@@ -7,7 +7,8 @@ BIN="${BIN:-/usr/local/bin/xray-go-control-server}"
 CONF="${CONF:-/etc/xray-go-control-server.conf}"
 SERVICE="${SERVICE:-/etc/systemd/system/xray-go-control-server.service}"
 USER_NAME="${USER_NAME:-xraygo}"
-LISTEN_DEFAULT=":18090"
+LISTEN_PORT="${LISTEN_PORT:-18090}"
+LISTEN_DEFAULT="${LISTEN_DEFAULT:-}"
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -38,6 +39,33 @@ random_token() {
     dd if=/dev/urandom bs=24 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n'
   else
     date +%s | sha256sum | awk '{print $1}'
+  fi
+}
+
+public_ipv4() {
+  ip=""
+  if command -v curl >/dev/null 2>&1; then
+    ip="$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
+  fi
+  if [ -z "$ip" ] && command -v wget >/dev/null 2>&1; then
+    ip="$(wget -qO- --timeout=3 https://api.ipify.org 2>/dev/null || true)"
+  fi
+  case "$ip" in
+    *[!0-9.]*|""|*.*.*.*.*) ip="" ;;
+  esac
+  printf '%s' "$ip"
+}
+
+listen_default() {
+  if [ -n "$LISTEN_DEFAULT" ]; then
+    printf '%s' "$LISTEN_DEFAULT"
+    return
+  fi
+  ip="$(public_ipv4)"
+  if [ -n "$ip" ]; then
+    printf '%s:%s' "$ip" "$LISTEN_PORT"
+  else
+    printf ':%s' "$LISTEN_PORT"
   fi
 }
 
@@ -104,7 +132,7 @@ build_router_list() {
 }
 
 write_config() {
-  listen="$(ask 'Listen address' "$LISTEN_DEFAULT")"
+  listen="$(ask 'Listen address / external VPS address for router agents' "$(listen_default)")"
   bot_token="$(ask 'Telegram BOT_TOKEN from BotFather' '')"
   admin_id="$(ask 'Telegram ADMIN_USER_ID' '')"
   if [ -z "$bot_token" ] || [ -z "$admin_id" ]; then
@@ -176,7 +204,7 @@ main() {
   echo
   echo "Done. Checks:"
   echo "  systemctl status xray-go-control-server --no-pager"
-  echo "  curl -fsS http://127.0.0.1${LISTEN_DEFAULT}/health"
+  echo "  curl -fsS http://127.0.0.1:${LISTEN_PORT}/health"
   echo
   echo "Telegram commands after router agent connects:"
   echo "  /routers"
