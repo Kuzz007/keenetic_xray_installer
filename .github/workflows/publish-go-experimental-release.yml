@@ -14,6 +14,8 @@ on:
       - cmd/xray-failover-go/**
       - cmd/vless-go-web/**
       - cmd/xray-go-web/**
+      - cmd/xray-go-agent/**
+      - cmd/xray-go-control-server/**
       - .github/workflows/publish-go-experimental-release.yml
 
 permissions:
@@ -61,6 +63,30 @@ jobs:
           chmod +x "dist/vless-go-web-linux-mipsle"
           sha256sum "dist/vless-go-web-linux-mipsle" | tee "dist/vless-go-web-linux-mipsle.sha256"
 
+          CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=arm64 \
+            go build -trimpath -ldflags "-s -w" \
+            -o "dist/xray-go-agent-linux-arm64" ./cmd/xray-go-agent
+          chmod +x "dist/xray-go-agent-linux-arm64"
+          sha256sum "dist/xray-go-agent-linux-arm64" | tee "dist/xray-go-agent-linux-arm64.sha256"
+
+          CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=mipsle GOMIPS=softfloat \
+            go build -trimpath -ldflags "-s -w" \
+            -o "dist/xray-go-agent-linux-mipsle" ./cmd/xray-go-agent
+          chmod +x "dist/xray-go-agent-linux-mipsle"
+          sha256sum "dist/xray-go-agent-linux-mipsle" | tee "dist/xray-go-agent-linux-mipsle.sha256"
+
+          CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags "-s -w" \
+            -o "dist/xray-go-control-server-linux-amd64" ./cmd/xray-go-control-server
+          chmod +x "dist/xray-go-control-server-linux-amd64"
+          sha256sum "dist/xray-go-control-server-linux-amd64" | tee "dist/xray-go-control-server-linux-amd64.sha256"
+
+          CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=arm64 \
+            go build -trimpath -ldflags "-s -w" \
+            -o "dist/xray-go-control-server-linux-arm64" ./cmd/xray-go-control-server
+          chmod +x "dist/xray-go-control-server-linux-arm64"
+          sha256sum "dist/xray-go-control-server-linux-arm64" | tee "dist/xray-go-control-server-linux-arm64.sha256"
+
       - name: Create or update prerelease
         env:
           GH_TOKEN: ${{ github.token }}
@@ -72,13 +98,17 @@ jobs:
 
           Latest experimental Go edition build for Keenetic/Entware VLESS failover.
 
-          This release publishes Go resolver/generator and optional Web UI assets for supported Keenetic Entware targets:
+          This release publishes Go resolver/generator, optional Web UI, and experimental control-bot assets:
 
           ```text
           xray-failover-go-linux-arm64
           xray-failover-go-linux-mipsle
           vless-go-web-linux-arm64
           vless-go-web-linux-mipsle
+          xray-go-agent-linux-arm64
+          xray-go-agent-linux-mipsle
+          xray-go-control-server-linux-amd64
+          xray-go-control-server-linux-arm64
           ```
 
           Current package line: `v0.1.5-go-polish`.
@@ -89,16 +119,19 @@ jobs:
           - support-safe `xray-go doctor --support`
           - quiet hourly recovery helpers for Full Go and Minimal Go
           - recovery status in `xray-go status` and doctor support output
-          - rebuilt Web UI source aligned with `xray-go` and recovery workflow
+          - rebuilt Russian Web UI source aligned with `xray-go` and recovery workflow
           - Full Go Entware architecture detection for arm64 and mipsel/mipselsf
           - hardened Full Go installer downloads and ELF validation
           - shell smoke-test guardrails for installers and helper scripts
+          - experimental VPS control server and outbound router agent MVP
 
           Notes:
 
           - The Web UI should be used only in a trusted LAN.
+          - The control-bot assets are experimental and should be tested before production use.
+          - Router agents use outbound polling; no inbound router port is required.
           - Raw VLESS links, UUIDs, server addresses, and subscription URLs are not intentionally printed by support diagnostics.
-          - mipsel/mipselsf resolver and Web UI assets are built, but physical router validation is still pending when hardware is available.
+          - mipsel/mipselsf resolver, Web UI, and agent assets are built, but physical router validation is still pending when hardware is available.
           EOF
 
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
@@ -130,6 +163,14 @@ jobs:
           dist/vless-go-web-linux-arm64.sha256
           dist/vless-go-web-linux-mipsle
           dist/vless-go-web-linux-mipsle.sha256
+          dist/xray-go-agent-linux-arm64
+          dist/xray-go-agent-linux-arm64.sha256
+          dist/xray-go-agent-linux-mipsle
+          dist/xray-go-agent-linux-mipsle.sha256
+          dist/xray-go-control-server-linux-amd64
+          dist/xray-go-control-server-linux-amd64.sha256
+          dist/xray-go-control-server-linux-arm64
+          dist/xray-go-control-server-linux-arm64.sha256
           "
 
           for asset in $ASSETS; do
@@ -153,3 +194,7 @@ jobs:
           echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/xray-failover-go-linux-mipsle"
           echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/vless-go-web-linux-arm64"
           echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/vless-go-web-linux-mipsle"
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/xray-go-agent-linux-arm64"
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/xray-go-agent-linux-mipsle"
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/xray-go-control-server-linux-amd64"
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/xray-go-control-server-linux-arm64"
