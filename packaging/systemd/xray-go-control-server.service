@@ -1,0 +1,19 @@
+[Unit]
+Description=Xray Go Control Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/xray-go-control-server -config /etc/xray-go-control-server.conf
+Restart=always
+RestartSec=5
+User=xraygo
+Group=xraygo
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
