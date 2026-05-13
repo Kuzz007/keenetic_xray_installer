@@ -8,6 +8,56 @@ BIN="${BIN:-/opt/bin/xray-go-agent}"
 INIT="${INIT:-/opt/etc/init.d/S28xray-go-agent}"
 LOG="${LOG:-/opt/var/log/xray-go-agent.log}"
 
+ARG_SERVER_URL=""
+ARG_ROUTER_ID=""
+ARG_ROUTER_NAME=""
+ARG_AGENT_TOKEN=""
+ARG_POLL_INTERVAL=""
+
+usage() {
+  cat <<EOF
+Usage: xray-go-agent-install [options]
+
+Options:
+  --server-url URL       VPS control server URL, example http://1.2.3.4:18090
+  --router-id ID         Router ID from control bot, latin only
+  --router-name NAME     Router display name
+  --agent-token TOKEN    Agent token from control bot
+  --poll-interval SEC    Poll interval seconds, default 5
+  -h, --help             Show this help
+
+If required options are omitted, the installer asks interactively.
+EOF
+}
+
+parse_args() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --server-url)
+        [ "$#" -ge 2 ] || { echo "ERROR: --server-url requires value" >&2; exit 1; }
+        ARG_SERVER_URL="$2"; shift 2 ;;
+      --router-id)
+        [ "$#" -ge 2 ] || { echo "ERROR: --router-id requires value" >&2; exit 1; }
+        ARG_ROUTER_ID="$2"; shift 2 ;;
+      --router-name)
+        [ "$#" -ge 2 ] || { echo "ERROR: --router-name requires value" >&2; exit 1; }
+        ARG_ROUTER_NAME="$2"; shift 2 ;;
+      --agent-token)
+        [ "$#" -ge 2 ] || { echo "ERROR: --agent-token requires value" >&2; exit 1; }
+        ARG_AGENT_TOKEN="$2"; shift 2 ;;
+      --poll-interval)
+        [ "$#" -ge 2 ] || { echo "ERROR: --poll-interval requires value" >&2; exit 1; }
+        ARG_POLL_INTERVAL="$2"; shift 2 ;;
+      -h|--help)
+        usage; exit 0 ;;
+      *)
+        echo "ERROR: unknown argument: $1" >&2
+        usage >&2
+        exit 1 ;;
+    esac
+  done
+}
+
 ask() {
   prompt="$1"
   default="${2:-}"
@@ -21,6 +71,17 @@ ask() {
     value="$default"
   fi
   printf '%s' "$value"
+}
+
+value_or_ask() {
+  value="$1"
+  prompt="$2"
+  default="$3"
+  if [ -n "$value" ]; then
+    printf '%s' "$value"
+  else
+    ask "$prompt" "$default"
+  fi
 }
 
 detect_asset() {
@@ -65,19 +126,21 @@ write_config() {
   old_id="home"
   old_name="Дом"
   old_interval="5"
+  old_token="${AGENT_TOKEN:-}"
   if [ -f "$CONF" ]; then
     . "$CONF" || true
     old_server="${SERVER_URL:-$old_server}"
     old_id="${ROUTER_ID:-$old_id}"
     old_name="${ROUTER_NAME:-$old_name}"
+    old_token="${AGENT_TOKEN:-$old_token}"
     old_interval="${POLL_INTERVAL:-$old_interval}"
   fi
 
-  server_url="$(ask 'VPS control server URL, example http://1.2.3.4:18090' "$old_server")"
-  router_id="$(ask 'Router ID, latin only, same as VPS config' "$old_id")"
-  router_name="$(ask 'Router display name' "$old_name")"
-  agent_token="$(ask 'Agent token from VPS installer' "${AGENT_TOKEN:-}")"
-  poll_interval="$(ask 'Poll interval seconds' "$old_interval")"
+  server_url="$(value_or_ask "$ARG_SERVER_URL" 'VPS control server URL, example http://1.2.3.4:18090' "$old_server")"
+  router_id="$(value_or_ask "$ARG_ROUTER_ID" 'Router ID, latin only, same as VPS config' "$old_id")"
+  router_name="$(value_or_ask "$ARG_ROUTER_NAME" 'Router display name' "$old_name")"
+  agent_token="$(value_or_ask "$ARG_AGENT_TOKEN" 'Agent token from VPS control bot' "$old_token")"
+  poll_interval="$(value_or_ask "$ARG_POLL_INTERVAL" 'Poll interval seconds' "$old_interval")"
 
   if [ -z "$server_url" ] || [ -z "$router_id" ] || [ -z "$agent_token" ]; then
     echo "ERROR: SERVER_URL, ROUTER_ID and AGENT_TOKEN are required" >&2
@@ -117,6 +180,7 @@ EOF
 }
 
 main() {
+  parse_args "$@"
   mkdir -p /opt/etc/xray /opt/var/log
   install_binary
   write_config
