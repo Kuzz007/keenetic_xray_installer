@@ -119,7 +119,7 @@ BOT_TOKEN="${bot_token}"
 ADMIN_USER_ID="${admin_id}"
 ROUTERS="${routers}"
 EOF
-  install -m 0600 "$tmp" "$CONF"
+  install -m 0660 "$tmp" "$CONF"
   rm -f "$tmp"
   echo "Created config: $CONF"
 }
@@ -134,6 +134,8 @@ install_service() {
     useradd --system --no-create-home --shell /usr/sbin/nologin "$USER_NAME" 2>/dev/null || \
       useradd --system --no-create-home --shell /bin/false "$USER_NAME"
   fi
+  chown root:"$USER_NAME" "$CONF"
+  chmod 0660 "$CONF"
   cat > "$SERVICE" <<EOF
 [Unit]
 Description=Xray Go Control Server
@@ -179,6 +181,7 @@ main() {
   echo "  /routers"
   echo "  /status_home"
   echo "  /doctor_home"
+  echo "  /add_router dacha Dacha"
 }
 
 main "$@"
