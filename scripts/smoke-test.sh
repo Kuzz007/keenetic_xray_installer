@@ -33,6 +33,28 @@ check_syntax() {
     fi
 }
 
+check_contains() {
+    path="$1"
+    pattern="$2"
+    label="$3"
+    if grep -q "$pattern" "$ROOT_DIR/$path" 2>/dev/null; then
+        ok "$label"
+    else
+        fail "$label"
+    fi
+}
+
+check_not_contains() {
+    path="$1"
+    pattern="$2"
+    label="$3"
+    if grep -q "$pattern" "$ROOT_DIR/$path" 2>/dev/null; then
+        fail "$label"
+    else
+        ok "$label"
+    fi
+}
+
 check_executable_hint() {
     path="$1"
     if [ ! -f "$ROOT_DIR/$path" ]; then
@@ -60,6 +82,15 @@ for path in \
         check_file_exists "$path"
         check_syntax "$path"
     done
+
+info ""
+info "== Architecture guardrails =="
+check_contains xray_vless_failover_go.sh 'detect_entware_arch' "Full Go installer detects Entware architecture"
+check_contains xray_vless_failover_go.sh 'asset_name_for_arch' "Full Go installer maps architecture to Go asset"
+check_contains xray_vless_failover_go.sh 'xray-failover-go-linux-mipsle' "Full Go installer supports mipsle resolver asset"
+check_not_contains xray_vless_failover_go.sh 'GO_BINARY_URL="\${GO_BINARY_URL:-https://github.com/.*/xray-failover-go-linux-arm64}' "Full Go installer does not default to arm64-only resolver URL"
+check_contains scripts/xray-go-installer-update.sh 'asset_name_for_arch' "Go updater maps architecture to Go asset"
+check_contains xray_vless_failover_minimal_go.sh 'asset_name_for_arch' "Minimal Go installer maps architecture to Go asset"
 
 info ""
 info "== Helper scripts syntax =="
