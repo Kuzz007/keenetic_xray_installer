@@ -50,7 +50,37 @@ HOURLY_RECOVERY_SCHEDULE="${HOURLY_RECOVERY_SCHEDULE:-7 * * * *}"
 read_tty() { prompt="$1"; if [ -r /dev/tty ]; then printf "%s" "$prompt" >/dev/tty; IFS= read -r REPLY </dev/tty; else printf "%s" "$prompt" >&2; IFS= read -r REPLY; fi; }
 get_xray_bin() { if command -v xray >/dev/null 2>&1; then command -v xray; elif [ -x /opt/bin/xray ]; then echo "/opt/bin/xray"; else echo ""; fi; }
 copy_mode() { src="$1"; dst="$2"; mode="${3:-755}"; mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"; chmod "$mode" "$dst"; }
-install_script() { src="$1"; dst="$2"; mode="${3:-755}"; url="${RAW_BASE}/${src}"; mkdir -p "$(dirname "$dst")" "$TMP_DIR"; if [ -f "$src" ]; then copy_mode "$src" "$dst" "$mode"; return 0; fi; tmp="$TMP_DIR/$(basename "$dst").$$"; if ! curl -fL -o "$tmp" "$url"; then echo "ОШИБКА: не удалось установить $dst" >&2; echo "Источник: $url" >&2; rm -f "$tmp" 2>/dev/null || true; exit 1; fi; copy_mode "$tmp" "$dst" "$mode"; rm -f "$tmp" 2>/dev/null || true; }
+
+install_script() {
+    src="$1"
+    dst="$2"
+    mode="${3:-755}"
+    url="${RAW_BASE}/${src}"
+    mkdir -p "$(dirname "$dst")" "$TMP_DIR"
+
+    if [ -f "$src" ]; then
+        copy_mode "$src" "$dst" "$mode"
+        return 0
+    fi
+
+    tmp="$TMP_DIR/$(basename "$dst").$$"
+    attempt=1
+    while [ "$attempt" -le 3 ]; do
+        if curl -fL --retry 2 --retry-delay 3 -o "$tmp" "$url"; then
+            copy_mode "$tmp" "$dst" "$mode"
+            rm -f "$tmp" 2>/dev/null || true
+            return 0
+        fi
+        echo "ПРЕДУПРЕЖДЕНИЕ: попытка $attempt/3 скачать $(basename "$dst") не удалась." >&2
+        attempt=$((attempt + 1))
+        sleep 2
+    done
+
+    echo "ОШИБКА: не удалось установить $dst после 3 попыток" >&2
+    echo "Источник: $url" >&2
+    rm -f "$tmp" 2>/dev/null || true
+    exit 1
+}
 
 detect_entware_arch() {
     OPKG_BIN=""
@@ -120,8 +150,26 @@ install_go_resolver() {
     echo "Detected architecture: $ENTWARE_ARCH"
     echo "Go resolver asset: $GO_ASSET_NAME"
     if [ -x "$GO_RESOLVER" ]; then echo "Найден существующий бинарник: $GO_RESOLVER"; return 0; fi
+
+    tmp_bin="$TMP_DIR/$(basename "$GO_RESOLVER").$$"
     echo "Скачиваю Go binary: $GO_BINARY_URL"
-    if ! curl -fL -o "$GO_RESOLVER" "$GO_BINARY_URL"; then echo "ОШИБКА: не удалось скачать Go binary: $GO_BINARY_URL" >&2; echo "Ожидаемый GitHub Release asset: $GO_ASSET_NAME" >&2; echo "Release tag: $GO_EXPERIMENTAL_TAG" >&2; exit 1; fi
+    if ! curl -fL --retry 2 --retry-delay 3 -o "$tmp_bin" "$GO_BINARY_URL"; then
+        echo "ОШИБКА: не удалось скачать Go binary: $GO_BINARY_URL" >&2
+        echo "Ожидаемый GitHub Release asset: $GO_ASSET_NAME" >&2
+        echo "Release tag: $GO_EXPERIMENTAL_TAG" >&2
+        rm -f "$tmp_bin" "$GO_RESOLVER" 2>/dev/null || true
+        exit 1
+    fi
+
+    magic="$(dd if="$tmp_bin" bs=4 count=1 2>/dev/null | od -A n -t x1 | tr -d ' \n' || true)"
+    if [ "$magic" != "7f454c46" ]; then
+        echo "ОШИБКА: скачанный Go resolver не является ELF-бинарником." >&2
+        echo "Проверьте URL и наличие release asset для архитектуры: $GO_ASSET_NAME" >&2
+        rm -f "$tmp_bin" "$GO_RESOLVER" 2>/dev/null || true
+        exit 1
+    fi
+
+    mv "$tmp_bin" "$GO_RESOLVER"
     chmod +x "$GO_RESOLVER"
 }
 
@@ -142,13 +190,48 @@ DESC="Xray"
 INIT
 chmod +x "$INIT_SCRIPT"; }
 
-valid_auto_lan_ip() { awk 'NF && ($1 ~ /^192\.168\./ || $1 ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./) { print; exit }'; }
+valid_auto_lan_ip() { awk 'NF && ($1 ~ /^192\.168\./ || $1 ~ /^172\.(1[6-9]|2[0-9]|3[0-1])\./ || $1 ~ /^10\./) { print; exit }'; }
 detect_lan_router_ip() { if [ -n "$PROXY_UPSTREAM_HOST" ]; then echo "$PROXY_UPSTREAM_HOST"; return 0; fi; { ndmc -c "show interface Home" 2>/dev/null | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' || true; ndmc -c "show interface Bridge0" 2>/dev/null | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' || true; for dev in Home home Bridge0 bridge0 br0 br-lan lan0 lan1; do ip -4 addr show dev "$dev" 2>/dev/null | awk '/inet / { gsub(/\/.*/, "", $2); print $2 }'; done; ip -4 route show scope link 2>/dev/null | awk '/ src / { for (i=1; i<=NF; i++) if ($i == "src") print $(i+1) }'; } | valid_auto_lan_ip; }
-configure_proxy0() { echo "[8/12] Настройка Proxy0..."; if ! command -v ndmc >/dev/null 2>&1; then echo "ПРЕДУПРЕЖДЕНИЕ: ndmc не найден. Настройте Proxy0 вручную на SOCKS5 $SOCKS_LISTEN:$SOCKS_PORT."; return 0; fi; router_ip="$(detect_lan_router_ip | awk 'NF { print; exit }')"; router_ip="${router_ip:-127.0.0.1}"; ndmc -c "interface $PROXY_IFACE" || true; ndmc -c "interface $PROXY_IFACE proxy protocol socks5" || true; ndmc -c "interface $PROXY_IFACE proxy socks5-udp" || true; ndmc -c "interface $PROXY_IFACE proxy upstream $router_ip $SOCKS_PORT" || true; ndmc -c "interface $PROXY_IFACE description Xray-Go-Experimental" || true; ndmc -c "interface $PROXY_IFACE no ip global" || true; ndmc -c "interface $PROXY_IFACE up" || true; ndmc -c "system configuration save" || true; echo "$PROXY_IFACE -> SOCKS5 $router_ip:$SOCKS_PORT"; }
+configure_proxy0() {
+    echo "[8/12] Настройка Proxy0..."
+    if ! command -v ndmc >/dev/null 2>&1; then
+        echo "ПРЕДУПРЕЖДЕНИЕ: ndmc не найден. Настройте Proxy0 вручную на SOCKS5 $SOCKS_LISTEN:$SOCKS_PORT."
+        return 0
+    fi
+    router_ip="$(detect_lan_router_ip | awk 'NF { print; exit }')"
+    router_ip="${router_ip:-127.0.0.1}"
+    ndmc_ok="0"
+    ndmc -c "interface $PROXY_IFACE" && ndmc_ok="1" || true
+    ndmc -c "interface $PROXY_IFACE proxy protocol socks5" || true
+    ndmc -c "interface $PROXY_IFACE proxy socks5-udp" || true
+    ndmc -c "interface $PROXY_IFACE proxy upstream $router_ip $SOCKS_PORT" || true
+    ndmc -c "interface $PROXY_IFACE description Xray-Go-Experimental" || true
+    ndmc -c "interface $PROXY_IFACE no ip global" || true
+    ndmc -c "interface $PROXY_IFACE up" || true
+    ndmc -c "system configuration save" || true
+    if [ "$ndmc_ok" = "0" ]; then
+        echo "ПРЕДУПРЕЖДЕНИЕ: ndmc не смог создать/открыть $PROXY_IFACE. Настройте Proxy0 вручную на SOCKS5 $router_ip:$SOCKS_PORT." >&2
+    else
+        echo "$PROXY_IFACE -> SOCKS5 $router_ip:$SOCKS_PORT"
+    fi
+}
 
 install_watchdog() { echo "[9/12] Установка watchdog и recovery support..."; if [ "$INSTALL_WATCHDOG" = "0" ]; then echo "Установка watchdog пропущена: INSTALL_WATCHDOG=0."; return 0; fi; mkdir -p "$TMP_DIR" "$XRAY_DIR"; tmp_watchdog_installer="$TMP_DIR/xray_vless_go_watchdog_install.$$"; trap 'rm -f "$tmp_watchdog_installer" 2>/dev/null || true' EXIT INT TERM; if ! curl -fL -o "$tmp_watchdog_installer" "$WATCHDOG_INSTALL_URL"; then echo "ОШИБКА: не удалось скачать installer watchdog: $WATCHDOG_INSTALL_URL" >&2; exit 1; fi; chmod +x "$tmp_watchdog_installer"; WATCHDOG_BRANCH="$WATCHDOG_BRANCH" sh "$tmp_watchdog_installer"; if [ "$AUTO_RECOVER_PRIMARY" = "1" ] && [ -f "$GO_WATCHDOG_CONF" ]; then sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=1/' "$GO_WATCHDOG_CONF"; fi; }
 start_watchdog() { echo "[10/12] Запуск watchdog..."; if [ "$START_WATCHDOG" = "1" ] && [ -x "$GO_WATCHDOG_INIT" ]; then "$GO_WATCHDOG_INIT" restart || "$GO_WATCHDOG_INIT" start || true; else echo "Watchdog не запущен. Запуск вручную: $GO_WATCHDOG_INIT start"; fi; }
-start_xray() { echo "[11/12] Проверка и запуск Xray..."; xray_bin="$(get_xray_bin)"; if [ -z "$xray_bin" ]; then echo "ОШИБКА: бинарник xray не найден." >&2; exit 1; fi; if ! "$xray_bin" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1; then "$xray_bin" test -config "$XRAY_CONFIG"; fi; "$INIT_SCRIPT" restart || "$INIT_SCRIPT" start; }
+start_xray() {
+    echo "[11/12] Проверка и запуск Xray..."
+    xray_bin="$(get_xray_bin)"
+    if [ -z "$xray_bin" ]; then
+        echo "ОШИБКА: бинарник xray не найден." >&2
+        exit 1
+    fi
+    if ! "$xray_bin" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1; then
+        echo "ОШИБКА: config не прошёл проверку Xray:" >&2
+        "$xray_bin" run -test -config "$XRAY_CONFIG" >&2 2>&1 || "$xray_bin" test -config "$XRAY_CONFIG" >&2 2>&1 || true
+        exit 1
+    fi
+    "$INIT_SCRIPT" restart || "$INIT_SCRIPT" start
+}
 
 enable_hourly_recovery_default() { [ "$ENABLE_HOURLY_RECOVERY" = "1" ] || return 0; [ -x "$RECOVER_CMD" ] || return 0; "$RECOVER_CMD" --mode full enable-hourly "$HOURLY_RECOVERY_SCHEDULE" >/dev/null 2>&1 || echo "ПРЕДУПРЕЖДЕНИЕ: не удалось включить hourly recovery. Запуск вручную: xray-go recover enable-hourly"; }
 
