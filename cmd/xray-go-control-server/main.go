@@ -164,6 +164,12 @@ func (s *Server) handleTelegramUpdate(u tgUpdate) {
 	if u.Message.From.ID != s.cfg.AdminUserID { s.sendMessage(u.Message.Chat.ID, "Access denied"); return }
 	chatID := u.Message.Chat.ID
 	text := strings.TrimSpace(u.Message.Text)
+	if text == "/cancel" {
+		wizardCancel(chatID)
+		s.sendMessage(chatID, "Диалог отменён.")
+		return
+	}
+	if s.handleWizardText(chatID, text) { return }
 	if text == "/start" || text == "/menu" { s.sendMainMenu(chatID); return }
 	if text == "/help" { s.sendMessageWithKeyboard(chatID, helpText(), mainMenuKeyboard()); return }
 	if text == "/routers" { s.sendMessageWithKeyboard(chatID, s.routerList(), routersKeyboard(s.routerIDs())); return }
@@ -192,7 +198,13 @@ func (s *Server) handleCallback(cb *tgCallbackQuery) {
 	case data == "routers":
 		s.sendMessageWithKeyboard(chatID, s.routerList(), routersKeyboard(s.routerIDs()))
 	case data == "add_router_help":
-		s.sendMessageWithKeyboard(chatID, "Добавление роутера:\n/add_router <router_id> [имя]\n\nПример:\n/add_router dacha Дача", mainMenuKeyboard())
+		s.startAddRouterWizard(chatID)
+	case strings.HasPrefix(data, "sources:"):
+		routerID := strings.TrimPrefix(data, "sources:")
+		s.sendSourceMenu(chatID, routerID)
+	case strings.HasPrefix(data, "setsrc:"):
+		parts := strings.SplitN(data, ":", 3)
+		if len(parts) == 3 { s.startSetSourceWizard(chatID, parts[2], parts[1]) }
 	case strings.HasPrefix(data, "router:"):
 		routerID := strings.TrimPrefix(data, "router:")
 		s.sendRouterMenu(chatID, routerID)
@@ -227,6 +239,7 @@ func routerKeyboard(routerID string) inlineKeyboard {
 	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
 		{{Text: "Статус", CallbackData: "act:status:" + routerID}, {Text: "Doctor", CallbackData: "act:doctor:" + routerID}},
 		{{Text: "Primary", CallbackData: "act:switch_primary:" + routerID}, {Text: "Backup", CallbackData: "act:switch_backup:" + routerID}},
+		{{Text: "Источники", CallbackData: "sources:" + routerID}},
 		{{Text: "Recovery status", CallbackData: "act:recover_status:" + routerID}, {Text: "Recover now", CallbackData: "act:recover:" + routerID}},
 		{{Text: "History", CallbackData: "act:history:" + routerID}, {Text: "Watchdog log", CallbackData: "act:watchdog:" + routerID}},
 		{{Text: "Recovery log", CallbackData: "act:recoverylog:" + routerID}, {Text: "Results", CallbackData: "act:results:" + routerID}},
