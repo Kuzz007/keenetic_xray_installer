@@ -12,9 +12,9 @@ ask() {
   prompt="$1"
   default="${2:-}"
   if [ -n "$default" ]; then
-    printf '%s [%s]: ' "$prompt" "$default"
+    printf '%s [%s]: ' "$prompt" "$default" >&2
   else
-    printf '%s: ' "$prompt"
+    printf '%s: ' "$prompt" >&2
   fi
   IFS= read -r value || value=""
   if [ -z "$value" ]; then
@@ -66,7 +66,6 @@ write_config() {
   old_name="Дом"
   old_interval="5"
   if [ -f "$CONF" ]; then
-    # shellcheck disable=SC1090
     . "$CONF" || true
     old_server="${SERVER_URL:-$old_server}"
     old_id="${ROUTER_ID:-$old_id}"
