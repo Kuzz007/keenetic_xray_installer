@@ -153,6 +153,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=full
+ReadWritePaths=${CONF}
 
 [Install]
 WantedBy=multi-user.target
