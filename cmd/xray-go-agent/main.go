@@ -143,13 +143,14 @@ func setSource(slot, selector, source string) (bool, string) {
 	if selector == "" { selector = "first" }
 	if strings.TrimSpace(source) == "" { return false, "source is empty" }
 	if slot != "primary" && slot != "backup" { return false, "invalid slot" }
+	cmd := setSourceCommand(slot, selector, source)
+	if len(cmd) == 0 { return false, "unsupported source update on this router" }
 	_ = os.MkdirAll("/opt/etc/xray/source-backups", 0700)
 	oldPath := "/opt/etc/xray/vless-go." + slot
 	if data, err := os.ReadFile(oldPath); err == nil && len(data) > 0 {
 		name := time.Now().Format("20060102-150405") + "." + slot
 		_ = os.WriteFile(filepath.Join("/opt/etc/xray/source-backups", name), data, 0600)
 	}
-	cmd := []string{"/opt/bin/vless-go-failover", "set-" + slot, source, "--selector", selector}
 	ok, out := run(cmd, 180*time.Second)
 	if ok {
 		return true, "source updated: slot=" + slot + " selector=" + selector + "\n" + redact(out, source)
@@ -203,16 +204,16 @@ func detectFeatures() []string {
 	if len(switchCommand("primary")) > 0 && len(switchCommand("backup")) > 0 {
 		features = append(features, "switch")
 	}
+	if len(setSourceCommand("primary", "first", "probe")) > 0 {
+		features = append(features, "source_update")
+	}
 	if len(doctorCommand()) > 0 {
 		features = append(features, "doctor")
-	}
-	if exists("/opt/bin/vless-go-failover") {
-		features = append(features, "source_update")
 	}
 	if len(historyCommand()) > 0 {
 		features = append(features, "history")
 	}
-	if exists("/opt/bin/vless-go-watchdog") || exists("/opt/var/log/vless-go-watchdog.log") {
+	if exists("/opt/bin/vless-go-watchdog") || exists("/opt/bin/watchdog") || exists("/opt/var/log/vless-go-watchdog.log") {
 		features = append(features, "watchdog")
 	}
 	if len(recoverCommand("status")) > 0 {
@@ -231,6 +232,9 @@ func statusCommand() []string {
 	if exists("/opt/bin/vless-go-failover") {
 		return []string{"/opt/bin/vless-go-failover", "status"}
 	}
+	if exists("/opt/bin/failover") {
+		return []string{"/opt/bin/failover", "status"}
+	}
 	return nil
 }
 
@@ -241,6 +245,9 @@ func doctorCommand() []string {
 	if exists("/opt/bin/vless-go-doctor") {
 		return []string{"/opt/bin/vless-go-doctor", "--support"}
 	}
+	if exists("/opt/bin/xray-doctor") {
+		return []string{"/opt/bin/xray-doctor", "--support"}
+	}
 	return nil
 }
 
@@ -250,6 +257,9 @@ func switchCommand(slot string) []string {
 	}
 	if exists("/opt/bin/vless-go-failover") {
 		return []string{"/opt/bin/vless-go-failover", "switch", slot}
+	}
+	if exists("/opt/bin/failover") {
+		return []string{"/opt/bin/failover", "switch", slot}
 	}
 	return nil
 }
@@ -280,6 +290,19 @@ func historyCommand() []string {
 	}
 	if exists("/opt/bin/vless-go-history") {
 		return []string{"/opt/bin/vless-go-history"}
+	}
+	if exists("/opt/bin/history") {
+		return []string{"/opt/bin/history"}
+	}
+	return nil
+}
+
+func setSourceCommand(slot, selector, source string) []string {
+	if exists("/opt/bin/vless-go-failover") {
+		return []string{"/opt/bin/vless-go-failover", "set-" + slot, source, "--selector", selector}
+	}
+	if exists("/opt/bin/failover") {
+		return []string{"/opt/bin/failover", "set-" + slot, source, "--selector", selector}
 	}
 	return nil
 }
