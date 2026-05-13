@@ -131,10 +131,18 @@ func (s *Server) telegramLoop() {
 	}
 }
 
-type tgUpdate struct { UpdateID int64 `json:"update_id"`; Message *tgMessage `json:"message"` }
+type tgUpdate struct {
+	UpdateID      int64            `json:"update_id"`
+	Message       *tgMessage       `json:"message"`
+	CallbackQuery *tgCallbackQuery `json:"callback_query"`
+}
 type tgMessage struct { Chat tgChat `json:"chat"`; From tgUser `json:"from"`; Text string `json:"text"` }
 type tgChat struct { ID int64 `json:"id"` }
 type tgUser struct { ID int64 `json:"id"` }
+type tgCallbackQuery struct { ID string `json:"id"`; From tgUser `json:"from"`; Message *tgMessage `json:"message"`; Data string `json:"data"` }
+
+type inlineKeyboard struct { InlineKeyboard [][]inlineButton `json:"inline_keyboard"` }
+type inlineButton struct { Text string `json:"text"`; CallbackData string `json:"callback_data"` }
 
 func (s *Server) getUpdates() ([]tgUpdate, error) {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates?timeout=25&offset=%d", s.cfg.BotToken, s.lastUpdID+1)
@@ -148,28 +156,132 @@ func (s *Server) getUpdates() ([]tgUpdate, error) {
 }
 
 func (s *Server) handleTelegramUpdate(u tgUpdate) {
+	if u.CallbackQuery != nil {
+		s.handleCallback(u.CallbackQuery)
+		return
+	}
 	if u.Message == nil || strings.TrimSpace(u.Message.Text) == "" { return }
 	if u.Message.From.ID != s.cfg.AdminUserID { s.sendMessage(u.Message.Chat.ID, "Access denied"); return }
 	chatID := u.Message.Chat.ID
 	text := strings.TrimSpace(u.Message.Text)
-	if text == "/start" || text == "/help" { s.sendMessage(chatID, helpText()); return }
-	if text == "/routers" { s.sendMessage(chatID, s.routerList()); return }
+	if text == "/start" || text == "/menu" { s.sendMainMenu(chatID); return }
+	if text == "/help" { s.sendMessageWithKeyboard(chatID, helpText(), mainMenuKeyboard()); return }
+	if text == "/routers" { s.sendMessageWithKeyboard(chatID, s.routerList(), routersKeyboard(s.routerIDs())); return }
 	if strings.HasPrefix(text, "/add_router") { s.handleAddRouter(chatID, text); return }
 	if strings.HasPrefix(text, "/results_") { s.sendMessage(chatID, s.results(strings.TrimPrefix(text, "/results_"))); return }
 	if strings.HasPrefix(text, "/set_primary_") { s.handleSetSource(chatID, text, "primary"); return }
 	if strings.HasPrefix(text, "/set_backup_") { s.handleSetSource(chatID, text, "backup"); return }
 	if strings.HasPrefix(text, "/") { s.handleCommand(chatID, text); return }
-	s.sendMessage(chatID, "Неизвестная команда. /help")
+	s.sendMessageWithKeyboard(chatID, "Неизвестная команда. Нажми /menu или выбери действие.", mainMenuKeyboard())
+}
+
+func (s *Server) handleCallback(cb *tgCallbackQuery) {
+	if cb.From.ID != s.cfg.AdminUserID {
+		s.answerCallback(cb.ID, "Access denied")
+		return
+	}
+	chatID := s.cfg.AdminUserID
+	if cb.Message != nil { chatID = cb.Message.Chat.ID }
+	data := cb.Data
+	s.answerCallback(cb.ID, "")
+	switch {
+	case data == "menu":
+		s.sendMainMenu(chatID)
+	case data == "help":
+		s.sendMessageWithKeyboard(chatID, helpText(), mainMenuKeyboard())
+	case data == "routers":
+		s.sendMessageWithKeyboard(chatID, s.routerList(), routersKeyboard(s.routerIDs()))
+	case data == "add_router_help":
+		s.sendMessageWithKeyboard(chatID, "Добавление роутера:\n/add_router <router_id> [имя]\n\nПример:\n/add_router dacha Дача", mainMenuKeyboard())
+	case strings.HasPrefix(data, "router:"):
+		routerID := strings.TrimPrefix(data, "router:")
+		s.sendRouterMenu(chatID, routerID)
+	case strings.HasPrefix(data, "act:"):
+		s.handleActionCallback(chatID, data)
+	default:
+		s.sendMessageWithKeyboard(chatID, "Неизвестная кнопка", mainMenuKeyboard())
+	}
+}
+
+func (s *Server) sendMainMenu(chatID int64) {
+	s.sendMessageWithKeyboard(chatID, "Xray Go Control\nВыбери раздел:", mainMenuKeyboard())
+}
+
+func mainMenuKeyboard() inlineKeyboard {
+	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
+		{{Text: "Роутеры", CallbackData: "routers"}, {Text: "Добавить роутер", CallbackData: "add_router_help"}},
+		{{Text: "Обновить", CallbackData: "routers"}, {Text: "Помощь", CallbackData: "help"}},
+	}}
+}
+
+func routersKeyboard(ids []string) inlineKeyboard {
+	rows := [][]inlineButton{}
+	for _, id := range ids {
+		rows = append(rows, []inlineButton{{Text: id, CallbackData: "router:" + id}})
+	}
+	rows = append(rows, []inlineButton{{Text: "Обновить", CallbackData: "routers"}, {Text: "Назад", CallbackData: "menu"}})
+	return inlineKeyboard{InlineKeyboard: rows}
+}
+
+func routerKeyboard(routerID string) inlineKeyboard {
+	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
+		{{Text: "Статус", CallbackData: "act:status:" + routerID}, {Text: "Doctor", CallbackData: "act:doctor:" + routerID}},
+		{{Text: "Primary", CallbackData: "act:switch_primary:" + routerID}, {Text: "Backup", CallbackData: "act:switch_backup:" + routerID}},
+		{{Text: "Recovery status", CallbackData: "act:recover_status:" + routerID}, {Text: "Recover now", CallbackData: "act:recover:" + routerID}},
+		{{Text: "History", CallbackData: "act:history:" + routerID}, {Text: "Watchdog log", CallbackData: "act:watchdog:" + routerID}},
+		{{Text: "Recovery log", CallbackData: "act:recoverylog:" + routerID}, {Text: "Results", CallbackData: "act:results:" + routerID}},
+		{{Text: "К списку", CallbackData: "routers"}, {Text: "Главное меню", CallbackData: "menu"}},
+	}}
+}
+
+func (s *Server) sendRouterMenu(chatID int64, routerID string) {
+	s.mu.Lock()
+	rt := s.cfg.Routers[routerID]
+	var title string
+	if rt != nil { title = fmt.Sprintf("%s (%s)\n%s", rt.Name, rt.ID, compactStatus(rt.Status)) }
+	s.mu.Unlock()
+	if rt == nil {
+		s.sendMessageWithKeyboard(chatID, "unknown router: "+routerID, routersKeyboard(s.routerIDs()))
+		return
+	}
+	s.sendMessageWithKeyboard(chatID, title, routerKeyboard(routerID))
+}
+
+func (s *Server) handleActionCallback(chatID int64, data string) {
+	parts := strings.SplitN(data, ":", 3)
+	if len(parts) != 3 { s.sendMessageWithKeyboard(chatID, "Некорректная кнопка", mainMenuKeyboard()); return }
+	name, routerID := parts[1], parts[2]
+	if name == "results" {
+		s.sendMessageWithKeyboard(chatID, s.results(routerID), routerKeyboard(routerID))
+		return
+	}
+	action := callbackAction(name)
+	if action == "" { s.sendMessageWithKeyboard(chatID, "Действие не поддерживается: "+name, routerKeyboard(routerID)); return }
+	id, err := s.enqueue(routerID, Command{Action: action})
+	if err != nil { s.sendMessageWithKeyboard(chatID, err.Error(), routersKeyboard(s.routerIDs())); return }
+	s.sendMessageWithKeyboard(chatID, "Команда поставлена в очередь: "+id, routerKeyboard(routerID))
+}
+
+func callbackAction(name string) string {
+	return map[string]string{
+		"status": "status", "doctor": "doctor", "switch_primary": "switch_primary", "switch_backup": "switch_backup",
+		"recover_status": "recover_status", "recover_check": "recover_check", "recover": "recover_run", "recover_enable": "recover_enable", "recover_disable": "recover_disable",
+		"history": "history", "watchdog": "watchdog_log", "recoverylog": "recovery_log", "source_status": "source_status",
+	}[name]
+}
+
+func (s *Server) routerIDs() []string {
+	s.mu.Lock(); defer s.mu.Unlock()
+	ids := make([]string, 0, len(s.cfg.Routers))
+	for id := range s.cfg.Routers { ids = append(ids, id) }
+	sort.Strings(ids)
+	return ids
 }
 
 func (s *Server) handleCommand(chatID int64, text string) {
 	name, routerID, ok := parseCmdRouter(text)
 	if !ok { s.sendMessage(chatID, "Формат: /status_home или /doctor_home. Список: /routers"); return }
-	action := map[string]string{
-		"status": "status", "doctor": "doctor", "switch_primary": "switch_primary", "switch_backup": "switch_backup",
-		"recover_status": "recover_status", "recover_check": "recover_check", "recover": "recover_run", "recover_enable": "recover_enable", "recover_disable": "recover_disable",
-		"history": "history", "watchdog": "watchdog_log", "recoverylog": "recovery_log", "source_status": "source_status",
-	}[name]
+	action := callbackAction(name)
 	if action == "" { s.sendMessage(chatID, "Команда не поддерживается: "+name); return }
 	id, err := s.enqueue(routerID, Command{Action: action})
 	if err != nil { s.sendMessage(chatID, err.Error()); return }
@@ -179,7 +291,7 @@ func (s *Server) handleCommand(chatID int64, text string) {
 func (s *Server) handleAddRouter(chatID int64, text string) {
 	parts := strings.Fields(text)
 	if len(parts) < 2 {
-		s.sendMessage(chatID, "Формат: /add_router <router_id> [имя]\nПример: /add_router dacha Дача")
+		s.sendMessageWithKeyboard(chatID, "Формат: /add_router <router_id> [имя]\nПример: /add_router dacha Дача", mainMenuKeyboard())
 		return
 	}
 	routerID := parts[1]
@@ -206,7 +318,7 @@ func (s *Server) handleAddRouter(chatID int64, text string) {
 		return
 	}
 	msg := fmt.Sprintf("Роутер добавлен: %s (%s)\n\nAgent token:\n%s\n\nНа новом роутере запусти xray-go-agent-install и введи:\nSERVER_URL: адрес VPS control-server\nROUTER_ID: %s\nROUTER_NAME: %s\nAGENT_TOKEN: %s\nPOLL_INTERVAL: 5", routerID, name, token, routerID, name, token)
-	s.sendMessage(chatID, msg)
+	s.sendMessageWithKeyboard(chatID, msg, routerKeyboard(routerID))
 }
 
 func (s *Server) handleSetSource(chatID int64, text, slot string) {
@@ -265,18 +377,35 @@ func (s *Server) results(routerID string) string {
 	return strings.Join(out, "\n---\n")
 }
 
-func (s *Server) sendMessage(chatID int64, text string) {
+func (s *Server) sendMessage(chatID int64, text string) { s.sendMessageWithKeyboard(chatID, text, inlineKeyboard{}) }
+
+func (s *Server) sendMessageWithKeyboard(chatID int64, text string, keyboard inlineKeyboard) {
 	if s.cfg.BotToken == "" { return }
-	payload, _ := json.Marshal(map[string]any{"chat_id": chatID, "text": limit(text, 3900)})
+	payload := map[string]any{"chat_id": chatID, "text": limit(text, 3900)}
+	if len(keyboard.InlineKeyboard) > 0 { payload["reply_markup"] = keyboard }
+	body, _ := json.Marshal(payload)
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", s.cfg.BotToken)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(payload))
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil { log.Printf("sendMessage: %v", err); return }
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+}
+
+func (s *Server) answerCallback(callbackID, text string) {
+	if s.cfg.BotToken == "" || callbackID == "" { return }
+	payload := map[string]any{"callback_query_id": callbackID}
+	if text != "" { payload["text"] = text }
+	body, _ := json.Marshal(payload)
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/answerCallbackQuery", s.cfg.BotToken)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil { log.Printf("answerCallback: %v", err); return }
 	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 }
 
 func helpText() string {
 	return strings.TrimSpace(`Команды:
+/menu
 /routers
 /add_router <router_id> [имя]
 /status_<router>
