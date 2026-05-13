@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +19,7 @@ import (
 )
 
 type Config struct {
+	ConfigPath  string
 	Listen      string
 	BotToken    string
 	AdminUserID int64
@@ -150,6 +154,7 @@ func (s *Server) handleTelegramUpdate(u tgUpdate) {
 	text := strings.TrimSpace(u.Message.Text)
 	if text == "/start" || text == "/help" { s.sendMessage(chatID, helpText()); return }
 	if text == "/routers" { s.sendMessage(chatID, s.routerList()); return }
+	if strings.HasPrefix(text, "/add_router") { s.handleAddRouter(chatID, text); return }
 	if strings.HasPrefix(text, "/results_") { s.sendMessage(chatID, s.results(strings.TrimPrefix(text, "/results_"))); return }
 	if strings.HasPrefix(text, "/set_primary_") { s.handleSetSource(chatID, text, "primary"); return }
 	if strings.HasPrefix(text, "/set_backup_") { s.handleSetSource(chatID, text, "backup"); return }
@@ -169,6 +174,39 @@ func (s *Server) handleCommand(chatID int64, text string) {
 	id, err := s.enqueue(routerID, Command{Action: action})
 	if err != nil { s.sendMessage(chatID, err.Error()); return }
 	s.sendMessage(chatID, "Команда поставлена в очередь: "+id)
+}
+
+func (s *Server) handleAddRouter(chatID int64, text string) {
+	parts := strings.Fields(text)
+	if len(parts) < 2 {
+		s.sendMessage(chatID, "Формат: /add_router <router_id> [имя]\nПример: /add_router dacha Дача")
+		return
+	}
+	routerID := parts[1]
+	if !validRouterID(routerID) {
+		s.sendMessage(chatID, "router_id должен содержать только латинские буквы, цифры, _ или -. Пример: dacha")
+		return
+	}
+	name := routerID
+	if len(parts) > 2 { name = strings.Join(parts[2:], " ") }
+	token, err := randomTokenHex(24)
+	if err != nil { s.sendMessage(chatID, "Не удалось сгенерировать token: "+err.Error()); return }
+	s.mu.Lock()
+	if _, exists := s.cfg.Routers[routerID]; exists {
+		s.mu.Unlock()
+		s.sendMessage(chatID, "Роутер уже существует: "+routerID)
+		return
+	}
+	s.cfg.Routers[routerID] = &Router{ID: routerID, Name: name, Token: token}
+	err = s.persistConfigLocked()
+	if err != nil { delete(s.cfg.Routers, routerID) }
+	s.mu.Unlock()
+	if err != nil {
+		s.sendMessage(chatID, "Роутер не сохранён: "+err.Error()+"\nПроверь права: /etc/xray-go-control-server.conf должен быть writable для группы xraygo.")
+		return
+	}
+	msg := fmt.Sprintf("Роутер добавлен: %s (%s)\n\nAgent token:\n%s\n\nНа новом роутере запусти xray-go-agent-install и введи:\nSERVER_URL: адрес VPS control-server\nROUTER_ID: %s\nROUTER_NAME: %s\nAGENT_TOKEN: %s\nPOLL_INTERVAL: 5", routerID, name, token, routerID, name, token)
+	s.sendMessage(chatID, msg)
 }
 
 func (s *Server) handleSetSource(chatID int64, text, slot string) {
@@ -205,10 +243,14 @@ func (s *Server) enqueue(routerID string, c Command) (string, error) {
 func (s *Server) routerList() string {
 	s.mu.Lock(); defer s.mu.Unlock()
 	lines := []string{"Роутеры:"}
-	for _, rt := range s.cfg.Routers {
+	ids := make([]string, 0, len(s.cfg.Routers))
+	for id := range s.cfg.Routers { ids = append(ids, id) }
+	sort.Strings(ids)
+	for _, id := range ids {
+		rt := s.cfg.Routers[id]
 		state := "offline"
 		if time.Since(rt.LastSeen) < 30*time.Second { state = "online" }
-		lines = append(lines, fmt.Sprintf("%s (%s): %s\n  %s", rt.Name, rt.ID, state, rt.Status))
+		lines = append(lines, fmt.Sprintf("%s (%s): %s\n  %s", rt.Name, rt.ID, state, compactStatus(rt.Status)))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -236,6 +278,7 @@ func (s *Server) sendMessage(chatID int64, text string) {
 func helpText() string {
 	return strings.TrimSpace(`Команды:
 /routers
+/add_router <router_id> [имя]
 /status_<router>
 /doctor_<router>
 /switch_primary_<router>
@@ -255,7 +298,7 @@ func helpText() string {
 }
 
 func loadConfig(path string) (Config, error) {
-	cfg := Config{Listen: ":18090", Routers: map[string]*Router{}}
+	cfg := Config{ConfigPath: path, Listen: ":18090", Routers: map[string]*Router{}}
 	data, err := os.ReadFile(path)
 	if err != nil { return cfg, err }
 	vals := map[string]string{}
@@ -279,6 +322,50 @@ func loadConfig(path string) (Config, error) {
 	if cfg.BotToken == "" || cfg.AdminUserID == 0 { return cfg, fmt.Errorf("BOT_TOKEN and ADMIN_USER_ID are required") }
 	if len(cfg.Routers) == 0 { return cfg, fmt.Errorf("ROUTERS is required") }
 	return cfg, nil
+}
+
+func (s *Server) persistConfigLocked() error {
+	ids := make([]string, 0, len(s.cfg.Routers))
+	for id := range s.cfg.Routers { ids = append(ids, id) }
+	sort.Strings(ids)
+	items := make([]string, 0, len(ids))
+	for _, id := range ids {
+		r := s.cfg.Routers[id]
+		items = append(items, r.ID+":"+r.Token+":"+r.Name)
+	}
+	content := fmt.Sprintf("LISTEN=\"%s\"\nBOT_TOKEN=\"%s\"\nADMIN_USER_ID=\"%d\"\nROUTERS=\"%s\"\n", s.cfg.Listen, s.cfg.BotToken, s.cfg.AdminUserID, strings.Join(items, ","))
+	return os.WriteFile(s.cfg.ConfigPath, []byte(content), 0660)
+}
+
+func compactStatus(status string) string {
+	status = strings.TrimSpace(status)
+	if status == "" { return "нет heartbeat" }
+	seen := map[string]bool{}
+	out := []string{}
+	for _, part := range strings.Split(status, ";") {
+		p := strings.TrimSpace(part)
+		if p == "" || seen[p] { continue }
+		seen[p] = true
+		out = append(out, p)
+	}
+	if len(out) == 0 { return status }
+	return strings.Join(out, "; ")
+}
+
+func validRouterID(id string) bool {
+	if id == "" { return false }
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' { continue }
+		return false
+	}
+	return true
+}
+
+func randomTokenHex(n int) (string, error) {
+	b := make([]byte, n)
+	_, err := rand.Read(b)
+	if err != nil { return "", err }
+	return hex.EncodeToString(b), nil
 }
 
 func limit(s string, n int) string { if len(s) <= n { return s }; return s[:n] + "\n...truncated..." }
