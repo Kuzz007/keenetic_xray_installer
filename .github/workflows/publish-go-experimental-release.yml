@@ -75,6 +75,12 @@ jobs:
           chmod +x "dist/xray-go-agent-linux-mipsle"
           sha256sum "dist/xray-go-agent-linux-mipsle" | tee "dist/xray-go-agent-linux-mipsle.sha256"
 
+          CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=mips GOMIPS=softfloat \
+            go build -trimpath -ldflags "-s -w" \
+            -o "dist/xray-go-agent-linux-mips" ./cmd/xray-go-agent
+          chmod +x "dist/xray-go-agent-linux-mips"
+          sha256sum "dist/xray-go-agent-linux-mips" | tee "dist/xray-go-agent-linux-mips.sha256"
+
           CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=amd64 \
             go build -trimpath -ldflags "-s -w" \
             -o "dist/xray-go-control-server-linux-amd64" ./cmd/xray-go-control-server
@@ -107,6 +113,7 @@ jobs:
           vless-go-web-linux-mipsle
           xray-go-agent-linux-arm64
           xray-go-agent-linux-mipsle
+          xray-go-agent-linux-mips
           xray-go-control-server-linux-amd64
           xray-go-control-server-linux-arm64
           ```
@@ -167,6 +174,8 @@ jobs:
           dist/xray-go-agent-linux-arm64.sha256
           dist/xray-go-agent-linux-mipsle
           dist/xray-go-agent-linux-mipsle.sha256
+          dist/xray-go-agent-linux-mips
+          dist/xray-go-agent-linux-mips.sha256
           dist/xray-go-control-server-linux-amd64
           dist/xray-go-control-server-linux-amd64.sha256
           dist/xray-go-control-server-linux-arm64
@@ -196,5 +205,6 @@ jobs:
           echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/vless-go-web-linux-mipsle"
           echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/xray-go-agent-linux-arm64"
           echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/xray-go-agent-linux-mipsle"
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/xray-go-agent-linux-mips"
           echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/xray-go-control-server-linux-amd64"
           echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/xray-go-control-server-linux-arm64"

@@ -93,9 +93,10 @@ detect_asset() {
   case "$opkg_arch:$kernel_arch" in
     *aarch64*:*|*:aarch64|*:arm64) echo "xray-go-agent-linux-arm64" ;;
     *mipsel*:*|*mipsle*:*|*mipselsf*:*) echo "xray-go-agent-linux-mipsle" ;;
+    *:mips|*mips*:mips) echo "xray-go-agent-linux-mips" ;;
     *)
       echo "ERROR: unsupported router architecture: entware=$opkg_arch kernel=$kernel_arch" >&2
-      echo "Supported: arm64/aarch64 and mipsel/mipselsf" >&2
+      echo "Supported: arm64/aarch64, mipsel/mipselsf and mips" >&2
       exit 1
       ;;
   esac
