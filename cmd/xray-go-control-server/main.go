@@ -205,6 +205,12 @@ func (s *Server) handleCallback(cb *tgCallbackQuery) {
 	case strings.HasPrefix(data, "setsrc:"):
 		parts := strings.SplitN(data, ":", 3)
 		if len(parts) == 3 { s.startSetSourceWizard(chatID, parts[2], parts[1]) }
+	case strings.HasPrefix(data, "delete-router:"):
+		routerID := strings.TrimPrefix(data, "delete-router:")
+		s.sendDeleteRouterConfirm(chatID, routerID)
+	case strings.HasPrefix(data, "confirm-delete-router:"):
+		routerID := strings.TrimPrefix(data, "confirm-delete-router:")
+		s.deleteRouter(chatID, routerID)
 	case strings.HasPrefix(data, "router:"):
 		routerID := strings.TrimPrefix(data, "router:")
 		s.sendRouterMenu(chatID, routerID)
@@ -243,6 +249,7 @@ func routerKeyboard(routerID string) inlineKeyboard {
 		{{Text: "Recovery status", CallbackData: "act:recover_status:" + routerID}, {Text: "Recover now", CallbackData: "act:recover:" + routerID}},
 		{{Text: "History", CallbackData: "act:history:" + routerID}, {Text: "Watchdog log", CallbackData: "act:watchdog:" + routerID}},
 		{{Text: "Recovery log", CallbackData: "act:recoverylog:" + routerID}, {Text: "Results", CallbackData: "act:results:" + routerID}},
+		{{Text: "Удалить роутер", CallbackData: "delete-router:" + routerID}},
 		{{Text: "Назад", CallbackData: "routers"}, {Text: "Главное меню", CallbackData: "menu"}},
 	}}
 }
