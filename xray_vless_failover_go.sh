@@ -32,7 +32,9 @@ ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 PRIMARY_SELECTOR="$XRAY_DIR/vless-go.primary.selector"
 BACKUP_SELECTOR="$XRAY_DIR/vless-go.backup.selector"
 GO_EXPERIMENTAL_TAG="${GO_EXPERIMENTAL_TAG:-0.1.2-go-experimental}"
-GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${GO_EXPERIMENTAL_TAG}/xray-failover-go-linux-arm64}"
+ENTWARE_ARCH="${ENTWARE_ARCH:-}"
+GO_ASSET_NAME="${GO_ASSET_NAME:-}"
+GO_BINARY_URL="${GO_BINARY_URL:-}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 WATCHDOG_BRANCH="${WATCHDOG_BRANCH:-$REPO_BRANCH}"
 RAW_BASE="https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}"
@@ -49,6 +51,44 @@ read_tty() { prompt="$1"; if [ -r /dev/tty ]; then printf "%s" "$prompt" >/dev/t
 get_xray_bin() { if command -v xray >/dev/null 2>&1; then command -v xray; elif [ -x /opt/bin/xray ]; then echo "/opt/bin/xray"; else echo ""; fi; }
 copy_mode() { src="$1"; dst="$2"; mode="${3:-755}"; mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"; chmod "$mode" "$dst"; }
 install_script() { src="$1"; dst="$2"; mode="${3:-755}"; url="${RAW_BASE}/${src}"; mkdir -p "$(dirname "$dst")" "$TMP_DIR"; if [ -f "$src" ]; then copy_mode "$src" "$dst" "$mode"; return 0; fi; tmp="$TMP_DIR/$(basename "$dst").$$"; if ! curl -fL -o "$tmp" "$url"; then echo "ОШИБКА: не удалось установить $dst" >&2; echo "Источник: $url" >&2; rm -f "$tmp" 2>/dev/null || true; exit 1; fi; copy_mode "$tmp" "$dst" "$mode"; rm -f "$tmp" 2>/dev/null || true; }
+
+detect_entware_arch() {
+    OPKG_BIN=""
+    if command -v opkg >/dev/null 2>&1; then
+        OPKG_BIN="$(command -v opkg)"
+    elif [ -x /opt/bin/opkg ]; then
+        OPKG_BIN="/opt/bin/opkg"
+    fi
+    [ -n "$OPKG_BIN" ] || return 0
+    "$OPKG_BIN" print-architecture 2>/dev/null | awk '$2 != "all" && ($3 + 0) >= max { arch = $2; max = $3 + 0 } END { if (arch != "") print arch }'
+}
+
+asset_name_for_arch() {
+    ARCH="$1"
+    case "$ARCH" in
+        aarch64-3.10|aarch64-3.10_*|aarch64*|arm64)
+            echo "xray-failover-go-linux-arm64"
+            ;;
+        mips|mipsel|mipsel-*|mipsel_*|mipsel-3.4|mipsel-3.4_*|mipselsf-*|mipselsf_*|mipselsf-k3.4|mipselsf-k3.4_*)
+            echo "xray-failover-go-linux-mipsle"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+resolve_go_asset() {
+    [ -n "$ENTWARE_ARCH" ] || ENTWARE_ARCH="$(detect_entware_arch)"
+    [ -n "$ENTWARE_ARCH" ] || ENTWARE_ARCH="$(uname -m 2>/dev/null || echo unknown)"
+    [ -n "$GO_ASSET_NAME" ] || GO_ASSET_NAME="$(asset_name_for_arch "$ENTWARE_ARCH")"
+    if [ -z "$GO_ASSET_NAME" ]; then
+        echo "ОШИБКА: неподдерживаемая архитектура для Go resolver: $ENTWARE_ARCH" >&2
+        echo "Можно задать GO_ASSET_NAME или GO_BINARY_URL вручную." >&2
+        exit 1
+    fi
+    [ -n "$GO_BINARY_URL" ] || GO_BINARY_URL="https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${GO_EXPERIMENTAL_TAG}/${GO_ASSET_NAME}"
+}
 
 ensure_cron() {
     mkdir -p /opt/var/spool/cron/crontabs /opt/var/log 2>/dev/null || true
@@ -76,9 +116,12 @@ ensure_packages() {
 install_go_resolver() {
     echo "[2/12] Установка Go resolver/generator..."
     mkdir -p "$(dirname "$GO_RESOLVER")" "$TMP_DIR"
+    resolve_go_asset
+    echo "Detected architecture: $ENTWARE_ARCH"
+    echo "Go resolver asset: $GO_ASSET_NAME"
     if [ -x "$GO_RESOLVER" ]; then echo "Найден существующий бинарник: $GO_RESOLVER"; return 0; fi
     echo "Скачиваю Go binary: $GO_BINARY_URL"
-    if ! curl -fL -o "$GO_RESOLVER" "$GO_BINARY_URL"; then echo "ОШИБКА: не удалось скачать Go binary: $GO_BINARY_URL" >&2; echo "Ожидаемый GitHub Release asset: xray-failover-go-linux-arm64" >&2; echo "Release tag: $GO_EXPERIMENTAL_TAG" >&2; exit 1; fi
+    if ! curl -fL -o "$GO_RESOLVER" "$GO_BINARY_URL"; then echo "ОШИБКА: не удалось скачать Go binary: $GO_BINARY_URL" >&2; echo "Ожидаемый GitHub Release asset: $GO_ASSET_NAME" >&2; echo "Release tag: $GO_EXPERIMENTAL_TAG" >&2; exit 1; fi
     chmod +x "$GO_RESOLVER"
 }
 
@@ -107,15 +150,11 @@ install_watchdog() { echo "[9/12] Установка watchdog и recovery suppor
 start_watchdog() { echo "[10/12] Запуск watchdog..."; if [ "$START_WATCHDOG" = "1" ] && [ -x "$GO_WATCHDOG_INIT" ]; then "$GO_WATCHDOG_INIT" restart || "$GO_WATCHDOG_INIT" start || true; else echo "Watchdog не запущен. Запуск вручную: $GO_WATCHDOG_INIT start"; fi; }
 start_xray() { echo "[11/12] Проверка и запуск Xray..."; xray_bin="$(get_xray_bin)"; if [ -z "$xray_bin" ]; then echo "ОШИБКА: бинарник xray не найден." >&2; exit 1; fi; if ! "$xray_bin" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1; then "$xray_bin" test -config "$XRAY_CONFIG"; fi; "$INIT_SCRIPT" restart || "$INIT_SCRIPT" start; }
 
-enable_hourly_recovery_default() {
-    [ "$ENABLE_HOURLY_RECOVERY" = "1" ] || return 0
-    [ -x "$RECOVER_CMD" ] || return 0
-    "$RECOVER_CMD" --mode full enable-hourly "$HOURLY_RECOVERY_SCHEDULE" >/dev/null 2>&1 || echo "ПРЕДУПРЕЖДЕНИЕ: не удалось включить hourly recovery. Запуск вручную: xray-go recover enable-hourly"
-}
+enable_hourly_recovery_default() { [ "$ENABLE_HOURLY_RECOVERY" = "1" ] || return 0; [ -x "$RECOVER_CMD" ] || return 0; "$RECOVER_CMD" --mode full enable-hourly "$HOURLY_RECOVERY_SCHEDULE" >/dev/null 2>&1 || echo "ПРЕДУПРЕЖДЕНИЕ: не удалось включить hourly recovery. Запуск вручную: xray-go recover enable-hourly"; }
 
 final_summary() {
-    echo "[12/12] Итоговая проверка установки..."
-    echo; echo "Готово. Experimental Go edition установлена."; echo
+    echo "[12/12] Итоговая проверка установки..."; echo; echo "Готово. Experimental Go edition установлена."; echo
+    echo "Архитектура и Go resolver:"; echo "  Entware arch: ${ENTWARE_ARCH:-unknown}"; echo "  Go resolver asset: ${GO_ASSET_NAME:-unknown}"; echo "  Go resolver URL: ${GO_BINARY_URL:-unknown}"; echo
     echo "Основные файлы:"; echo "  Xray config: $XRAY_CONFIG"; echo "  Go resolver/generator: $GO_RESOLVER"; echo "  Текущий источник: $SOURCE_STORE"; echo "  Основной источник: $PRIMARY_STORE"; echo "  Резервный источник: $BACKUP_STORE"; echo "  Активный слот: $ACTIVE_STORE"; echo "  Selector primary: $PRIMARY_SELECTOR"; echo "  Selector backup: $BACKUP_SELECTOR"; echo
     echo "Единая команда управления:"; echo "  Статус: xray-go status"; echo "  Диагностика: xray-go doctor"; echo "  Меню: xray-go menu"; echo "  Тихое восстановление: xray-go recover"; echo "  Ежечасная recovery-проверка: xray-go recover enable-hourly"; echo "  Обновить Go edition: xray-go update"; echo "  Обновить Xray-core: xray-go update-core"; echo
     echo "Команды управления:"; echo "  Единый wrapper: $XRAY_GO_CMD"; echo "  Меню: $MENU_CMD"; echo "  Обновить активную подписку: $GO_UPDATE_CMD"; echo "  Failover/switch: $GO_FAILOVER_CMD"; echo "  Auto-update cron: $GO_AUTO_UPDATE_CMD"; echo "  История переключений: $HISTORY_CMD"; echo "  Очистка места: $CLEANUP_CMD"; echo "  Тихое восстановление: $RECOVER_CMD"; echo "  Диагностика: $DOCTOR_CMD"; echo "  Обновить Go edition: $GO_INSTALLER_UPDATE_CMD"; echo "  Обновить Xray-core: $XRAY_CORE_UPDATE_CMD"; echo "  Watchdog: $GO_WATCHDOG_CMD"; echo "  Watchdog init: $GO_WATCHDOG_INIT"; echo "  Watchdog config: $GO_WATCHDOG_CONF"; echo "  Общий lock helper: $LOCK_HELPER"; echo
