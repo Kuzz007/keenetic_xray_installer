@@ -20,9 +20,9 @@ ask() {
   prompt="$1"
   default="${2:-}"
   if [ -n "$default" ]; then
-    printf '%s [%s]: ' "$prompt" "$default"
+    printf '%s [%s]: ' "$prompt" "$default" >&2
   else
-    printf '%s: ' "$prompt"
+    printf '%s: ' "$prompt" >&2
   fi
   IFS= read -r value || value=""
   if [ -z "$value" ]; then
@@ -73,9 +73,9 @@ install_binary() {
 }
 
 build_router_list() {
-  echo
-  echo "Router registry setup"
-  echo "Format stored in config: router_id:agent_token:router_name"
+  echo >&2
+  echo "Router registry setup" >&2
+  echo "Format stored in config: router_id:agent_token:router_name" >&2
   routers=""
   while :; do
     rid="$(ask 'Router ID, latin only, example home. Empty to finish' '')"
@@ -89,16 +89,16 @@ build_router_list() {
     else
       routers="${routers},${item}"
     fi
-    echo "Added router: $rid ($rname)"
-    echo "Agent token for $rid: $token"
-    echo "Save this token for the router agent installer."
-    echo
+    echo "Added router: $rid ($rname)" >&2
+    echo "Agent token for $rid: $token" >&2
+    echo "Save this token for the router agent installer." >&2
+    echo >&2
   done
   if [ -z "$routers" ]; then
     token="$(random_token)"
     routers="home:${token}:Дом"
-    echo "No routers entered. Added default router: home:***:Дом"
-    echo "Agent token for home: $token"
+    echo "No routers entered. Added default router: home:***:Дом" >&2
+    echo "Agent token for home: $token" >&2
   fi
   printf '%s' "$routers"
 }
