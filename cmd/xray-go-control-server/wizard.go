@@ -120,7 +120,9 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 			s.sendMessage(chatID, "Роутер не сохранён: "+err.Error())
 			return true
 		}
-		s.sendMessageWithKeyboard(chatID, addRouterDoneMessage(st.RouterID, name, token, s.cfg.Listen), routerKeyboard(st.RouterID))
+		serverURL := agentServerURL(s.cfg.Listen)
+		s.sendMessageWithKeyboard(chatID, addRouterDoneMessage(st.RouterID, name, token, serverURL), routerKeyboard(st.RouterID))
+		s.sendMessage(chatID, agentInstallCommand(serverURL, st.RouterID, name, token))
 		return true
 	default:
 		wizardCancel(chatID)
@@ -162,9 +164,12 @@ func (s *Server) handleSetSourceWizardStep(chatID int64, st wizardState, text st
 	}
 }
 
-func addRouterDoneMessage(routerID, name, token, listen string) string {
-	serverURL := agentServerURL(listen)
-	return fmt.Sprintf("Роутер добавлен: %s (%s)\n\nAgent token:\n%s\n\nГотовая команда для роутера Entware:\n\n%s\n\nЕсли в SERVER_URL указан VPS_IP, замени его на внешний IP или DNS VPS.", routerID, name, token, agentInstallCommand(serverURL, routerID, name, token))
+func addRouterDoneMessage(routerID, name, token, serverURL string) string {
+	msg := fmt.Sprintf("Роутер добавлен: %s (%s)\n\nAgent token:\n%s\n\nСледующим сообщением отправлена отдельная команда установки агента для роутера Entware.", routerID, name, token)
+	if strings.Contains(serverURL, "VPS_IP") {
+		msg += "\n\nВ команде замени VPS_IP на внешний IP или DNS VPS."
+	}
+	return msg
 }
 
 func agentServerURL(listen string) string {
