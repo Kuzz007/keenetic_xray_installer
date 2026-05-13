@@ -264,7 +264,7 @@ func (s *Server) sendRouterMenu(chatID int64, routerID string) {
 		s.sendMessageWithKeyboard(chatID, "unknown router: "+routerID, routersKeyboard(s.routerIDs()))
 		return
 	}
-	s.sendMessageWithKeyboard(chatID, title, routerKeyboard(routerID))
+	s.sendMessageWithKeyboard(chatID, title, routerKeyboardForStatus(routerID, rt.Status))
 }
 
 func (s *Server) handleActionCallback(chatID int64, data string) {

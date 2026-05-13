@@ -158,7 +158,9 @@ func run(cmd []string, timeout time.Duration) (bool, string) {
 
 func shortStatus() string {
 	ok, out := run([]string{"/opt/bin/xray-go", "status"}, 25*time.Second)
-	if !ok { return "status_error: " + out }
+	features := detectFeatures()
+	featureLine := "features: " + strings.Join(features, ",")
+	if !ok { return "status_error: " + out + "; " + featureLine }
 	lines := []string{}
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
@@ -166,8 +168,39 @@ func shortStatus() string {
 			lines = append(lines, line)
 		}
 	}
-	if len(lines) == 0 { return "OK" }
+	lines = append(lines, featureLine)
+	if len(lines) == 0 { return featureLine }
 	return strings.Join(lines, "; ")
+}
+
+func detectFeatures() []string {
+	features := []string{}
+	if exists("/opt/bin/xray-go") {
+		features = append(features, "status")
+		features = append(features, "switch")
+		features = append(features, "doctor")
+	}
+	if exists("/opt/bin/vless-go-failover") {
+		features = append(features, "source_update")
+	}
+	if exists("/opt/bin/vless-go-history") {
+		features = append(features, "history")
+	}
+	if exists("/opt/bin/vless-go-watchdog") {
+		features = append(features, "watchdog")
+	}
+	if exists("/opt/bin/vless-go-recover") {
+		features = append(features, "recovery")
+	}
+	if len(features) == 0 {
+		features = append(features, "status")
+	}
+	return features
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func redact(s, secret string) string {
