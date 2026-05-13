@@ -13,6 +13,7 @@ on:
     paths:
       - cmd/xray-failover-go/**
       - cmd/vless-go-web/**
+      - cmd/xray-go-web/**
       - .github/workflows/publish-go-experimental-release.yml
 
 permissions:
@@ -50,13 +51,13 @@ jobs:
 
           CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=arm64 \
             go build -trimpath -ldflags "-s -w" \
-            -o "dist/vless-go-web-linux-arm64" ./cmd/vless-go-web
+            -o "dist/vless-go-web-linux-arm64" ./cmd/xray-go-web
           chmod +x "dist/vless-go-web-linux-arm64"
           sha256sum "dist/vless-go-web-linux-arm64" | tee "dist/vless-go-web-linux-arm64.sha256"
 
           CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=mipsle GOMIPS=softfloat \
             go build -trimpath -ldflags "-s -w" \
-            -o "dist/vless-go-web-linux-mipsle" ./cmd/vless-go-web
+            -o "dist/vless-go-web-linux-mipsle" ./cmd/xray-go-web
           chmod +x "dist/vless-go-web-linux-mipsle"
           sha256sum "dist/vless-go-web-linux-mipsle" | tee "dist/vless-go-web-linux-mipsle.sha256"
 
@@ -88,7 +89,7 @@ jobs:
           - support-safe `xray-go doctor --support`
           - quiet hourly recovery helpers for Full Go and Minimal Go
           - recovery status in `xray-go status` and doctor support output
-          - Web UI actions aligned with `xray-go` and recovery workflow
+          - rebuilt Web UI source aligned with `xray-go` and recovery workflow
           - Full Go Entware architecture detection for arm64 and mipsel/mipselsf
           - hardened Full Go installer downloads and ELF validation
           - shell smoke-test guardrails for installers and helper scripts
