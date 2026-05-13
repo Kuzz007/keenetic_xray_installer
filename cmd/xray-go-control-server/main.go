@@ -230,7 +230,7 @@ func routerKeyboard(routerID string) inlineKeyboard {
 		{{Text: "Recovery status", CallbackData: "act:recover_status:" + routerID}, {Text: "Recover now", CallbackData: "act:recover:" + routerID}},
 		{{Text: "History", CallbackData: "act:history:" + routerID}, {Text: "Watchdog log", CallbackData: "act:watchdog:" + routerID}},
 		{{Text: "Recovery log", CallbackData: "act:recoverylog:" + routerID}, {Text: "Results", CallbackData: "act:results:" + routerID}},
-		{{Text: "К списку", CallbackData: "routers"}, {Text: "Главное меню", CallbackData: "menu"}},
+		{{Text: "Назад", CallbackData: "routers"}, {Text: "Главное меню", CallbackData: "menu"}},
 	}}
 }
 
