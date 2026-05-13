@@ -100,23 +100,41 @@ func postResult(cfg Config, res Result) error {
 func runAllowed(c Command) (bool, string) {
 	var cmd []string
 	switch c.Action {
-	case "status": cmd = []string{"/opt/bin/xray-go", "status"}
-	case "doctor": cmd = []string{"/opt/bin/xray-go", "doctor", "--support"}
-	case "switch_primary": cmd = []string{"/opt/bin/xray-go", "switch", "primary"}
-	case "switch_backup": cmd = []string{"/opt/bin/xray-go", "switch", "backup"}
-	case "recover_status": cmd = []string{"/opt/bin/xray-go", "recover", "status"}
-	case "recover_check": cmd = []string{"/opt/bin/xray-go", "recover", "check"}
-	case "recover_run": cmd = []string{"/opt/bin/xray-go", "recover"}
-	case "recover_enable": cmd = []string{"/opt/bin/xray-go", "recover", "enable-hourly"}
-	case "recover_disable": cmd = []string{"/opt/bin/xray-go", "recover", "disable-hourly"}
-	case "history": cmd = []string{"/opt/bin/xray-go", "history"}
-	case "watchdog_log": cmd = []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/vless-go-watchdog.log 2>/dev/null || true"}
-	case "recovery_log": cmd = []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/vless-go-recover.log 2>/dev/null || true"}
-	case "source_status": cmd = []string{"/opt/bin/xray-go", "status"}
-	case "set_primary_source": return setSource("primary", c.Selector, c.Source)
-	case "set_backup_source": return setSource("backup", c.Selector, c.Source)
+	case "status":
+		cmd = statusCommand()
+	case "doctor":
+		cmd = doctorCommand()
+	case "switch_primary":
+		cmd = switchCommand("primary")
+	case "switch_backup":
+		cmd = switchCommand("backup")
+	case "recover_status":
+		cmd = recoverCommand("status")
+	case "recover_check":
+		cmd = recoverCommand("check")
+	case "recover_run":
+		cmd = recoverCommand("run")
+	case "recover_enable":
+		cmd = recoverCommand("enable-hourly")
+	case "recover_disable":
+		cmd = recoverCommand("disable-hourly")
+	case "history":
+		cmd = historyCommand()
+	case "watchdog_log":
+		cmd = []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/vless-go-watchdog.log 2>/dev/null || true"}
+	case "recovery_log":
+		cmd = []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/vless-go-recover.log 2>/dev/null || true"}
+	case "source_status":
+		cmd = statusCommand()
+	case "set_primary_source":
+		return setSource("primary", c.Selector, c.Source)
+	case "set_backup_source":
+		return setSource("backup", c.Selector, c.Source)
 	default:
 		return false, "unknown action: " + c.Action
+	}
+	if len(cmd) == 0 {
+		return false, "unsupported action on this router: " + c.Action
 	}
 	return run(cmd, 180*time.Second)
 }
@@ -157,45 +175,113 @@ func run(cmd []string, timeout time.Duration) (bool, string) {
 }
 
 func shortStatus() string {
-	ok, out := run([]string{"/opt/bin/xray-go", "status"}, 25*time.Second)
+	cmd := statusCommand()
 	features := detectFeatures()
 	featureLine := "features: " + strings.Join(features, ",")
+	if len(cmd) == 0 {
+		return "status_error: no supported status command; " + featureLine
+	}
+	ok, out := run(cmd, 25*time.Second)
 	if !ok { return "status_error: " + out + "; " + featureLine }
 	lines := []string{}
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.Contains(line, "активный слот:") || strings.Contains(line, "health: OK") || strings.Contains(line, "hourly recovery:") || strings.Contains(line, "daemon: запущен") {
+		if strings.Contains(line, "активный слот:") || strings.Contains(line, "health: OK") || strings.Contains(line, "hourly recovery:") || strings.Contains(line, "daemon: запущен") || strings.Contains(line, "основной профиль:") || strings.Contains(line, "резервный профиль:") {
 			lines = append(lines, line)
 		}
 	}
 	lines = append(lines, featureLine)
-	if len(lines) == 0 { return featureLine }
 	return strings.Join(lines, "; ")
 }
 
 func detectFeatures() []string {
 	features := []string{}
-	if exists("/opt/bin/xray-go") {
+
+	if len(statusCommand()) > 0 {
 		features = append(features, "status")
+	}
+	if len(switchCommand("primary")) > 0 && len(switchCommand("backup")) > 0 {
 		features = append(features, "switch")
+	}
+	if len(doctorCommand()) > 0 {
 		features = append(features, "doctor")
 	}
 	if exists("/opt/bin/vless-go-failover") {
 		features = append(features, "source_update")
 	}
-	if exists("/opt/bin/vless-go-history") {
+	if len(historyCommand()) > 0 {
 		features = append(features, "history")
 	}
-	if exists("/opt/bin/vless-go-watchdog") {
+	if exists("/opt/bin/vless-go-watchdog") || exists("/opt/var/log/vless-go-watchdog.log") {
 		features = append(features, "watchdog")
 	}
-	if exists("/opt/bin/vless-go-recover") {
+	if len(recoverCommand("status")) > 0 {
 		features = append(features, "recovery")
 	}
 	if len(features) == 0 {
 		features = append(features, "status")
 	}
 	return features
+}
+
+func statusCommand() []string {
+	if exists("/opt/bin/xray-go") {
+		return []string{"/opt/bin/xray-go", "status"}
+	}
+	if exists("/opt/bin/vless-go-failover") {
+		return []string{"/opt/bin/vless-go-failover", "status"}
+	}
+	return nil
+}
+
+func doctorCommand() []string {
+	if exists("/opt/bin/xray-go") {
+		return []string{"/opt/bin/xray-go", "doctor", "--support"}
+	}
+	if exists("/opt/bin/vless-go-doctor") {
+		return []string{"/opt/bin/vless-go-doctor", "--support"}
+	}
+	return nil
+}
+
+func switchCommand(slot string) []string {
+	if exists("/opt/bin/xray-go") {
+		return []string{"/opt/bin/xray-go", "switch", slot}
+	}
+	if exists("/opt/bin/vless-go-failover") {
+		return []string{"/opt/bin/vless-go-failover", "switch", slot}
+	}
+	return nil
+}
+
+func recoverCommand(action string) []string {
+	if exists("/opt/bin/xray-go") {
+		switch action {
+		case "run":
+			return []string{"/opt/bin/xray-go", "recover"}
+		default:
+			return []string{"/opt/bin/xray-go", "recover", action}
+		}
+	}
+	if exists("/opt/bin/vless-go-recover") {
+		switch action {
+		case "run":
+			return []string{"/opt/bin/vless-go-recover", "run"}
+		default:
+			return []string{"/opt/bin/vless-go-recover", action}
+		}
+	}
+	return nil
+}
+
+func historyCommand() []string {
+	if exists("/opt/bin/xray-go") {
+		return []string{"/opt/bin/xray-go", "history"}
+	}
+	if exists("/opt/bin/vless-go-history") {
+		return []string{"/opt/bin/vless-go-history"}
+	}
+	return nil
 }
 
 func exists(path string) bool {
