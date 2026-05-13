@@ -120,8 +120,7 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 			s.sendMessage(chatID, "Роутер не сохранён: "+err.Error())
 			return true
 		}
-		msg := fmt.Sprintf("Роутер добавлен: %s (%s)\n\nAgent token:\n%s\n\nНа новом роутере запусти xray-go-agent-install и введи:\nSERVER_URL: адрес VPS control-server\nROUTER_ID: %s\nROUTER_NAME: %s\nAGENT_TOKEN: %s\nPOLL_INTERVAL: 5", st.RouterID, name, token, st.RouterID, name, token)
-		s.sendMessageWithKeyboard(chatID, msg, routerKeyboard(st.RouterID))
+		s.sendMessageWithKeyboard(chatID, addRouterDoneMessage(st.RouterID, name, token, s.cfg.Listen), routerKeyboard(st.RouterID))
 		return true
 	default:
 		wizardCancel(chatID)
@@ -161,4 +160,32 @@ func (s *Server) handleSetSourceWizardStep(chatID int64, st wizardState, text st
 		s.sendMessage(chatID, "Диалог сброшен.")
 		return true
 	}
+}
+
+func addRouterDoneMessage(routerID, name, token, listen string) string {
+	serverURL := agentServerURL(listen)
+	return fmt.Sprintf("Роутер добавлен: %s (%s)\n\nAgent token:\n%s\n\nГотовая команда для роутера Entware:\n\n%s\n\nЕсли в SERVER_URL указан VPS_IP, замени его на внешний IP или DNS VPS.", routerID, name, token, agentInstallCommand(serverURL, routerID, name, token))
+}
+
+func agentServerURL(listen string) string {
+	listen = strings.TrimSpace(listen)
+	if listen == "" || strings.HasPrefix(listen, ":") || strings.HasPrefix(listen, "0.0.0.0:") || strings.HasPrefix(listen, "[::]:") {
+		port := "18090"
+		if idx := strings.LastIndex(listen, ":"); idx >= 0 && idx+1 < len(listen) {
+			port = listen[idx+1:]
+		}
+		return "http://VPS_IP:" + port
+	}
+	if strings.HasPrefix(listen, "http://") || strings.HasPrefix(listen, "https://") {
+		return listen
+	}
+	return "http://" + listen
+}
+
+func agentInstallCommand(serverURL, routerID, name, token string) string {
+	return fmt.Sprintf("curl -fsSL -o /opt/bin/xray-go-agent-install https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/xray-go-agent-install.sh\nchmod +x /opt/bin/xray-go-agent-install\n/opt/bin/xray-go-agent-install --server-url %s --router-id %s --router-name %s --agent-token %s --poll-interval 5", shellQuote(serverURL), shellQuote(routerID), shellQuote(name), shellQuote(token))
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
