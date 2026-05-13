@@ -31,6 +31,19 @@ func (s *Server) startAddRouterWizard(chatID int64) {
 	s.sendMessage(chatID, "Введите ID роутера латиницей, например: home, dacha, office\n\nДля отмены: /cancel")
 }
 
+func sourceKeyboard(routerID string) inlineKeyboard {
+	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
+		{{Text: "Статус источников", CallbackData: "act:source_status:" + routerID}},
+		{{Text: "Заменить основной", CallbackData: "setsrc:primary:" + routerID}},
+		{{Text: "Заменить резервный", CallbackData: "setsrc:backup:" + routerID}},
+		{{Text: "Назад", CallbackData: "router:" + routerID}, {Text: "Главное меню", CallbackData: "menu"}},
+	}}
+}
+
+func (s *Server) sendSourceMenu(chatID int64, routerID string) {
+	s.sendMessageWithKeyboard(chatID, "Источники роутера: "+routerID, sourceKeyboard(routerID))
+}
+
 func (s *Server) startSetSourceWizard(chatID int64, routerID, slot string) {
 	wizardMu.Lock()
 	wizardByChat[chatID] = wizardState{Flow: "set_source", Step: "selector", RouterID: routerID, Slot: slot}
