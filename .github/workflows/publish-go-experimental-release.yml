@@ -71,7 +71,7 @@ jobs:
 
           Latest experimental Go edition build for Keenetic/Entware VLESS failover.
 
-          This release publishes Go resolver/generator and optional web UI assets for supported Keenetic Entware targets:
+          This release publishes Go resolver/generator and optional Web UI assets for supported Keenetic Entware targets:
 
           ```text
           xray-failover-go-linux-arm64
@@ -80,18 +80,24 @@ jobs:
           vless-go-web-linux-mipsle
           ```
 
-          Current package version: `0.1.3-go-experimental`.
+          Current package line: `v0.1.5-go-polish`.
 
           Includes:
 
-          - watchdog backup health handling cleanup
-          - multi-architecture Entware feed support
-          - mipsel/mipselsf architecture-aware postinst and updater
-          - doctor architecture diagnostics
-          - doctor Xray init and Proxy0 repair/checks
-          - optional Full Go web UI dashboard
+          - unified `xray-go` command wrapper
+          - support-safe `xray-go doctor --support`
+          - quiet hourly recovery helpers for Full Go and Minimal Go
+          - recovery status in `xray-go status` and doctor support output
+          - Web UI actions aligned with `xray-go` and recovery workflow
+          - Full Go Entware architecture detection for arm64 and mipsel/mipselsf
+          - hardened Full Go installer downloads and ELF validation
+          - shell smoke-test guardrails for installers and helper scripts
 
-          Entware feed assets are published per architecture tag because each feed root contains architecture-specific `Packages` and `Packages.gz` files.
+          Notes:
+
+          - The Web UI should be used only in a trusted LAN.
+          - Raw VLESS links, UUIDs, server addresses, and subscription URLs are not intentionally printed by support diagnostics.
+          - mipsel/mipselsf resolver and Web UI assets are built, but physical router validation is still pending when hardware is available.
           EOF
 
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
