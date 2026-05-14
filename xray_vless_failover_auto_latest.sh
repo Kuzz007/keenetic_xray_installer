@@ -162,6 +162,7 @@ bootstrap_go_dependencies() {
     echo "Preparing dependencies for Go/Entware latest edition..."
     bootstrap_common_dependencies
     opkg_install_missing wget-ssl ca-certificates || true
+    ensure_cron
 }
 
 bootstrap_minimal_go_dependencies() {
