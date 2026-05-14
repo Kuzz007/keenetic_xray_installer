@@ -40,6 +40,16 @@ failover_cmd() {
   return 1
 }
 
+normalize_selector() {
+  sel="$(printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  [ -n "$sel" ] || { printf '%s' "first"; return 0; }
+  case "$sel" in
+    first|index:*) printf '%s' "$sel"; return 0 ;;
+    *[!0-9]*) printf '%s' "$sel"; return 0 ;;
+    *) printf 'index:%s' "$sel"; return 0 ;;
+  esac
+}
+
 features() {
   out=""
   if have /opt/bin/xray-go || failover_cmd >/dev/null 2>&1; then out="$out,status,switch"; fi
@@ -70,9 +80,8 @@ short_status() {
 
 set_source() {
   slot="$1"
-  selector="${2:-first}"
+  selector="$(normalize_selector "${2:-}")"
   source="$3"
-  [ -n "$selector" ] || selector="first"
   [ -n "$source" ] || { echo "source is empty"; return 1; }
   fc="$(failover_cmd 2>/dev/null || true)"
   [ -n "$fc" ] || { echo "not found: /opt/bin/vless-go-failover or /opt/bin/failover"; return 1; }

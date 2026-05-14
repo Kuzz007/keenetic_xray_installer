@@ -490,7 +490,7 @@ func (s *Server) handleSetSource(chatID int64, text, slot string) {
 		return
 	}
 	routerID := parts[0]
-	selector := parts[1]
+	selector := normalizeSelector(parts[1])
 	source := strings.Join(parts[2:], " ")
 	action := "set_primary_source"
 	if slot == "backup" {

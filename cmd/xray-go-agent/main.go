@@ -69,16 +69,27 @@ func pollOnce(cfg Config) error {
 	body := map[string]string{"router_id": cfg.RouterID, "name": cfg.RouterName, "status": status}
 	payload, _ := json.Marshal(body)
 	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(cfg.ServerURL, "/")+"/agent/poll", bytes.NewReader(payload))
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.AgentToken)
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK { b,_:=io.ReadAll(resp.Body); return fmt.Errorf("server status %s: %s", resp.Status, strings.TrimSpace(string(b))) }
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("server status %s: %s", resp.Status, strings.TrimSpace(string(b)))
+	}
 	var pr PollResponse
-	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil { return err }
-	if pr.Command == nil || pr.Command.ID == "" { return nil }
+	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
+		return err
+	}
+	if pr.Command == nil || pr.Command.ID == "" {
+		return nil
+	}
 	ok, out := runAllowed(*pr.Command)
 	res := Result{CommandID: pr.Command.ID, RouterID: cfg.RouterID, OK: ok, Output: redact(out, pr.Command.Source)}
 	return postResult(cfg, res)
@@ -87,13 +98,20 @@ func pollOnce(cfg Config) error {
 func postResult(cfg Config, res Result) error {
 	payload, _ := json.Marshal(res)
 	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(cfg.ServerURL, "/")+"/agent/result", bytes.NewReader(payload))
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.AgentToken)
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK { b,_:=io.ReadAll(resp.Body); return fmt.Errorf("result status %s: %s", resp.Status, strings.TrimSpace(string(b))) }
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("result status %s: %s", resp.Status, strings.TrimSpace(string(b)))
+	}
 	return nil
 }
 
@@ -140,11 +158,17 @@ func runAllowed(c Command) (bool, string) {
 }
 
 func setSource(slot, selector, source string) (bool, string) {
-	if selector == "" { selector = "first" }
-	if strings.TrimSpace(source) == "" { return false, "source is empty" }
-	if slot != "primary" && slot != "backup" { return false, "invalid slot" }
+	selector = normalizeSelector(selector)
+	if strings.TrimSpace(source) == "" {
+		return false, "source is empty"
+	}
+	if slot != "primary" && slot != "backup" {
+		return false, "invalid slot"
+	}
 	cmd := setSourceCommand(slot, selector, source)
-	if len(cmd) == 0 { return false, "unsupported source update on this router" }
+	if len(cmd) == 0 {
+		return false, "unsupported source update on this router"
+	}
 	_ = os.MkdirAll("/opt/etc/xray/source-backups", 0700)
 	oldPath := "/opt/etc/xray/vless-go." + slot
 	if data, err := os.ReadFile(oldPath); err == nil && len(data) > 0 {
@@ -159,8 +183,12 @@ func setSource(slot, selector, source string) (bool, string) {
 }
 
 func run(cmd []string, timeout time.Duration) (bool, string) {
-	if len(cmd) == 0 { return false, "empty command" }
-	if _, err := os.Stat(cmd[0]); err != nil { return false, "not found: " + cmd[0] }
+	if len(cmd) == 0 {
+		return false, "empty command"
+	}
+	if _, err := os.Stat(cmd[0]); err != nil {
+		return false, "not found: " + cmd[0]
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	c := exec.CommandContext(ctx, cmd[0], cmd[1:]...)
@@ -169,9 +197,15 @@ func run(cmd []string, timeout time.Duration) (bool, string) {
 	c.Stderr = &out
 	err := c.Run()
 	text := strings.TrimSpace(out.String())
-	if ctx.Err() == context.DeadlineExceeded { return false, text + "\nTIMEOUT" }
-	if err != nil { return false, text + "\nERROR: " + err.Error() }
-	if text == "" { text = "OK" }
+	if ctx.Err() == context.DeadlineExceeded {
+		return false, text + "\nTIMEOUT"
+	}
+	if err != nil {
+		return false, text + "\nERROR: " + err.Error()
+	}
+	if text == "" {
+		text = "OK"
+	}
 	return true, text
 }
 
@@ -183,7 +217,9 @@ func shortStatus() string {
 		return "status_error: no supported status command; " + featureLine
 	}
 	ok, out := run(cmd, 25*time.Second)
-	if !ok { return "status_error: " + out + "; " + featureLine }
+	if !ok {
+		return "status_error: " + out + "; " + featureLine
+	}
 	lines := []string{}
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
@@ -313,13 +349,19 @@ func exists(path string) bool {
 }
 
 func redact(s, secret string) string {
-	if secret != "" { s = strings.ReplaceAll(s, secret, "<hidden>") }
+	if secret != "" {
+		s = strings.ReplaceAll(s, secret, "<hidden>")
+	}
 	for _, marker := range []string{"vless://", "vmess://", "trojan://", "ss://"} {
 		for {
 			i := strings.Index(s, marker)
-			if i < 0 { break }
+			if i < 0 {
+				break
+			}
 			j := i
-			for j < len(s) && !strings.ContainsAny(string(s[j]), " \n\r\t\"'") { j++ }
+			for j < len(s) && !strings.ContainsAny(string(s[j]), " \n\r\t\"'") {
+				j++
+			}
 			s = s[:i] + "<hidden-url>" + s[j:]
 		}
 	}
@@ -329,22 +371,60 @@ func redact(s, secret string) string {
 func loadConfig(path string) (Config, error) {
 	cfg := Config{PollInterval: 5 * time.Second}
 	data, err := os.ReadFile(path)
-	if err != nil { return cfg, err }
+	if err != nil {
+		return cfg, err
+	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") { continue }
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
 		k, v, ok := strings.Cut(line, "=")
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 		v = strings.Trim(strings.TrimSpace(v), "\"")
 		switch strings.TrimSpace(k) {
-		case "SERVER_URL": cfg.ServerURL = v
-		case "ROUTER_ID": cfg.RouterID = v
-		case "ROUTER_NAME": cfg.RouterName = v
-		case "AGENT_TOKEN": cfg.AgentToken = v
-		case "POLL_INTERVAL": if d, err := time.ParseDuration(v+"s"); err == nil { cfg.PollInterval = d }
+		case "SERVER_URL":
+			cfg.ServerURL = v
+		case "ROUTER_ID":
+			cfg.RouterID = v
+		case "ROUTER_NAME":
+			cfg.RouterName = v
+		case "AGENT_TOKEN":
+			cfg.AgentToken = v
+		case "POLL_INTERVAL":
+			if d, err := time.ParseDuration(v + "s"); err == nil {
+				cfg.PollInterval = d
+			}
 		}
 	}
-	if cfg.ServerURL == "" || cfg.RouterID == "" || cfg.AgentToken == "" { return cfg, fmt.Errorf("SERVER_URL, ROUTER_ID and AGENT_TOKEN are required") }
-	if cfg.RouterName == "" { cfg.RouterName = cfg.RouterID }
+	if cfg.ServerURL == "" || cfg.RouterID == "" || cfg.AgentToken == "" {
+		return cfg, fmt.Errorf("SERVER_URL, ROUTER_ID and AGENT_TOKEN are required")
+	}
+	if cfg.RouterName == "" {
+		cfg.RouterName = cfg.RouterID
+	}
 	return cfg, nil
+}
+
+func normalizeSelector(selector string) string {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return "first"
+	}
+	if selector == "first" || strings.HasPrefix(selector, "index:") {
+		return selector
+	}
+	allDigits := true
+	for _, r := range selector {
+		if r < '0' || r > '9' {
+			allDigits = false
+			break
+		}
+	}
+	if allDigits {
+		return "index:" + selector
+	}
+	return selector
 }
