@@ -287,17 +287,91 @@ done
 DAEMON
     chmod +x "$DAEMON"
 
-    cat > "$FAILOVER_INIT" <<INIT
-#!/bin/sh
+    cat > "$FAILOVER_INIT" <<'INIT'
+#!/opt/bin/sh
 
 ENABLED=yes
-PROCS=xray-minimal-go-failover-daemon
-ARGS=""
-PREARGS=""
 DESC="Xray Minimal Go Failover"
+DAEMON="/opt/bin/xray-minimal-go-failover-daemon"
+PIDFILE="/opt/var/run/xray-minimal-go-failover.pid"
+LOG="/opt/var/log/xray-minimal-go-failover.log"
+
 PATH=/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-. /opt/etc/init.d/rc.func
+is_running() {
+  [ -f "$PIDFILE" ] || return 1
+  pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+  [ -n "$pid" ] || return 1
+  kill -0 "$pid" 2>/dev/null
+}
+
+start() {
+  printf " Starting %s... " "$DESC"
+
+  if is_running; then
+    echo "already running."
+    return 0
+  fi
+
+  mkdir -p /opt/var/run /opt/var/log
+
+  "$DAEMON" >>"$LOG" 2>&1 &
+  echo "$!" > "$PIDFILE"
+
+  sleep 1
+
+  if is_running; then
+    echo "done."
+    return 0
+  fi
+
+  echo "failed."
+  rm -f "$PIDFILE"
+  return 1
+}
+
+stop() {
+  printf " Stopping %s... " "$DESC"
+
+  if is_running; then
+    pid="$(cat "$PIDFILE")"
+    kill "$pid" 2>/dev/null || true
+    sleep 1
+    kill -9 "$pid" 2>/dev/null || true
+    rm -f "$PIDFILE"
+    echo "done."
+    return 0
+  fi
+
+  rm -f "$PIDFILE"
+  echo "not running."
+  return 0
+}
+
+status() {
+  printf " Checking %s... " "$DESC"
+
+  if is_running; then
+    echo "alive."
+    return 0
+  fi
+
+  echo "dead."
+  return 1
+}
+
+restart() {
+  stop
+  start
+}
+
+case "$1" in
+  start) start ;;
+  stop) stop ;;
+  restart) restart ;;
+  status) status ;;
+  *) echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
+esac
 INIT
     chmod +x "$FAILOVER_INIT"
 }
