@@ -104,6 +104,10 @@ active_slot() {
     [ -s "$STORE" ] && sed -n '1p' "$STORE" || echo "unknown"
 }
 
+cron_running() {
+    ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1
+}
+
 history_log() {
     MODE="$(detect_mode)"
     if [ "$MODE" = full ] && [ -x "$FULL_HISTORY_CMD" ]; then
@@ -284,7 +288,7 @@ status() {
     else
         echo "  hourly recovery: disabled"
     fi
-    if ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then echo "  crond: running"; else echo "  crond: not running or not visible"; fi
+    if cron_running; then echo "  cron: running"; else echo "  cron: not running or not visible"; fi
 }
 
 CMD="${1:-run}"
