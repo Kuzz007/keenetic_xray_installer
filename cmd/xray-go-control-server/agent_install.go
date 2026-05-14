@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"strings"
+	"time"
 )
 
 func agentInstallKeyboard(routerID string) inlineKeyboard {
@@ -68,14 +70,55 @@ func (s *Server) sendAgentInstallCommand(chatID int64, routerID, kind string) {
 
 func publicServerURL(listen string) string {
 	listen = strings.TrimSpace(listen)
-	if listen == "" || listen == ":18090" {
-		return "http://VPS_IP:18090"
-	}
-	if strings.HasPrefix(listen, ":") {
-		return "http://VPS_IP" + listen
+	if listen == "" {
+		listen = ":18090"
 	}
 	if strings.HasPrefix(listen, "http://") || strings.HasPrefix(listen, "https://") {
 		return listen
 	}
-	return "http://" + listen
+
+	host, port := listenHostPort(listen)
+	if port == "" {
+		port = "18090"
+	}
+	if isWildcardListenHost(host) {
+		host = detectOutboundIP()
+	}
+	if host == "" {
+		host = "VPS_IP"
+	}
+
+	return "http://" + net.JoinHostPort(host, port)
+}
+
+func listenHostPort(listen string) (string, string) {
+	if strings.HasPrefix(listen, ":") {
+		return "", strings.TrimPrefix(listen, ":")
+	}
+
+	host, port, err := net.SplitHostPort(listen)
+	if err == nil {
+		return strings.Trim(host, "[]"), port
+	}
+
+	return listen, ""
+}
+
+func isWildcardListenHost(host string) bool {
+	host = strings.TrimSpace(strings.Trim(host, "[]"))
+	return host == "" || host == "0.0.0.0" || host == "::"
+}
+
+func detectOutboundIP() string {
+	conn, err := net.DialTimeout("udp", "8.8.8.8:80", 2*time.Second)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok || addr.IP == nil {
+		return ""
+	}
+	return addr.IP.String()
 }
