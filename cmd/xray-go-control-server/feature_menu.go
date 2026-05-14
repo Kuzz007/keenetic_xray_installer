@@ -86,6 +86,10 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 		rows = append(rows, []inlineButton{{Text: "Results", CallbackData: "act:results:" + routerID}})
 	}
 
+	if f.has("reboot") {
+		rows = append(rows, []inlineButton{{Text: "Перезагрузить роутер", CallbackData: "act:reboot:" + routerID}})
+	}
+
 	rows = append(rows, []inlineButton{{Text: "📦 Установка агента", CallbackData: "install:" + routerID}})
 	rows = append(rows, []inlineButton{{Text: "Удалить роутер", CallbackData: "delete-router:" + routerID}})
 	rows = append(rows, []inlineButton{
