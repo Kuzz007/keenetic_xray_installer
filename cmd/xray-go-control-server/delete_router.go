@@ -17,7 +17,7 @@ func (s *Server) sendDeleteRouterConfirm(chatID int64, routerID string) {
 	s.mu.Unlock()
 
 	if rt == nil {
-		s.sendMessageWithKeyboard(chatID, "Роутер не найден: "+routerID, routersKeyboard(s.routerIDs()))
+		s.sendMessageWithKeyboard(chatID, "Роутер не найден: "+routerID, s.routersKeyboard())
 		return
 	}
 
@@ -32,7 +32,7 @@ func (s *Server) deleteRouter(chatID int64, routerID string) {
 	rt := s.cfg.Routers[routerID]
 	if rt == nil {
 		s.mu.Unlock()
-		s.sendMessageWithKeyboard(chatID, "Роутер уже отсутствует: "+routerID, routersKeyboard(s.routerIDs()))
+		s.sendMessageWithKeyboard(chatID, "Роутер уже отсутствует: "+routerID, s.routersKeyboard())
 		return
 	}
 
@@ -54,5 +54,5 @@ func (s *Server) deleteRouter(chatID int64, routerID string) {
 		return
 	}
 
-	s.sendMessageWithKeyboard(chatID, "Роутер удалён из registry: "+routerID, routersKeyboard(s.routerIDs()))
+	s.sendMessageWithKeyboard(chatID, "Роутер удалён из registry: "+routerID, s.routersKeyboard())
 }
