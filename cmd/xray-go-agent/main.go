@@ -148,6 +148,8 @@ func runAllowed(c Command) (bool, string) {
 		return setSource("primary", c.Selector, c.Source)
 	case "set_backup_source":
 		return setSource("backup", c.Selector, c.Source)
+	case "reboot":
+		return rebootRouter()
 	default:
 		return false, "unknown action: " + c.Action
 	}
@@ -209,6 +211,18 @@ func run(cmd []string, timeout time.Duration) (bool, string) {
 	return true, text
 }
 
+func rebootRouter() (bool, string) {
+	if !exists("/bin/sh") {
+		return false, "not found: /bin/sh"
+	}
+	cmd := []string{"/bin/sh", "-c", "(sleep 2; reboot) >/dev/null 2>&1 &"}
+	ok, out := run(cmd, 5*time.Second)
+	if !ok {
+		return false, out
+	}
+	return true, "Router reboot scheduled by control bot. Agent will disconnect now."
+}
+
 func shortStatus() string {
 	cmd := statusCommand()
 	features := detectFeatures()
@@ -254,6 +268,9 @@ func detectFeatures() []string {
 	}
 	if len(recoverCommand("status")) > 0 {
 		features = append(features, "recovery")
+	}
+	if exists("/bin/sh") {
+		features = append(features, "reboot")
 	}
 	if len(features) == 0 {
 		features = append(features, "status")
