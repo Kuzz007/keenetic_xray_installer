@@ -19,7 +19,9 @@ CHECK_URLS="${CHECK_URLS:-http://connectivitycheck.gstatic.com/generate_204 http
 CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-5}"
 MAX_TIME="${MAX_TIME:-10}"
 PROXY_IFACE="${PROXY_IFACE:-Proxy0}"
-LOG_FILE="${LOG_FILE:-/opt/var/log/vless-go-recover.log}"
+FULL_RECOVERY_LOG="/opt/var/log/vless-go-recover.log"
+MINIMAL_RECOVERY_LOG="/opt/var/log/xray-minimal-go-failover.log"
+LOG_FILE_OVERRIDE="${LOG_FILE:-}"
 CRON_FILE="/opt/var/spool/cron/crontabs/root"
 MARKER="vless-go-hourly-recover"
 DEFAULT_SCHEDULE="7 * * * *"
@@ -43,7 +45,7 @@ Commands:
 Notes:
   - Supports Full Go and Minimal Go. Mode is auto-detected by default.
   - Healthy hourly checks are silent.
-  - Recovery actions are logged to $LOG_FILE.
+  - Recovery actions are logged to the mode-specific recovery log.
   - Router reboot is intentionally not automatic.
 EOF
 }
@@ -59,13 +61,6 @@ done
 
 case "$RECOVER_MODE" in auto|full|minimal) ;; *) echo "ERROR: invalid mode: $RECOVER_MODE" >&2; exit 2 ;; esac
 
-log() {
-    mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
-    LINE="$(date '+%Y-%m-%d %H:%M:%S') $*"
-    printf '%s\n' "$LINE" >> "$LOG_FILE"
-    [ "$QUIET" = "1" ] || printf '%s\n' "$LINE"
-}
-
 detect_mode() {
     case "$RECOVER_MODE" in
         full|minimal) echo "$RECOVER_MODE"; return 0 ;;
@@ -77,6 +72,25 @@ detect_mode() {
     else
         echo unknown
     fi
+}
+
+recovery_log_file() {
+    if [ -n "$LOG_FILE_OVERRIDE" ]; then
+        echo "$LOG_FILE_OVERRIDE"
+        return 0
+    fi
+    case "$(detect_mode)" in
+        minimal) echo "$MINIMAL_RECOVERY_LOG" ;;
+        *) echo "$FULL_RECOVERY_LOG" ;;
+    esac
+}
+
+log() {
+    LOG_FILE="$(recovery_log_file)"
+    mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+    LINE="$(date '+%Y-%m-%d %H:%M:%S') $*"
+    printf '%s\n' "$LINE" >> "$LOG_FILE"
+    [ "$QUIET" = "1" ] || printf '%s\n' "$LINE"
 }
 
 mode_name() { MODE="$(detect_mode)"; echo "$MODE"; }
@@ -223,6 +237,7 @@ run_recovery() {
 }
 
 ensure_cron_files() {
+    LOG_FILE="$(recovery_log_file)"
     mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
     touch "$CRON_FILE" "$LOG_FILE"
     chmod 600 "$CRON_FILE" 2>/dev/null || true
@@ -244,7 +259,7 @@ enable_hourly() {
     chmod 600 "$CRON_FILE" 2>/dev/null || true
     echo "Hourly recovery enabled: $SCHEDULE"
     echo "Mode: $(detect_mode)"
-    echo "Healthy checks are silent; recovery actions are logged to $LOG_FILE"
+    echo "Healthy checks are silent; recovery actions are logged to $(recovery_log_file)"
 }
 
 disable_hourly() {
@@ -262,7 +277,7 @@ status() {
     echo "  socks: $SOCKS_HOST:$SOCKS_PORT"
     echo "  proxy iface: $PROXY_IFACE"
     echo "  daemon init: $(daemon_init)"
-    echo "  log: $LOG_FILE"
+    echo "  log: $(recovery_log_file)"
     if grep "# $MARKER" "$CRON_FILE" >/dev/null 2>&1; then
         echo "  hourly recovery: enabled"
         grep "# $MARKER" "$CRON_FILE"
