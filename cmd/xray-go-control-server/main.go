@@ -154,6 +154,9 @@ func (s *Server) telegramLoop() {
 	if s.cfg.BotToken == "" || s.cfg.AdminUserID == 0 {
 		return
 	}
+	if err := s.setBotCommands(); err != nil {
+		log.Printf("telegram setMyCommands: %v", err)
+	}
 	for {
 		updates, err := s.getUpdates()
 		if err != nil {
@@ -196,6 +199,46 @@ type inlineKeyboard struct {
 type inlineButton struct {
 	Text         string `json:"text"`
 	CallbackData string `json:"callback_data"`
+}
+
+func (s *Server) setBotCommands() error {
+	payload := map[string]any{
+		"commands": []map[string]string{
+			{"command": "menu", "description": "Открыть меню управления"},
+			{"command": "routers", "description": "Список роутеров"},
+			{"command": "add_router", "description": "Добавить роутер"},
+			{"command": "help", "description": "Помощь"},
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/setMyCommands", s.cfg.BotToken)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("telegram setMyCommands status=%s body=%s", resp.Status, string(b))
+	}
+
+	var data struct {
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return err
+	}
+	if !data.OK {
+		return fmt.Errorf("telegram setMyCommands failed: %s", data.Description)
+	}
+	return nil
 }
 
 func (s *Server) getUpdates() ([]tgUpdate, error) {
