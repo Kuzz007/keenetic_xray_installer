@@ -399,9 +399,6 @@ func (s *Server) routersKeyboard() inlineKeyboard {
 		if rt != nil && strings.TrimSpace(rt.Name) != "" {
 			text = rt.Name
 		}
-		if text != id {
-			text = text + " (" + id + ")"
-		}
 		rows = append(rows, []inlineButton{{Text: text, CallbackData: "router:" + id}})
 	}
 	s.mu.Unlock()
