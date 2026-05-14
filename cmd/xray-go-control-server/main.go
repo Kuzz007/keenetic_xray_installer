@@ -126,12 +126,7 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	_ = json.NewEncoder(w).Encode(map[string]string{"ok": "1"})
 	if s.cfg.BotToken != "" && s.cfg.AdminUserID != 0 {
-		status := "OK"
-		if !res.OK {
-			status = "FAIL"
-		}
-		msg := fmt.Sprintf("%s: %s %s\n%s", rt.Name, status, res.CommandID, limit(res.Output, 3500))
-		s.sendMessage(s.cfg.AdminUserID, msg)
+		s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(rt.Name, res))
 	}
 }
 
@@ -374,13 +369,13 @@ func (s *Server) handleCallback(cb *tgCallbackQuery) {
 }
 
 func (s *Server) sendMainMenu(chatID int64) {
-	s.sendMessageWithKeyboard(chatID, "Xray Go Control\nВыбери раздел:", mainMenuKeyboard())
+	s.sendMessageWithKeyboard(chatID, prettyMainMenuText(), mainMenuKeyboard())
 }
 
 func mainMenuKeyboard() inlineKeyboard {
 	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
-		{{Text: "Роутеры", CallbackData: "routers"}, {Text: "Добавить роутер", CallbackData: "add_router_help"}},
-		{{Text: "Обновить", CallbackData: "routers"}, {Text: "Помощь", CallbackData: "help"}},
+		{{Text: "📡 Роутеры", CallbackData: "routers"}, {Text: "➕ Добавить роутер", CallbackData: "add_router_help"}},
+		{{Text: "🔄 Обновить", CallbackData: "routers"}, {Text: "❔ Помощь", CallbackData: "help"}},
 	}}
 }
 
@@ -399,41 +394,47 @@ func (s *Server) routersKeyboard() inlineKeyboard {
 		if rt != nil && strings.TrimSpace(rt.Name) != "" {
 			text = rt.Name
 		}
+		if rt != nil {
+			dot, _ := onlineState(rt.LastSeen)
+			text = dot + " " + text
+		}
 		rows = append(rows, []inlineButton{{Text: text, CallbackData: "router:" + id}})
 	}
 	s.mu.Unlock()
 
-	rows = append(rows, []inlineButton{{Text: "Обновить", CallbackData: "routers"}, {Text: "Назад", CallbackData: "menu"}})
+	rows = append(rows, []inlineButton{{Text: "🔄 Обновить", CallbackData: "routers"}, {Text: "⬅️ Назад", CallbackData: "menu"}})
 	return inlineKeyboard{InlineKeyboard: rows}
 }
 
 func routerKeyboard(routerID string) inlineKeyboard {
 	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
-		{{Text: "Статус", CallbackData: "act:status:" + routerID}, {Text: "Doctor", CallbackData: "act:doctor:" + routerID}},
-		{{Text: "Primary", CallbackData: "act:switch_primary:" + routerID}, {Text: "Backup", CallbackData: "act:switch_backup:" + routerID}},
-		{{Text: "Источники", CallbackData: "sources:" + routerID}},
-		{{Text: "Recovery status", CallbackData: "act:recover_status:" + routerID}, {Text: "Recover now", CallbackData: "act:recover:" + routerID}},
-		{{Text: "History", CallbackData: "act:history:" + routerID}, {Text: "Watchdog log", CallbackData: "act:watchdog:" + routerID}},
-		{{Text: "Recovery log", CallbackData: "act:recoverylog:" + routerID}, {Text: "Results", CallbackData: "act:results:" + routerID}},
+		{{Text: "📊 Статус", CallbackData: "act:status:" + routerID}, {Text: "🩺 Doctor", CallbackData: "act:doctor:" + routerID}},
+		{{Text: "⬆️ Основной", CallbackData: "act:switch_primary:" + routerID}, {Text: "⬇️ Резерв", CallbackData: "act:switch_backup:" + routerID}},
+		{{Text: "🔗 Источники", CallbackData: "sources:" + routerID}},
+		{{Text: "🛡 Recovery status", CallbackData: "act:recover_status:" + routerID}, {Text: "♻️ Recover now", CallbackData: "act:recover:" + routerID}},
+		{{Text: "🕘 History", CallbackData: "act:history:" + routerID}, {Text: "👁 Watchdog log", CallbackData: "act:watchdog:" + routerID}},
+		{{Text: "📄 Recovery log", CallbackData: "act:recoverylog:" + routerID}, {Text: "📬 Results", CallbackData: "act:results:" + routerID}},
+		{{Text: "🔄 Перезагрузить роутер", CallbackData: "act:reboot:" + routerID}},
 		{{Text: "📦 Установка агента", CallbackData: "install:" + routerID}},
-		{{Text: "Удалить роутер", CallbackData: "delete-router:" + routerID}},
-		{{Text: "Назад", CallbackData: "routers"}, {Text: "Главное меню", CallbackData: "menu"}},
+		{{Text: "🗑 Удалить роутер", CallbackData: "delete-router:" + routerID}},
+		{{Text: "⬅️ Назад", CallbackData: "routers"}, {Text: "🏠 Главное меню", CallbackData: "menu"}},
 	}}
 }
 
 func (s *Server) sendRouterMenu(chatID int64, routerID string) {
 	s.mu.Lock()
 	rt := s.cfg.Routers[routerID]
-	var title string
+	card := prettyRouterCard(rt)
+	status := ""
 	if rt != nil {
-		title = fmt.Sprintf("%s (%s)\n%s", rt.Name, rt.ID, compactStatus(rt.Status))
+		status = rt.Status
 	}
 	s.mu.Unlock()
 	if rt == nil {
 		s.sendMessageWithKeyboard(chatID, "unknown router: "+routerID, s.routersKeyboard())
 		return
 	}
-	s.sendMessageWithKeyboard(chatID, title, routerKeyboardForStatus(routerID, rt.Status))
+	s.sendMessageWithKeyboard(chatID, card, routerKeyboardForStatus(routerID, status))
 }
 
 func (s *Server) handleActionCallback(chatID int64, data string) {
@@ -444,7 +445,14 @@ func (s *Server) handleActionCallback(chatID int64, data string) {
 	}
 	name, routerID := parts[1], parts[2]
 	if name == "results" {
-		s.sendMessageWithKeyboard(chatID, s.results(routerID), routerKeyboard(routerID))
+		s.mu.Lock()
+		rt := s.cfg.Routers[routerID]
+		status := ""
+		if rt != nil {
+			status = rt.Status
+		}
+		s.mu.Unlock()
+		s.sendMessageWithKeyboard(chatID, s.results(routerID), routerKeyboardForStatus(routerID, status))
 		return
 	}
 	action := callbackAction(name)
@@ -457,7 +465,7 @@ func (s *Server) handleActionCallback(chatID int64, data string) {
 		s.sendMessageWithKeyboard(chatID, err.Error(), s.routersKeyboard())
 		return
 	}
-	s.sendMessageWithKeyboard(chatID, "Команда поставлена в очередь: "+id, routerKeyboard(routerID))
+	s.sendMessageWithKeyboard(chatID, "📨 Команда поставлена в очередь:\n"+id, routerKeyboard(routerID))
 }
 
 func callbackAction(name string) string {
@@ -495,7 +503,7 @@ func (s *Server) handleCommand(chatID int64, text string) {
 		s.sendMessage(chatID, err.Error())
 		return
 	}
-	s.sendMessage(chatID, "Команда поставлена в очередь: "+id)
+	s.sendMessage(chatID, "📨 Команда поставлена в очередь:\n"+id)
 }
 
 func (s *Server) handleAddRouter(chatID int64, text string) {
@@ -534,7 +542,7 @@ func (s *Server) handleAddRouter(chatID int64, text string) {
 		s.sendMessage(chatID, "Роутер не сохранён: "+err.Error()+"\nПроверь права: /etc/xray-go-control-server.conf должен быть writable для группы xraygo.")
 		return
 	}
-	msg := fmt.Sprintf("Роутер добавлен: %s (%s)\n\nAgent token:\n%s\n\nОткрой меню роутера и нажми 📦 Установка агента.\nВыбери Go-agent для Full/Minimal Go или Legacy shell-agent для Viva/MT7621/старых MIPS.", routerID, name, token)
+	msg := fmt.Sprintf("✅ Роутер добавлен\n\n📡 %s\nID: %s\n\nAgent token:\n%s\n\nОткрой меню роутера и нажми 📦 Установка агента.", name, routerID, token)
 	s.sendMessageWithKeyboard(chatID, msg, routerKeyboard(routerID))
 }
 
@@ -558,7 +566,7 @@ func (s *Server) handleSetSource(chatID int64, text, slot string) {
 		s.sendMessage(chatID, err.Error())
 		return
 	}
-	s.sendMessage(chatID, "Источник поставлен в очередь: "+id+" (значение скрыто)")
+	s.sendMessage(chatID, "🔗 Источник поставлен в очередь:\n"+id+"\n\nЗначение скрыто.")
 }
 
 func parseCmdRouter(text string) (string, string, bool) {
@@ -585,42 +593,38 @@ func (s *Server) enqueue(routerID string, c Command) (string, error) {
 func (s *Server) routerList() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	lines := []string{"Роутеры:"}
 	ids := make([]string, 0, len(s.cfg.Routers))
 	for id := range s.cfg.Routers {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
+	online := 0
+	items := []string{}
 	for _, id := range ids {
 		rt := s.cfg.Routers[id]
-		state := "offline"
-		if time.Since(rt.LastSeen) < 30*time.Second {
-			state = "online"
+		if rt != nil && time.Since(rt.LastSeen) < 30*time.Second {
+			online++
+		}
+	}
+	items = append(items, prettyRouterListHeader(len(ids), online))
+	for _, id := range ids {
+		rt := s.cfg.Routers[id]
+		if rt == nil {
+			continue
 		}
 		name := id
-		if rt != nil && strings.TrimSpace(rt.Name) != "" {
+		if strings.TrimSpace(rt.Name) != "" {
 			name = rt.Name
 		}
-		lines = append(lines, fmt.Sprintf("%s: %s\n  %s", name, state, compactStatus(rt.Status)))
+		items = append(items, prettyRouterListItem(name, rt.LastSeen, rt.Status))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(items, "\n\n")
 }
 
 func (s *Server) results(routerID string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rt := s.cfg.Routers[routerID]
-	if rt == nil {
-		return "unknown router"
-	}
-	if len(rt.Results) == 0 {
-		return "результатов пока нет"
-	}
-	out := []string{}
-	for _, r := range rt.Results {
-		out = append(out, fmt.Sprintf("[%s] %s ok=%v\n%s", r.At, r.CommandID, r.OK, limit(r.Output, 900)))
-	}
-	return strings.Join(out, "\n---\n")
+	return prettyResults(s.cfg.Routers[routerID])
 }
 
 func (s *Server) sendMessage(chatID int64, text string) {
@@ -666,10 +670,14 @@ func (s *Server) answerCallback(callbackID, text string) {
 }
 
 func helpText() string {
-	return strings.TrimSpace(`Команды:
-/menu
-/routers
-/add_router <router_id> [имя]
+	return strings.TrimSpace(`❔ Помощь
+
+Основные команды:
+/menu — главное меню
+/routers — список роутеров
+/add_router <router_id> [имя] — добавить роутер
+
+Быстрые команды:
 /status_<router>
 /doctor_<router>
 /switch_primary_<router>
@@ -684,6 +692,8 @@ func helpText() string {
 /recoverylog_<router>
 /source_status_<router>
 /results_<router>
+
+Источники:
 /set_primary_<router> <selector> <url>
 /set_backup_<router> <selector> <url>`)
 }
