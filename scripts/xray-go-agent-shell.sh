@@ -3,6 +3,7 @@ set -u
 
 CONF="/opt/etc/xray/xray-go-agent.conf"
 ONCE="0"
+SLOT_STATE_FILE="${SLOT_STATE_FILE:-/opt/var/run/xray-go-agent-shell.last-slot}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -70,6 +71,12 @@ status_cmd() {
   if [ -n "$fc" ]; then "$fc" status 2>&1; return $?; fi
   echo "status command not found"
   return 1
+}
+
+active_slot() {
+  if [ -s /opt/etc/xray/minimal-go-active ]; then sed -n '1p' /opt/etc/xray/minimal-go-active; return 0; fi
+  if [ -s /opt/etc/xray/vless-go.active ]; then sed -n '1p' /opt/etc/xray/vless-go.active; return 0; fi
+  status_cmd 2>/dev/null | sed -n 's/.*active slot:[[:space:]]*//p; s/.*активный слот:[[:space:]]*//p' | head -n 1
 }
 
 short_status() {
@@ -153,7 +160,23 @@ notify_startup() {
   post_result "agent_start" true "$msg" || log "startup notification failed"
 }
 
+check_slot_change() {
+  slot="$(active_slot | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  [ -n "$slot" ] || return 0
+  mkdir -p "$(dirname "$SLOT_STATE_FILE")" 2>/dev/null || true
+  if [ ! -s "$SLOT_STATE_FILE" ]; then
+    printf '%s\n' "$slot" > "$SLOT_STATE_FILE" 2>/dev/null || true
+    return 0
+  fi
+  old="$(sed -n '1p' "$SLOT_STATE_FILE" 2>/dev/null | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  [ "$old" = "$slot" ] && return 0
+  printf '%s\n' "$slot" > "$SLOT_STATE_FILE" 2>/dev/null || true
+  msg="Active slot changed on $ROUTER_NAME ($ROUTER_ID): $old -> $slot"
+  post_result "slot_change" true "$msg" || log "slot change notification failed: $old -> $slot"
+}
+
 poll_once() {
+  check_slot_change
   st="$(short_status | json_escape)"
   rn="$(printf '%s' "$ROUTER_NAME" | json_escape)"
   payload='{"router_id":"'"$ROUTER_ID"'","name":"'"$rn"'","status":"'"$st"'"}'
@@ -168,10 +191,12 @@ poll_once() {
   out="$(cat "$tmp" 2>/dev/null || true)"
   rm -f "$tmp"
   post_result "$command_id" "$ok" "$out" || log "result post failed"
+  check_slot_change
 }
 
 log "xray-go-agent-shell started router_id=$ROUTER_ID name=$ROUTER_NAME server=$SERVER_URL"
 notify_startup
+check_slot_change
 while :; do
   poll_once || true
   [ "$ONCE" = "1" ] && exit 0
