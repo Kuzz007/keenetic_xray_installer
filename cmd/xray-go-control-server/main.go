@@ -464,7 +464,7 @@ func callbackAction(name string) string {
 	return map[string]string{
 		"status": "status", "doctor": "doctor", "switch_primary": "switch_primary", "switch_backup": "switch_backup",
 		"recover_status": "recover_status", "recover_check": "recover_check", "recover": "recover_run", "recover_enable": "recover_enable", "recover_disable": "recover_disable",
-		"history": "history", "watchdog": "watchdog_log", "recoverylog": "recovery_log", "source_status": "source_status",
+		"history": "history", "watchdog": "watchdog_log", "recoverylog": "recovery_log", "source_status": "source_status", "reboot": "reboot",
 	}[name]
 }
 
