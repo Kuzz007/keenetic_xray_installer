@@ -48,14 +48,16 @@ func (s *Server) startSetSourceWizard(chatID int64, routerID, slot string) {
 	wizardMu.Lock()
 	wizardByChat[chatID] = wizardState{Flow: "set_source", Step: "selector", RouterID: routerID, Slot: slot}
 	wizardMu.Unlock()
-	s.sendMessage(chatID, "Роутер: "+routerID+"\nСлот: "+slot+"\n\nВведите selector, например: first, 0, 1 или имя профиля.\n\nДля отмены: /cancel")
+	s.sendMessage(chatID, "Роутер: "+routerID+"\nСлот: "+slot+"\n\nВведите selector, например: first, index:0, index:1.\nМожно также ввести просто 0 или 1 — бот преобразует в index:0 / index:1.\n\nДля отмены: /cancel")
 }
 
 func (s *Server) handleWizardText(chatID int64, text string) bool {
 	wizardMu.Lock()
 	st, ok := wizardByChat[chatID]
 	wizardMu.Unlock()
-	if !ok { return false }
+	if !ok {
+		return false
+	}
 	text = strings.TrimSpace(text)
 	if text == "/cancel" || strings.EqualFold(text, "cancel") {
 		wizardCancel(chatID)
@@ -97,7 +99,9 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 		return true
 	case "name":
 		name := strings.TrimSpace(text)
-		if name == "" { name = st.RouterID }
+		if name == "" {
+			name = st.RouterID
+		}
 		token, err := randomTokenHex(24)
 		if err != nil {
 			wizardCancel(chatID)
@@ -113,7 +117,9 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 		}
 		s.cfg.Routers[st.RouterID] = &Router{ID: st.RouterID, Name: name, Token: token}
 		err = s.persistConfigLocked()
-		if err != nil { delete(s.cfg.Routers, st.RouterID) }
+		if err != nil {
+			delete(s.cfg.Routers, st.RouterID)
+		}
 		s.mu.Unlock()
 		wizardCancel(chatID)
 		if err != nil {
@@ -122,7 +128,6 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 		}
 		serverURL := agentServerURL(s.cfg.Listen)
 		s.sendMessageWithKeyboard(chatID, addRouterDoneMessage(st.RouterID, name, token, serverURL), routerKeyboard(st.RouterID))
-		s.sendMessage(chatID, agentInstallCommand(serverURL, st.RouterID, name, token))
 		return true
 	default:
 		wizardCancel(chatID)
@@ -134,8 +139,7 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 func (s *Server) handleSetSourceWizardStep(chatID int64, st wizardState, text string) bool {
 	switch st.Step {
 	case "selector":
-		if text == "" { text = "first" }
-		st.Selector = text
+		st.Selector = normalizeSelector(text)
 		st.Step = "source"
 		wizardMu.Lock()
 		wizardByChat[chatID] = st
@@ -148,7 +152,9 @@ func (s *Server) handleSetSourceWizardStep(chatID int64, st wizardState, text st
 			return true
 		}
 		action := "set_primary_source"
-		if st.Slot == "backup" { action = "set_backup_source" }
+		if st.Slot == "backup" {
+			action = "set_backup_source"
+		}
 		id, err := s.enqueue(st.RouterID, Command{Action: action, Selector: st.Selector, Source: text})
 		wizardCancel(chatID)
 		if err != nil {
@@ -165,9 +171,9 @@ func (s *Server) handleSetSourceWizardStep(chatID int64, st wizardState, text st
 }
 
 func addRouterDoneMessage(routerID, name, token, serverURL string) string {
-	msg := fmt.Sprintf("Роутер добавлен: %s (%s)\n\nAgent token:\n%s\n\nСледующим сообщением отправлена отдельная команда установки агента для роутера Entware.", routerID, name, token)
+	msg := fmt.Sprintf("Роутер добавлен: %s (%s)\n\nAgent token:\n%s\n\nОткрой меню роутера и нажми 📦 Установка агента.\nВыбери Go-agent для Full/Minimal Go или Legacy shell-agent для Viva/MT7621/старых MIPS.", routerID, name, token)
 	if strings.Contains(serverURL, "VPS_IP") {
-		msg += "\n\nВ команде замени VPS_IP на внешний IP или DNS VPS."
+		msg += "\n\nЕсли в команде установки будет VPS_IP, замени его на внешний IP или DNS VPS."
 	}
 	return msg
 }
@@ -193,4 +199,25 @@ func agentInstallCommand(serverURL, routerID, name, token string) string {
 
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+func normalizeSelector(selector string) string {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return "first"
+	}
+	if selector == "first" || strings.HasPrefix(selector, "index:") {
+		return selector
+	}
+	allDigits := true
+	for _, r := range selector {
+		if r < '0' || r > '9' {
+			allDigits = false
+			break
+		}
+	}
+	if allDigits {
+		return "index:" + selector
+	}
+	return selector
 }
