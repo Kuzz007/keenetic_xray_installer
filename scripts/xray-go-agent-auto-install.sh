@@ -64,7 +64,7 @@ download_installer() {
   url="https://raw.githubusercontent.com/${REPO}/${REF}/scripts/${name}.sh"
   tmp="${dst}.tmp.$$"
   mkdir -p /opt/bin
-  echo "Downloading: $url"
+  echo "Downloading: $url" >&2
   if command -v curl >/dev/null 2>&1; then
     curl -fsSL -o "$tmp" "$url"
   elif command -v wget >/dev/null 2>&1; then
@@ -75,7 +75,8 @@ download_installer() {
   fi
   chmod +x "$tmp"
   mv "$tmp" "$dst"
-  echo "$dst"
+  echo "Installed installer: $dst" >&2
+  printf '%s\n' "$dst"
 }
 
 main() {
