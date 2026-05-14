@@ -80,6 +80,21 @@ need_opkg() {
     fi
 }
 
+opkg_install_missing() {
+    missing=""
+    for pkg in "$@"; do
+        [ -n "$pkg" ] || continue
+        if opkg status "$pkg" >/dev/null 2>&1; then
+            continue
+        fi
+        missing="$missing $pkg"
+    done
+
+    [ -n "$missing" ] || return 0
+    echo "Installing missing packages:$missing"
+    opkg install $missing
+}
+
 ensure_curl() {
     if command -v curl >/dev/null 2>&1; then
         return 0
@@ -88,13 +103,88 @@ ensure_curl() {
     echo "curl not found. Installing curl via Entware..."
     need_opkg
     opkg update
-    opkg install curl ca-certificates || opkg install curl
+    opkg install curl ca-certificates || opkg install curl ca-bundle || opkg install curl
 
     if ! command -v curl >/dev/null 2>&1; then
         echo "ERROR: failed to install curl." >&2
         echo "Try manually: opkg update && opkg install curl" >&2
         exit 1
     fi
+}
+
+ensure_xray() {
+    if command -v xray >/dev/null 2>&1 || [ -x /opt/bin/xray ] || [ -x /opt/sbin/xray ]; then
+        return 0
+    fi
+
+    echo "Installing Xray core..."
+    opkg install xray-core || opkg install xray || {
+        echo "ERROR: failed to install xray-core/xray." >&2
+        exit 1
+    }
+}
+
+ensure_cron() {
+    mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
+    touch /opt/var/spool/cron/crontabs/root 2>/dev/null || true
+    chmod 600 /opt/var/spool/cron/crontabs/root 2>/dev/null || true
+
+    if ! command -v cron >/dev/null 2>&1 && ! command -v crond >/dev/null 2>&1; then
+        echo "Installing cron..."
+        opkg install cron || opkg install cronie || opkg install busybox-cron || {
+            echo "WARN: failed to install cron package; hourly recovery will need manual setup." >&2
+            return 0
+        }
+    fi
+
+    if ! ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1; then
+        if [ -x /opt/etc/init.d/S10cron ]; then
+            /opt/etc/init.d/S10cron start >/dev/null 2>&1 || true
+        elif [ -x /opt/etc/init.d/S10crond ]; then
+            /opt/etc/init.d/S10crond start >/dev/null 2>&1 || true
+        elif command -v crond >/dev/null 2>&1; then
+            crond -c /opt/var/spool/cron/crontabs >/dev/null 2>&1 || crond >/dev/null 2>&1 || true
+        elif command -v cron >/dev/null 2>&1; then
+            cron >/dev/null 2>&1 || true
+        fi
+    fi
+}
+
+bootstrap_common_dependencies() {
+    need_opkg
+    mkdir -p /opt/tmp /opt/etc/xray /opt/var/log
+    opkg update
+    ensure_curl
+    opkg_install_missing ca-certificates ca-bundle >/dev/null 2>&1 || true
+}
+
+bootstrap_go_dependencies() {
+    echo "Preparing dependencies for Go/Entware latest edition..."
+    bootstrap_common_dependencies
+    opkg_install_missing wget-ssl ca-certificates || true
+    ensure_cron
+}
+
+bootstrap_minimal_go_dependencies() {
+    echo "Preparing dependencies for Minimal Go edition..."
+    bootstrap_common_dependencies
+    ensure_xray
+    ensure_cron
+}
+
+bootstrap_minimal_next_dependencies() {
+    echo "Preparing dependencies for Minimal-next edition..."
+    bootstrap_common_dependencies
+    ensure_xray
+}
+
+bootstrap_selected_dependencies() {
+    case "$1" in
+        go) bootstrap_go_dependencies ;;
+        minimal-go) bootstrap_minimal_go_dependencies ;;
+        minimal-next) bootstrap_minimal_next_dependencies ;;
+        *) echo "ERROR: unknown selected edition for dependency bootstrap: $1" >&2; exit 1 ;;
+    esac
 }
 
 download_installer() {
@@ -168,6 +258,8 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "Dry run: installer selection only; no edition installer executed."
     exit 0
 fi
+
+bootstrap_selected_dependencies "$SELECTED"
 
 case "$SELECTED" in
     minimal-go)
