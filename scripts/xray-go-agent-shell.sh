@@ -148,6 +148,11 @@ post_result() {
   curl -fsS -H "Content-Type: application/json" -H "Authorization: Bearer $AGENT_TOKEN" -d "$payload" "${SERVER_URL%/}/agent/result" >/dev/null
 }
 
+notify_startup() {
+  msg="Router started. Agent online. name=$ROUTER_NAME id=$ROUTER_ID features=$(features)"
+  post_result "agent_start" true "$msg" || log "startup notification failed"
+}
+
 poll_once() {
   st="$(short_status | json_escape)"
   rn="$(printf '%s' "$ROUTER_NAME" | json_escape)"
@@ -166,6 +171,7 @@ poll_once() {
 }
 
 log "xray-go-agent-shell started router_id=$ROUTER_ID name=$ROUTER_NAME server=$SERVER_URL"
+notify_startup
 while :; do
   poll_once || true
   [ "$ONCE" = "1" ] && exit 0
