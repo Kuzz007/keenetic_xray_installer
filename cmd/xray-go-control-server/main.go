@@ -597,7 +597,11 @@ func (s *Server) routerList() string {
 		if time.Since(rt.LastSeen) < 30*time.Second {
 			state = "online"
 		}
-		lines = append(lines, fmt.Sprintf("%s (%s): %s\n  %s", rt.Name, rt.ID, state, compactStatus(rt.Status)))
+		name := id
+		if rt != nil && strings.TrimSpace(rt.Name) != "" {
+			name = rt.Name
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s\n  %s", name, state, compactStatus(rt.Status)))
 	}
 	return strings.Join(lines, "\n")
 }
