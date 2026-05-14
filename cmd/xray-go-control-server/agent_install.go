@@ -19,7 +19,7 @@ func (s *Server) sendAgentInstallMenu(chatID int64, routerID string) {
 	s.mu.Unlock()
 
 	if rt == nil {
-		s.sendMessageWithKeyboard(chatID, "Роутер не найден: "+routerID, routersKeyboard(s.routerIDs()))
+		s.sendMessageWithKeyboard(chatID, "Роутер не найден: "+routerID, s.routersKeyboard())
 		return
 	}
 
@@ -36,7 +36,7 @@ func (s *Server) sendAgentInstallCommand(chatID int64, routerID, kind string) {
 	s.mu.Unlock()
 
 	if rt == nil {
-		s.sendMessageWithKeyboard(chatID, "Роутер не найден: "+routerID, routersKeyboard(s.routerIDs()))
+		s.sendMessageWithKeyboard(chatID, "Роутер не найден: "+routerID, s.routersKeyboard())
 		return
 	}
 
