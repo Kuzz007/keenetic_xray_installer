@@ -294,7 +294,7 @@ func (s *Server) handleTelegramUpdate(u tgUpdate) {
 		return
 	}
 	if text == "/routers" {
-		s.sendMessageWithKeyboard(chatID, s.routerList(), routersKeyboard(s.routerIDs()))
+		s.sendMessageWithKeyboard(chatID, s.routerList(), s.routersKeyboard())
 		return
 	}
 	if strings.HasPrefix(text, "/add_router") {
@@ -337,7 +337,7 @@ func (s *Server) handleCallback(cb *tgCallbackQuery) {
 	case data == "help":
 		s.sendMessageWithKeyboard(chatID, helpText(), mainMenuKeyboard())
 	case data == "routers":
-		s.sendMessageWithKeyboard(chatID, s.routerList(), routersKeyboard(s.routerIDs()))
+		s.sendMessageWithKeyboard(chatID, s.routerList(), s.routersKeyboard())
 	case data == "add_router_help":
 		s.startAddRouterWizard(chatID)
 	case strings.HasPrefix(data, "install:"):
@@ -384,11 +384,28 @@ func mainMenuKeyboard() inlineKeyboard {
 	}}
 }
 
-func routersKeyboard(ids []string) inlineKeyboard {
+func (s *Server) routersKeyboard() inlineKeyboard {
+	s.mu.Lock()
+	ids := make([]string, 0, len(s.cfg.Routers))
+	for id := range s.cfg.Routers {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
 	rows := [][]inlineButton{}
 	for _, id := range ids {
-		rows = append(rows, []inlineButton{{Text: id, CallbackData: "router:" + id}})
+		rt := s.cfg.Routers[id]
+		text := id
+		if rt != nil && strings.TrimSpace(rt.Name) != "" {
+			text = rt.Name
+		}
+		if text != id {
+			text = text + " (" + id + ")"
+		}
+		rows = append(rows, []inlineButton{{Text: text, CallbackData: "router:" + id}})
 	}
+	s.mu.Unlock()
+
 	rows = append(rows, []inlineButton{{Text: "Обновить", CallbackData: "routers"}, {Text: "Назад", CallbackData: "menu"}})
 	return inlineKeyboard{InlineKeyboard: rows}
 }
@@ -416,7 +433,7 @@ func (s *Server) sendRouterMenu(chatID int64, routerID string) {
 	}
 	s.mu.Unlock()
 	if rt == nil {
-		s.sendMessageWithKeyboard(chatID, "unknown router: "+routerID, routersKeyboard(s.routerIDs()))
+		s.sendMessageWithKeyboard(chatID, "unknown router: "+routerID, s.routersKeyboard())
 		return
 	}
 	s.sendMessageWithKeyboard(chatID, title, routerKeyboardForStatus(routerID, rt.Status))
@@ -440,7 +457,7 @@ func (s *Server) handleActionCallback(chatID int64, data string) {
 	}
 	id, err := s.enqueue(routerID, Command{Action: action})
 	if err != nil {
-		s.sendMessageWithKeyboard(chatID, err.Error(), routersKeyboard(s.routerIDs()))
+		s.sendMessageWithKeyboard(chatID, err.Error(), s.routersKeyboard())
 		return
 	}
 	s.sendMessageWithKeyboard(chatID, "Команда поставлена в очередь: "+id, routerKeyboard(routerID))
