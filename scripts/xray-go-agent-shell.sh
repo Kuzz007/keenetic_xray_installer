@@ -58,6 +58,7 @@ features() {
   if have /opt/bin/xray-go || have /opt/bin/vless-go-history || have /opt/bin/history; then out="$out,history"; fi
   if have /opt/bin/vless-go-watchdog || have /opt/bin/watchdog || [ -f /opt/var/log/vless-go-watchdog.log ]; then out="$out,watchdog"; fi
   if have /opt/bin/xray-go || have /opt/bin/vless-go-recover; then out="$out,recovery"; fi
+  if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
   out="${out#,}"
   [ -n "$out" ] || out="status"
   printf '%s' "$out"
@@ -130,6 +131,10 @@ run_action() {
       else echo "unsupported action on this router: $action"; return 1; fi ;;
     set_primary_source) set_source primary "$selector" "$source" ;;
     set_backup_source) set_source backup "$selector" "$source" ;;
+    reboot)
+      echo "Router reboot scheduled by control bot. Agent will disconnect now."
+      ( sleep 2; reboot ) >/dev/null 2>&1 &
+      return 0 ;;
     *) echo "unknown action: $action"; return 1 ;;
   esac
 }
