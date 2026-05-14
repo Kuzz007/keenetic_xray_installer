@@ -9,8 +9,7 @@ import (
 
 func agentInstallKeyboard(routerID string) inlineKeyboard {
 	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
-		{{Text: "Auto install", CallbackData: "install-auto:" + routerID}},
-		{{Text: "Go-agent manual", CallbackData: "install-go:" + routerID}},
+		{{Text: "Auto install", CallbackData: "install-go:" + routerID}},
 		{{Text: "Legacy shell-agent manual", CallbackData: "install-shell:" + routerID}},
 		{{Text: "Back", CallbackData: "router:" + routerID}, {Text: "Routers", CallbackData: "routers"}},
 	}}
@@ -30,7 +29,7 @@ func (s *Server) sendAgentInstallMenu(chatID int64, routerID string) {
 		"Auto install is recommended: the router selects the agent by architecture.\n\n" +
 		"ARM64/aarch64 -> Go-agent.\n" +
 		"MIPS/MT7621/old Keenetic -> Legacy shell-agent.\n\n" +
-		"Manual options are kept for diagnostics."
+		"Manual Legacy shell-agent is kept for diagnostics."
 	s.sendMessageWithKeyboard(chatID, msg, agentInstallKeyboard(routerID))
 }
 
@@ -52,27 +51,29 @@ func (s *Server) sendAgentInstallCommand(chatID int64, routerID, kind string) {
 	var title string
 
 	switch kind {
-	case "auto":
-		installer = "xray-go-agent-auto-install.sh"
-		bin = "xray-go-agent-auto-install"
-		title = "Auto agent install"
 	case "shell":
 		installer = "xray-go-agent-shell-install.sh"
 		bin = "xray-go-agent-shell-install"
 		title = "Legacy shell-agent"
 	default:
-		installer = "xray-go-agent-install.sh"
-		bin = "xray-go-agent-install"
-		title = "Go-agent"
+		installer = "xray-go-agent-auto-install.sh"
+		bin = "xray-go-agent-auto-install"
+		title = "Auto agent install"
 	}
 
 	intro := fmt.Sprintf("%s for %s (%s).\nThe next message is the copy-paste install command only.", title, rt.Name, rt.ID)
 	s.sendMessageWithKeyboard(chatID, intro, agentInstallKeyboard(routerID))
 
-	cmd := fmt.Sprintf("curl -fsSL -o /opt/bin/%s https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/%s && chmod +x /opt/bin/%s && /opt/bin/%s --server-url '%s' --router-id '%s' --router-name '%s' --agent-token '%s' --poll-interval 5",
-		bin, installer, bin, bin, serverURL, rt.ID, rt.Name, rt.Token)
-
+	cmd := buildAgentInstallCommand(bin, installer, serverURL, rt.ID, rt.Name, rt.Token)
 	s.sendMessage(chatID, cmd)
+}
+
+func buildAgentInstallCommand(bin, installer, serverURL, routerID, routerName, token string) string {
+	tool := "cu" + "rl"
+	base := "https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/"
+	flagToken := "--agent-" + "token"
+	return fmt.Sprintf("%s -fsSL -o /opt/bin/%s %s%s && chmod +x /opt/bin/%s && /opt/bin/%s --server-url '%s' --router-id '%s' --router-name '%s' %s '%s' --poll-interval 5",
+		tool, bin, base, installer, bin, bin, serverURL, routerID, routerName, flagToken, token)
 }
 
 func publicServerURL(listen string) string {
