@@ -50,7 +50,6 @@ func (s *Server) sendAgentInstallCommand(chatID int64, routerID, kind string) {
 	var installer string
 	var bin string
 	var title string
-	var extraArgs string
 
 	switch kind {
 	case "auto":
@@ -61,19 +60,17 @@ func (s *Server) sendAgentInstallCommand(chatID int64, routerID, kind string) {
 		installer = "xray-go-agent-shell-install.sh"
 		bin = "xray-go-agent-shell-install"
 		title = "Legacy shell-agent"
-		extraArgs = " --agent shell"
 	default:
 		installer = "xray-go-agent-install.sh"
 		bin = "xray-go-agent-install"
 		title = "Go-agent"
-		extraArgs = " --agent go"
 	}
 
 	intro := fmt.Sprintf("%s для %s (%s).\nСледующим сообщением будет только копируемая команда установки.", title, rt.Name, rt.ID)
 	s.sendMessageWithKeyboard(chatID, intro, agentInstallKeyboard(routerID))
 
-	cmd := fmt.Sprintf("curl -fsSL -o /opt/bin/%s https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/%s && chmod +x /opt/bin/%s && /opt/bin/%s --server-url '%s' --router-id '%s' --router-name '%s' --agent-token '%s' --poll-interval 5%s",
-		bin, installer, bin, bin, serverURL, rt.ID, rt.Name, rt.Token, extraArgs)
+	cmd := fmt.Sprintf("curl -fsSL -o /opt/bin/%s https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/%s && chmod +x /opt/bin/%s && /opt/bin/%s --server-url '%s' --router-id '%s' --router-name '%s' --agent-token '%s' --poll-interval 5",
+		bin, installer, bin, bin, serverURL, rt.ID, rt.Name, rt.Token)
 
 	s.sendMessage(chatID, cmd)
 }
