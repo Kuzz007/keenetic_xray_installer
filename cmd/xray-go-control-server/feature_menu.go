@@ -39,10 +39,10 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 
 	statusRow := []inlineButton{}
 	if f.has("status") {
-		statusRow = append(statusRow, inlineButton{Text: "Статус", CallbackData: "act:status:" + routerID})
+		statusRow = append(statusRow, inlineButton{Text: "📊 Статус", CallbackData: "act:status:" + routerID})
 	}
 	if f.has("doctor") {
-		statusRow = append(statusRow, inlineButton{Text: "Doctor", CallbackData: "act:doctor:" + routerID})
+		statusRow = append(statusRow, inlineButton{Text: "🩺 Doctor", CallbackData: "act:doctor:" + routerID})
 	}
 	if len(statusRow) > 0 {
 		rows = append(rows, statusRow)
@@ -50,28 +50,28 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 
 	if f.has("switch") {
 		rows = append(rows, []inlineButton{
-			{Text: "Primary", CallbackData: "act:switch_primary:" + routerID},
-			{Text: "Backup", CallbackData: "act:switch_backup:" + routerID},
+			{Text: "⬆️ Основной", CallbackData: "act:switch_primary:" + routerID},
+			{Text: "⬇️ Резерв", CallbackData: "act:switch_backup:" + routerID},
 		})
 	}
 
 	if f.has("source_update") {
-		rows = append(rows, []inlineButton{{Text: "Источники", CallbackData: "sources:" + routerID}})
+		rows = append(rows, []inlineButton{{Text: "🔗 Источники", CallbackData: "sources:" + routerID}})
 	}
 
 	if f.has("recovery") {
 		rows = append(rows, []inlineButton{
-			{Text: "Recovery status", CallbackData: "act:recover_status:" + routerID},
-			{Text: "Recover now", CallbackData: "act:recover:" + routerID},
+			{Text: "🛡 Recovery status", CallbackData: "act:recover_status:" + routerID},
+			{Text: "♻️ Recover now", CallbackData: "act:recover:" + routerID},
 		})
 	}
 
 	logRow := []inlineButton{}
 	if f.has("history") {
-		logRow = append(logRow, inlineButton{Text: "History", CallbackData: "act:history:" + routerID})
+		logRow = append(logRow, inlineButton{Text: "🕘 History", CallbackData: "act:history:" + routerID})
 	}
 	if f.has("watchdog") {
-		logRow = append(logRow, inlineButton{Text: "Watchdog log", CallbackData: "act:watchdog:" + routerID})
+		logRow = append(logRow, inlineButton{Text: "👁 Watchdog log", CallbackData: "act:watchdog:" + routerID})
 	}
 	if len(logRow) > 0 {
 		rows = append(rows, logRow)
@@ -79,22 +79,22 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 
 	if f.has("recovery") {
 		rows = append(rows, []inlineButton{
-			{Text: "Recovery log", CallbackData: "act:recoverylog:" + routerID},
-			{Text: "Results", CallbackData: "act:results:" + routerID},
+			{Text: "📄 Recovery log", CallbackData: "act:recoverylog:" + routerID},
+			{Text: "📬 Results", CallbackData: "act:results:" + routerID},
 		})
 	} else {
-		rows = append(rows, []inlineButton{{Text: "Results", CallbackData: "act:results:" + routerID}})
+		rows = append(rows, []inlineButton{{Text: "📬 Results", CallbackData: "act:results:" + routerID}})
 	}
 
 	if f.has("reboot") {
-		rows = append(rows, []inlineButton{{Text: "Перезагрузить роутер", CallbackData: "act:reboot:" + routerID}})
+		rows = append(rows, []inlineButton{{Text: "🔄 Перезагрузить роутер", CallbackData: "act:reboot:" + routerID}})
 	}
 
 	rows = append(rows, []inlineButton{{Text: "📦 Установка агента", CallbackData: "install:" + routerID}})
-	rows = append(rows, []inlineButton{{Text: "Удалить роутер", CallbackData: "delete-router:" + routerID}})
+	rows = append(rows, []inlineButton{{Text: "🗑 Удалить роутер", CallbackData: "delete-router:" + routerID}})
 	rows = append(rows, []inlineButton{
-		{Text: "Назад", CallbackData: "routers"},
-		{Text: "Главное меню", CallbackData: "menu"},
+		{Text: "⬅️ Назад", CallbackData: "routers"},
+		{Text: "🏠 Главное меню", CallbackData: "menu"},
 	})
 	return inlineKeyboard{InlineKeyboard: rows}
 }
