@@ -9,8 +9,9 @@ import (
 
 func agentInstallKeyboard(routerID string) inlineKeyboard {
 	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
-		{{Text: "Go-agent", CallbackData: "install-go:" + routerID}},
-		{{Text: "Legacy shell-agent", CallbackData: "install-shell:" + routerID}},
+		{{Text: "Автоустановка агента", CallbackData: "install-auto:" + routerID}},
+		{{Text: "Go-agent вручную", CallbackData: "install-go:" + routerID}},
+		{{Text: "Legacy shell-agent вручную", CallbackData: "install-shell:" + routerID}},
 		{{Text: "Назад", CallbackData: "router:" + routerID}, {Text: "К списку", CallbackData: "routers"}},
 	}}
 }
@@ -25,9 +26,11 @@ func (s *Server) sendAgentInstallMenu(chatID int64, routerID string) {
 		return
 	}
 
-	msg := "Выбери тип агента для " + rt.Name + " (" + rt.ID + "):\n\n" +
-		"Go-agent — Full Go / Minimal Go / Minimal Next / ARM64 / совместимые MIPS.\n\n" +
-		"Legacy shell-agent — Viva / MT7621 / старые MIPS / legacy без рабочего Go-бинаря."
+	msg := "Установка агента для " + rt.Name + " (" + rt.ID + "):\n\n" +
+		"Автоустановка — рекомендуемый вариант: роутер сам выберет агент по архитектуре.\n\n" +
+		"ARM64/aarch64 → Go-agent.\n" +
+		"MIPS/MT7621/старые Keenetic → Legacy shell-agent.\n\n" +
+		"Ручные варианты оставлены для диагностики."
 	s.sendMessageWithKeyboard(chatID, msg, agentInstallKeyboard(routerID))
 }
 
@@ -47,23 +50,30 @@ func (s *Server) sendAgentInstallCommand(chatID int64, routerID, kind string) {
 	var installer string
 	var bin string
 	var title string
+	var extraArgs string
 
 	switch kind {
+	case "auto":
+		installer = "xray-go-agent-auto-install.sh"
+		bin = "xray-go-agent-auto-install"
+		title = "Автоустановка агента"
 	case "shell":
 		installer = "xray-go-agent-shell-install.sh"
 		bin = "xray-go-agent-shell-install"
 		title = "Legacy shell-agent"
+		extraArgs = " --agent shell"
 	default:
 		installer = "xray-go-agent-install.sh"
 		bin = "xray-go-agent-install"
 		title = "Go-agent"
+		extraArgs = " --agent go"
 	}
 
 	intro := fmt.Sprintf("%s для %s (%s).\nСледующим сообщением будет только копируемая команда установки.", title, rt.Name, rt.ID)
 	s.sendMessageWithKeyboard(chatID, intro, agentInstallKeyboard(routerID))
 
-	cmd := fmt.Sprintf("curl -fsSL -o /opt/bin/%s https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/%s && chmod +x /opt/bin/%s && /opt/bin/%s --server-url '%s' --router-id '%s' --router-name '%s' --agent-token '%s' --poll-interval 5",
-		bin, installer, bin, bin, serverURL, rt.ID, rt.Name, rt.Token)
+	cmd := fmt.Sprintf("curl -fsSL -o /opt/bin/%s https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/%s && chmod +x /opt/bin/%s && /opt/bin/%s --server-url '%s' --router-id '%s' --router-name '%s' --agent-token '%s' --poll-interval 5%s",
+		bin, installer, bin, bin, serverURL, rt.ID, rt.Name, rt.Token, extraArgs)
 
 	s.sendMessage(chatID, cmd)
 }
