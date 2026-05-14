@@ -43,6 +43,8 @@ type PollResponse struct {
 	Command *Command `json:"command,omitempty"`
 }
 
+const slotStateFile = "/opt/var/run/xray-go-agent.last-slot"
+
 func main() {
 	cfgPath := flag.String("config", "/opt/etc/xray/xray-go-agent.conf", "config path")
 	once := flag.Bool("once", false, "run one poll cycle and exit")
@@ -53,9 +55,21 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 	log.Printf("xray-go-agent started router_id=%s name=%s server=%s", cfg.RouterID, cfg.RouterName, cfg.ServerURL)
+	if err := notifyStartup(cfg); err != nil {
+		log.Printf("startup notification failed: %v", err)
+	}
+	if err := checkSlotChange(cfg); err != nil {
+		log.Printf("slot check failed: %v", err)
+	}
 	for {
+		if err := checkSlotChange(cfg); err != nil {
+			log.Printf("slot check failed: %v", err)
+		}
 		if err := pollOnce(cfg); err != nil {
 			log.Printf("poll error: %v", err)
+		}
+		if err := checkSlotChange(cfg); err != nil {
+			log.Printf("slot check failed: %v", err)
 		}
 		if *once {
 			return
@@ -113,6 +127,65 @@ func postResult(cfg Config, res Result) error {
 		return fmt.Errorf("result status %s: %s", resp.Status, strings.TrimSpace(string(b)))
 	}
 	return nil
+}
+
+func notifyStartup(cfg Config) error {
+	features := strings.Join(detectFeatures(), ",")
+	msg := fmt.Sprintf("Router started. Agent online. name=%s id=%s features=%s", cfg.RouterName, cfg.RouterID, features)
+	return postResult(cfg, Result{CommandID: "agent_start", RouterID: cfg.RouterID, OK: true, Output: msg})
+}
+
+func checkSlotChange(cfg Config) error {
+	slot := strings.TrimSpace(activeSlot())
+	if slot == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(slotStateFile), 0755); err != nil {
+		return err
+	}
+	oldBytes, err := os.ReadFile(slotStateFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return os.WriteFile(slotStateFile, []byte(slot+"\n"), 0644)
+		}
+		return err
+	}
+	old := strings.TrimSpace(string(oldBytes))
+	if old == slot {
+		return nil
+	}
+	if err := os.WriteFile(slotStateFile, []byte(slot+"\n"), 0644); err != nil {
+		return err
+	}
+	msg := fmt.Sprintf("Active slot changed on %s (%s): %s -> %s", cfg.RouterName, cfg.RouterID, old, slot)
+	return postResult(cfg, Result{CommandID: "slot_change", RouterID: cfg.RouterID, OK: true, Output: msg})
+}
+
+func activeSlot() string {
+	for _, path := range []string{"/opt/etc/xray/minimal-go-active", "/opt/etc/xray/vless-go.active"} {
+		if data, err := os.ReadFile(path); err == nil {
+			if slot := strings.TrimSpace(string(data)); slot != "" {
+				return slot
+			}
+		}
+	}
+	cmd := statusCommand()
+	if len(cmd) == 0 {
+		return ""
+	}
+	ok, out := run(cmd, 25*time.Second)
+	if !ok {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		for _, marker := range []string{"active slot:", "активный слот:"} {
+			if idx := strings.Index(line, marker); idx >= 0 {
+				return strings.TrimSpace(line[idx+len(marker):])
+			}
+		}
+	}
+	return ""
 }
 
 func runAllowed(c Command) (bool, string) {
