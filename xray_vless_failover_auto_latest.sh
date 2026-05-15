@@ -294,9 +294,15 @@ No restart: $NO_RESTART
 EOF
 }
 
+recovery_mode_for_selected() {
+    case "$SELECTED" in
+        go) echo full ;;
+        minimal-go|minimal-next) echo minimal ;;
+        *) echo auto ;;
+    esac
+}
+
 run_doctor() {
-    print_detection
-    echo
     echo "Diagnostics:"
     echo "  opkg: $(command_state opkg)"
     echo "  curl: $(command_state curl)"
@@ -312,9 +318,10 @@ run_doctor() {
     echo "  shell agent init: $(service_status /opt/etc/init.d/S28xray-go-agent-shell)"
     echo "  go agent init: $(service_status /opt/etc/init.d/S28xray-go-agent)"
     if [ -x /opt/bin/vless-go-recover ]; then
+        rmode="$(recovery_mode_for_selected)"
         echo
-        echo "Recovery status:"
-        /opt/bin/vless-go-recover --mode minimal status 2>/dev/null || /opt/bin/vless-go-recover --mode full status 2>/dev/null || true
+        echo "Recovery status ($rmode):"
+        /opt/bin/vless-go-recover --mode "$rmode" status 2>/dev/null || true
     fi
 }
 
