@@ -317,16 +317,16 @@ service_status() {
 }
 
 installed_edition() {
-    if [ -s /opt/etc/xray/vless-go.active ] || [ -x /opt/bin/xray-go ] || [ -x /opt/bin/xray-failover-go ] || pkg_installed failover-go; then
-        echo go
-        return 0
-    fi
     if [ -s /opt/etc/xray/minimal-go-active ] || [ -x /opt/bin/minimal-go-status ] || [ -x /opt/etc/init.d/S25xray-minimal-go-failover ]; then
         echo minimal-go
         return 0
     fi
     if [ -x /opt/bin/xray-go-agent-shell ] || [ -x /opt/etc/init.d/S28xray-go-agent-shell ]; then
         echo minimal-go
+        return 0
+    fi
+    if [ -s /opt/etc/xray/vless-go.active ] || [ -x /opt/bin/xray-go ] || [ -x /opt/bin/xray-failover-go ] || pkg_installed failover-go; then
+        echo go
         return 0
     fi
     echo none
