@@ -63,7 +63,8 @@ func prettyResultMessage(routerName string, res Result) string {
 		statusIcon = "❌"
 		statusText = "FAIL"
 	}
-	return fmt.Sprintf("%s %s: %s %s\n%s", statusIcon, routerName, statusText, res.CommandID, limit(res.Output, 3500))
+	out := normalizeResultOutput(res.Output)
+	return fmt.Sprintf("%s %s: %s %s\n\n%s", statusIcon, routerName, statusText, res.CommandID, limit(out, 3500))
 }
 
 func prettyResults(rt *Router) string {
@@ -79,9 +80,28 @@ func prettyResults(rt *Router) string {
 		if !r.OK {
 			icon = "❌"
 		}
-		out = append(out, fmt.Sprintf("%s [%s] %s\n%s", icon, r.At, r.CommandID, limit(r.Output, 900)))
+		out = append(out, fmt.Sprintf("%s [%s] %s\n%s", icon, r.At, r.CommandID, limit(normalizeResultOutput(r.Output), 900)))
 	}
 	return strings.Join(out, "\n---\n")
+}
+
+func normalizeResultOutput(s string) string {
+	s = strings.ReplaceAll(s, "\\n", "\n")
+	s = strings.ReplaceAll(s, "\\t", "  ")
+	s = strings.ReplaceAll(s, "\r", "")
+	lines := []string{}
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimRight(line, " \t")
+		if strings.TrimSpace(line) == "" {
+			if len(lines) == 0 || lines[len(lines)-1] == "" {
+				continue
+			}
+			lines = append(lines, "")
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func importantStatusParts(status string) []string {

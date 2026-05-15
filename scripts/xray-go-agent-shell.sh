@@ -23,8 +23,12 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
 have() { [ -x "$1" ]; }
 exists() { [ -e "$1" ]; }
 
+clean_output() {
+  sed 's/\x1b\[[0-9;]*[A-Za-z]//g; s/\[[0-9][0-9;]*m//g; s/\[m//g' | LC_ALL=C tr -d '\000-\010\013\014\016-\037'
+}
+
 json_escape() {
-  LC_ALL=C tr '\r\n\t' '   ' | LC_ALL=C tr -d '\000-\010\013\014\016-\037' | sed 's/\\/\\\\/g; s/"/\\"/g'
+  clean_output | sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\n/\\n/g;s/\r//g;s/\t/  /g'
 }
 
 json_unescape() {
