@@ -11,6 +11,9 @@ REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_
 GO_FEED_URL="${GO_FEED_URL:-$REPO_BASE/scripts/install-entware-feed.sh}"
 MINIMAL_GO_URL="${MINIMAL_GO_URL:-$REPO_BASE/xray_vless_failover_minimal_go.sh}"
 MINIMAL_NEXT_URL="${MINIMAL_NEXT_URL:-$REPO_BASE/xray_vless_failover_minimal_next.sh}"
+RECOVER_URL="${RECOVER_URL:-$REPO_BASE/scripts/vless-go-recover.sh}"
+SHELL_AGENT_URL="${SHELL_AGENT_URL:-$REPO_BASE/scripts/xray-go-agent-shell.sh}"
+AUTO_INSTALLER_URL="${AUTO_INSTALLER_URL:-$REPO_BASE/scripts/xray-go-agent-auto-install.sh}"
 
 GO_TMP="/opt/tmp/install-entware-feed.latest.sh"
 MINIMAL_GO_TMP="/opt/tmp/xray_vless_failover_minimal_go.sh"
@@ -20,16 +23,41 @@ THRESHOLD_KB="${THRESHOLD_KB:-80000}"
 EDITION="${EDITION:-auto}"
 ASSUME_YES="${ASSUME_YES:-0}"
 DRY_RUN="${DRY_RUN:-0}"
+MODE="${MODE:-install}"
+NO_CRON="${NO_CRON:-0}"
+NO_RESTART="${NO_RESTART:-0}"
 
 usage() {
     cat <<'USAGE'
-Usage: xray_vless_failover_auto_latest.sh [--go|--minimal-go|--minimal-next|--auto] [--yes] [--dry-run]
+Usage: xray_vless_failover_auto_latest.sh [MODE] [EDITION] [OPTIONS]
+
+Modes:
+  --detect-only        Print detection result and exit. No changes.
+  --doctor            Print diagnostics and exit. No changes.
+  --repair            Install/fix dependencies for the selected edition, then exit.
+  --update-only       Update helper scripts/packages only, without reconfiguring profiles.
+  --dry-run           Alias for --detect-only compatibility.
+
+Editions:
+  --auto              Select edition by free /opt space. Default.
+  --go, --force-go    Force Go/Entware latest edition.
+  --minimal-go        Force Minimal Go edition.
+  --minimal, --force-minimal
+                      Alias for --minimal-go.
+  --minimal-next      Force legacy-compatible Minimal-next edition.
+
+Options:
+  -y, --yes           Do not ask interactive confirmation.
+  --no-cron           Do not install/start cron during dependency bootstrap.
+  --no-restart        Do not restart services in update-only mode.
 
 Environment overrides:
   EDITION=auto|go|minimal-go|minimal-next
+  MODE=install|detect-only|doctor|repair|update-only
   THRESHOLD_KB=80000
   ASSUME_YES=1
-  DRY_RUN=1
+  NO_CRON=1
+  NO_RESTART=1
   REPO_BASE=https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main
   GO_FEED_URL=<url>
   MINIMAL_GO_URL=<url>
@@ -41,12 +69,17 @@ USAGE
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --go) EDITION="go"; shift ;;
-        --minimal|--minimal-go) EDITION="minimal-go"; shift ;;
+        --go|--force-go) EDITION="go"; shift ;;
+        --minimal|--minimal-go|--force-minimal) EDITION="minimal-go"; shift ;;
         --minimal-next|--legacy-minimal) EDITION="minimal-next"; shift ;;
         --auto) EDITION="auto"; shift ;;
         -y|--yes) ASSUME_YES="1"; shift ;;
-        --dry-run|--check|--print-selection) DRY_RUN="1"; shift ;;
+        --dry-run|--check|--print-selection|--detect-only) MODE="detect-only"; DRY_RUN="1"; shift ;;
+        --doctor) MODE="doctor"; shift ;;
+        --repair) MODE="repair"; shift ;;
+        --update-only) MODE="update-only"; shift ;;
+        --no-cron) NO_CRON="1"; shift ;;
+        --no-restart) NO_RESTART="1"; shift ;;
         -h|--help|help) usage; exit 0 ;;
         *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -80,11 +113,15 @@ need_opkg() {
     fi
 }
 
+pkg_installed() {
+    opkg status "$1" >/dev/null 2>&1
+}
+
 opkg_install_missing() {
     missing=""
     for pkg in "$@"; do
         [ -n "$pkg" ] || continue
-        if opkg status "$pkg" >/dev/null 2>&1; then
+        if pkg_installed "$pkg"; then
             continue
         fi
         missing="$missing $pkg"
@@ -124,7 +161,16 @@ ensure_xray() {
     }
 }
 
+cron_running() {
+    ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1
+}
+
 ensure_cron() {
+    if [ "$NO_CRON" = "1" ]; then
+        echo "Skipping cron bootstrap due to --no-cron"
+        return 0
+    fi
+
     mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
     touch /opt/var/spool/cron/crontabs/root 2>/dev/null || true
     chmod 600 /opt/var/spool/cron/crontabs/root 2>/dev/null || true
@@ -137,7 +183,7 @@ ensure_cron() {
         }
     fi
 
-    if ! ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1; then
+    if ! cron_running; then
         if [ -x /opt/etc/init.d/S10cron ]; then
             /opt/etc/init.d/S10cron start >/dev/null 2>&1 || true
         elif [ -x /opt/etc/init.d/S10crond ]; then
@@ -187,17 +233,24 @@ bootstrap_selected_dependencies() {
     esac
 }
 
+download_file() {
+    url="$1"
+    output="$2"
+    label="$3"
+    echo "Downloading $label..."
+    curl -fsSL -H 'Cache-Control: no-cache' -o "$output" "$url"
+}
+
 download_installer() {
     url="$1"
     output="$2"
     label="$3"
 
-    echo "Downloading $label installer..."
-    if ! curl -fsSL -o "$output" "$url"; then
+    download_file "$url" "$output" "$label installer" || {
         echo "ERROR: failed to download $label installer: $url" >&2
         echo "Check internet, DNS and GitHub/raw.githubusercontent.com availability." >&2
         exit 1
-    fi
+    }
 
     if ! sh -n "$output"; then
         echo "ERROR: downloaded $label installer failed shell syntax check: $output" >&2
@@ -210,6 +263,105 @@ download_installer() {
 space_mb() {
     kb="$1"
     awk "BEGIN { printf \"%.1f\", $kb / 1024 }"
+}
+
+command_state() {
+    if command -v "$1" >/dev/null 2>&1 || [ -x "$1" ]; then echo yes; else echo no; fi
+}
+
+file_state() {
+    if [ -s "$1" ]; then echo yes; else echo no; fi
+}
+
+service_status() {
+    init="$1"
+    if [ -x "$init" ]; then
+        "$init" status 2>/dev/null | head -n 1 || true
+    else
+        echo "not installed"
+    fi
+}
+
+print_detection() {
+    cat <<EOF
+Free /opt space: ${FREE_KB} KB (${FREE_MB} MB)
+Full/Go threshold: ${THRESHOLD_KB} KB (${THRESHOLD_MB} MB)
+Selected edition: $SELECTED
+Selection reason: $SELECT_REASON
+Mode: $MODE
+No cron: $NO_CRON
+No restart: $NO_RESTART
+EOF
+}
+
+run_doctor() {
+    print_detection
+    echo
+    echo "Diagnostics:"
+    echo "  opkg: $(command_state opkg)"
+    echo "  curl: $(command_state curl)"
+    echo "  xray: $(command_state xray)"
+    echo "  cron process: $(cron_running && echo running || echo not-running)"
+    echo "  cron root file: $(file_state /opt/var/spool/cron/crontabs/root)"
+    echo "  active minimal slot: $(file_state /opt/etc/xray/minimal-go-active)"
+    echo "  active full slot: $(file_state /opt/etc/xray/vless-go.active)"
+    echo "  vless-go-recover: $(command_state /opt/bin/vless-go-recover)"
+    echo "  shell agent: $(command_state /opt/bin/xray-go-agent-shell)"
+    echo "  go agent: $(command_state /opt/bin/xray-go-agent)"
+    echo "  minimal failover init: $(service_status /opt/etc/init.d/S25xray-minimal-go-failover)"
+    echo "  shell agent init: $(service_status /opt/etc/init.d/S28xray-go-agent-shell)"
+    echo "  go agent init: $(service_status /opt/etc/init.d/S28xray-go-agent)"
+    if [ -x /opt/bin/vless-go-recover ]; then
+        echo
+        echo "Recovery status:"
+        /opt/bin/vless-go-recover --mode minimal status 2>/dev/null || /opt/bin/vless-go-recover --mode full status 2>/dev/null || true
+    fi
+}
+
+restart_if_allowed() {
+    init="$1"
+    [ "$NO_RESTART" = "1" ] && return 0
+    [ -x "$init" ] || return 0
+    "$init" restart >/dev/null 2>&1 || "$init" start >/dev/null 2>&1 || true
+}
+
+run_update_only() {
+    bootstrap_selected_dependencies "$SELECTED"
+    updated="0"
+
+    if [ -x /opt/bin/vless-go-recover ] || [ "$SELECTED" = "minimal-go" ] || [ "$SELECTED" = "go" ]; then
+        download_file "$RECOVER_URL" /opt/bin/vless-go-recover "vless-go-recover" || true
+        if [ -s /opt/bin/vless-go-recover ] && sh -n /opt/bin/vless-go-recover; then
+            chmod +x /opt/bin/vless-go-recover
+            updated="1"
+        fi
+    fi
+
+    if [ -x /opt/bin/xray-go-agent-shell ] || [ -x /opt/etc/init.d/S28xray-go-agent-shell ]; then
+        download_file "$SHELL_AGENT_URL" /opt/bin/xray-go-agent-shell "shell agent" || true
+        if [ -s /opt/bin/xray-go-agent-shell ] && sh -n /opt/bin/xray-go-agent-shell; then
+            chmod +x /opt/bin/xray-go-agent-shell
+            updated="1"
+            restart_if_allowed /opt/etc/init.d/S28xray-go-agent-shell
+        fi
+    fi
+
+    if [ "$SELECTED" = "go" ]; then
+        opkg update || true
+        opkg upgrade failover-go 2>/dev/null || opkg install failover-go 2>/dev/null || true
+        updated="1"
+    fi
+
+    if [ -x /opt/bin/xray-go-agent-auto-install ]; then
+        download_file "$AUTO_INSTALLER_URL" /opt/bin/xray-go-agent-auto-install "agent auto installer" || true
+        if [ -s /opt/bin/xray-go-agent-auto-install ] && sh -n /opt/bin/xray-go-agent-auto-install; then
+            chmod +x /opt/bin/xray-go-agent-auto-install
+            updated="1"
+        fi
+    fi
+
+    echo "Update-only complete. Updated: $updated"
+    [ "$NO_RESTART" = "1" ] && echo "Service restarts skipped due to --no-restart"
 }
 
 need_opkg
@@ -231,6 +383,11 @@ case "$EDITION" in
     *) echo "ERROR: unsupported EDITION=$EDITION; use auto, go, minimal-go or minimal-next" >&2; exit 1 ;;
 esac
 
+case "$MODE" in
+    install|detect-only|doctor|repair|update-only) ;;
+    *) echo "ERROR: unsupported MODE=$MODE" >&2; exit 1 ;;
+esac
+
 if [ "$EDITION" = "auto" ]; then
     if [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
         SELECTED="minimal-go"
@@ -247,12 +404,28 @@ fi
 FREE_MB="$(space_mb "$FREE_KB")"
 THRESHOLD_MB="$(space_mb "$THRESHOLD_KB")"
 
-cat <<EOF
-Free /opt space: ${FREE_KB} KB (${FREE_MB} MB)
-Full/Go threshold: ${THRESHOLD_KB} KB (${THRESHOLD_MB} MB)
-Selected edition: $SELECTED
-Selection reason: $SELECT_REASON
-EOF
+print_detection
+
+case "$MODE" in
+    detect-only)
+        echo "Detect-only: no changes made."
+        exit 0
+        ;;
+    doctor)
+        echo
+        run_doctor
+        exit 0
+        ;;
+    repair)
+        bootstrap_selected_dependencies "$SELECTED"
+        echo "Repair complete for selected edition: $SELECTED"
+        exit 0
+        ;;
+    update-only)
+        run_update_only
+        exit 0
+        ;;
+esac
 
 if [ "$DRY_RUN" = "1" ]; then
     echo "Dry run: installer selection only; no edition installer executed."
@@ -275,6 +448,7 @@ Minimal Go edition:
 EOF
         confirm_install "Minimal Go"
         download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go"
+        if [ "$NO_RESTART" = "1" ]; then export XRAY_GO_NO_RESTART=1; fi
         exec "$MINIMAL_GO_TMP"
         ;;
     minimal-next)
@@ -289,6 +463,7 @@ Minimal-next legacy-compatible edition:
 EOF
         confirm_install "Minimal-next legacy-compatible"
         download_installer "$MINIMAL_NEXT_URL" "$MINIMAL_NEXT_TMP" "Minimal-next"
+        if [ "$NO_RESTART" = "1" ]; then export XRAY_GO_NO_RESTART=1; fi
         exec "$MINIMAL_NEXT_TMP"
         ;;
 esac
@@ -302,4 +477,5 @@ Go/Entware latest edition:
 EOF
 confirm_install "Go/Entware latest"
 download_installer "$GO_FEED_URL" "$GO_TMP" "Go/Entware latest"
+if [ "$NO_RESTART" = "1" ]; then export XRAY_GO_NO_RESTART=1; fi
 exec sh "$GO_TMP"
