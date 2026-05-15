@@ -21,9 +21,10 @@ ROUTER_NAME="${ROUTER_NAME:-$ROUTER_ID}"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
 have() { [ -x "$1" ]; }
+exists() { [ -e "$1" ]; }
 
 json_escape() {
-  sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' '
+  LC_ALL=C tr '\r\n\t' '   ' | LC_ALL=C tr -d '\000-\010\013\014\016-\037' | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
 json_unescape() {
@@ -35,44 +36,34 @@ json_get() {
   sed -n 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | json_unescape
 }
 
-failover_cmd() {
-  if have /opt/bin/vless-go-failover; then echo /opt/bin/vless-go-failover; return 0; fi
-  if have /opt/bin/failover; then echo /opt/bin/failover; return 0; fi
-  return 1
+runtime() {
+  if have /opt/bin/xray-go || have /opt/bin/vless-go-failover || have /opt/bin/failover || exists /opt/etc/xray/vless-go.active; then
+    echo go-full
+    return 0
+  fi
+  if exists /opt/etc/xray/minimal-go-active || have /opt/bin/minimal-go-status || have /opt/bin/minimal-go-switch || [ -x /opt/etc/init.d/S25xray-minimal-go-failover ]; then
+    echo minimal-go
+    return 0
+  fi
+  echo shell
 }
 
-minimal_mode() {
-  [ -s /opt/etc/xray/minimal-go-active ] || have /opt/bin/minimal-go-status || have /opt/bin/vless-go-recover
-}
+is_minimal() { [ "$(runtime)" = "minimal-go" ]; }
 
 normalize_selector() {
   sel="$(printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
   [ -n "$sel" ] || { printf '%s' "first"; return 0; }
   case "$sel" in
-    first|index:*) printf '%s' "$sel"; return 0 ;;
-    *[!0-9]*) printf '%s' "$sel"; return 0 ;;
-    *) printf 'index:%s' "$sel"; return 0 ;;
+    first|index:*) printf '%s' "$sel" ;;
+    *[!0-9]*) printf '%s' "$sel" ;;
+    *) printf 'index:%s' "$sel" ;;
   esac
-}
-
-features() {
-  out=""
-  if have /opt/bin/xray-go || failover_cmd >/dev/null 2>&1 || minimal_mode; then out="$out,status,switch"; fi
-  if failover_cmd >/dev/null 2>&1; then out="$out,source_update"; fi
-  if have /opt/bin/xray-go || have /opt/bin/vless-go-doctor || have /opt/bin/xray-doctor; then out="$out,doctor"; fi
-  if have /opt/bin/xray-go || have /opt/bin/vless-go-history || have /opt/bin/history; then out="$out,history"; fi
-  if have /opt/bin/vless-go-watchdog || have /opt/bin/watchdog || [ -f /opt/var/log/vless-go-watchdog.log ]; then out="$out,watchdog"; fi
-  if have /opt/bin/xray-go || have /opt/bin/vless-go-recover; then out="$out,recovery"; fi
-  if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
-  out="${out#,}"
-  [ -n "$out" ] || out="status"
-  printf '%s' "$out"
 }
 
 status_cmd() {
   if have /opt/bin/xray-go; then /opt/bin/xray-go status 2>&1; return $?; fi
-  fc="$(failover_cmd 2>/dev/null || true)"
-  if [ -n "$fc" ]; then "$fc" status 2>&1; return $?; fi
+  if have /opt/bin/vless-go-failover; then /opt/bin/vless-go-failover status 2>&1; return $?; fi
+  if have /opt/bin/failover; then /opt/bin/failover status 2>&1; return $?; fi
   if have /opt/bin/minimal-go-status; then /opt/bin/minimal-go-status 2>&1; return $?; fi
   if have /opt/bin/vless-go-recover; then /opt/bin/vless-go-recover --mode minimal status 2>&1; return $?; fi
   echo "status command not found"
@@ -85,11 +76,116 @@ active_slot() {
   status_cmd 2>/dev/null | sed -n 's/.*active slot:[[:space:]]*//p; s/.*active:[[:space:]]*//p; s/.*активный слот:[[:space:]]*//p' | head -n 1
 }
 
+can_switch() {
+  have /opt/bin/xray-go || have /opt/bin/vless-go-failover || have /opt/bin/failover || have /opt/bin/minimal-go-switch
+}
+
+can_source_update() {
+  if is_minimal; then have /opt/bin/minimal-go-update; else have /opt/bin/vless-go-failover || have /opt/bin/failover; fi
+}
+
+can_doctor() {
+  is_minimal && { have /opt/bin/minimal-go-status || have /opt/bin/vless-go-recover; return $?; }
+  have /opt/bin/xray-go || have /opt/bin/vless-go-doctor || have /opt/bin/xray-doctor
+}
+
+can_history() {
+  have /opt/bin/xray-go || have /opt/bin/vless-go-history || have /opt/bin/history || exists /opt/var/log/minimal-go-switch-history.log
+}
+
+can_watchdog() {
+  exists /opt/var/log/vless-go-watchdog.log || exists /opt/var/log/xray-minimal-go-failover.log
+}
+
+can_recovery() { have /opt/bin/xray-go || have /opt/bin/vless-go-recover; }
+
+features() {
+  out="status"
+  if can_switch; then out="$out,switch"; fi
+  if can_source_update; then out="$out,source_update"; fi
+  if can_doctor; then out="$out,doctor"; fi
+  if can_history; then out="$out,history"; fi
+  if can_watchdog; then out="$out,watchdog"; fi
+  if can_recovery; then out="$out,recovery"; fi
+  if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
+  printf '%s' "$out"
+}
+
 short_status() {
-  st="$(status_cmd 2>&1)"
-  feat="$(features)"
+  st="$(status_cmd 2>&1 || true)"
   printf '%s\n' "$st" | grep -E 'active:|active slot:|активный слот:|health: OK|hourly recovery:|cron: running|crond: running|daemon: запущен|основной профиль:|резервный профиль:' | tr '\n' '; '
-  printf 'features: %s' "$feat"
+  printf 'agent: %s; features: %s' "$(runtime)" "$(features)"
+}
+
+minimal_doctor() {
+  echo "== Minimal Go doctor =="
+  status_cmd 2>&1 || true
+  if have /opt/bin/vless-go-recover; then
+    echo
+    echo "== Recovery =="
+    /opt/bin/vless-go-recover --mode minimal status 2>&1 || true
+  fi
+  echo
+  echo "== Services =="
+  [ -x /opt/etc/init.d/S24xray ] && /opt/etc/init.d/S24xray status 2>&1 || true
+  [ -x /opt/etc/init.d/S25xray-minimal-go-failover ] && /opt/etc/init.d/S25xray-minimal-go-failover status 2>&1 || true
+}
+
+doctor_cmd() {
+  if is_minimal; then minimal_doctor; return $?; fi
+  if have /opt/bin/xray-go; then /opt/bin/xray-go doctor --support 2>&1 || /opt/bin/xray-go doctor 2>&1; return $?; fi
+  if have /opt/bin/vless-go-doctor; then /opt/bin/vless-go-doctor 2>&1; return $?; fi
+  if have /opt/bin/xray-doctor; then /opt/bin/xray-doctor --support 2>&1 || /opt/bin/xray-doctor 2>&1; return $?; fi
+  echo "unsupported action on this router: doctor"
+  return 1
+}
+
+switch_cmd() {
+  slot="$1"
+  if have /opt/bin/xray-go; then /opt/bin/xray-go switch "$slot" 2>&1; return $?; fi
+  if have /opt/bin/vless-go-failover; then /opt/bin/vless-go-failover switch "$slot" 2>&1; return $?; fi
+  if have /opt/bin/failover; then /opt/bin/failover switch "$slot" 2>&1; return $?; fi
+  if have /opt/bin/minimal-go-switch; then /opt/bin/minimal-go-switch "$slot" 2>&1; return $?; fi
+  echo "unsupported switch on this router"
+  return 1
+}
+
+recover_cmd() {
+  sub="$1"
+  if have /opt/bin/xray-go; then
+    if [ "$sub" = "run" ]; then /opt/bin/xray-go recover 2>&1; else /opt/bin/xray-go recover "$sub" 2>&1; fi
+    return $?
+  fi
+  if have /opt/bin/vless-go-recover; then
+    mode="full"; is_minimal && mode="minimal"
+    /opt/bin/vless-go-recover --mode "$mode" "$sub" 2>&1
+    return $?
+  fi
+  echo "unsupported recovery on this router"
+  return 1
+}
+
+history_cmd() {
+  if have /opt/bin/xray-go; then /opt/bin/xray-go history 2>&1; return $?; fi
+  if have /opt/bin/vless-go-history; then /opt/bin/vless-go-history 2>&1; return $?; fi
+  if have /opt/bin/history; then /opt/bin/history 2>&1; return $?; fi
+  if exists /opt/var/log/minimal-go-switch-history.log; then tail -n 100 /opt/var/log/minimal-go-switch-history.log 2>/dev/null || true; return 0; fi
+  echo "unsupported history on this router"
+  return 1
+}
+
+watchdog_log_cmd() {
+  if exists /opt/var/log/vless-go-watchdog.log; then tail -n 100 /opt/var/log/vless-go-watchdog.log 2>/dev/null || true; return 0; fi
+  if exists /opt/var/log/xray-minimal-go-failover.log; then tail -n 100 /opt/var/log/xray-minimal-go-failover.log 2>/dev/null || true; return 0; fi
+  echo "watchdog log not found"
+  return 1
+}
+
+recovery_log_cmd() {
+  if exists /opt/var/log/vless-go-recover.log; then tail -n 100 /opt/var/log/vless-go-recover.log 2>/dev/null || true; return 0; fi
+  if exists /opt/var/log/xray-minimal-go-failover.log; then tail -n 100 /opt/var/log/xray-minimal-go-failover.log 2>/dev/null || true; return 0; fi
+  echo "recovery log not found"
+  return 1
 }
 
 set_source() {
@@ -97,72 +193,50 @@ set_source() {
   selector="$(normalize_selector "${2:-}")"
   source="$3"
   [ -n "$source" ] || { echo "source is empty"; return 1; }
-  fc="$(failover_cmd 2>/dev/null || true)"
-  [ -n "$fc" ] || { echo "not found: /opt/bin/vless-go-failover or /opt/bin/failover"; return 1; }
   mkdir -p /opt/etc/xray/source-backups
+  if is_minimal && have /opt/bin/minimal-go-update; then
+    old="/opt/etc/xray/minimal-go-$slot.url"
+    [ -s "$old" ] && cp "$old" "/opt/etc/xray/source-backups/$(date '+%Y%m%d-%H%M%S').minimal-$slot" 2>/dev/null || true
+    /opt/bin/minimal-go-update "$slot" "$source" 2>&1
+    return $?
+  fi
+  if have /opt/bin/vless-go-failover; then fc=/opt/bin/vless-go-failover; elif have /opt/bin/failover; then fc=/opt/bin/failover; else echo "source update not supported"; return 1; fi
   old="/opt/etc/xray/vless-go.$slot"
-  if [ -s "$old" ]; then cp "$old" "/opt/etc/xray/source-backups/$(date '+%Y%m%d-%H%M%S').$slot" 2>/dev/null || true; fi
+  [ -s "$old" ] && cp "$old" "/opt/etc/xray/source-backups/$(date '+%Y%m%d-%H%M%S').$slot" 2>/dev/null || true
   "$fc" "set-$slot" "$source" --selector "$selector" 2>&1
 }
 
 run_action() {
-  action="$1"
-  selector="$2"
-  source="$3"
+  action="$1"; selector="$2"; source="$3"
   case "$action" in
     status|source_status) status_cmd ;;
-    doctor)
-      if have /opt/bin/xray-go; then /opt/bin/xray-go doctor --support 2>&1
-      elif have /opt/bin/vless-go-doctor; then /opt/bin/vless-go-doctor --support 2>&1
-      elif have /opt/bin/xray-doctor; then /opt/bin/xray-doctor --support 2>&1
-      else echo "unsupported action on this router: $action"; return 1; fi ;;
-    switch_primary)
-      if have /opt/bin/xray-go; then /opt/bin/xray-go switch primary 2>&1
-      else fc="$(failover_cmd 2>/dev/null || true)"; [ -n "$fc" ] && "$fc" switch primary 2>&1 || { echo "unsupported action on this router: $action"; return 1; }; fi ;;
-    switch_backup)
-      if have /opt/bin/xray-go; then /opt/bin/xray-go switch backup 2>&1
-      else fc="$(failover_cmd 2>/dev/null || true)"; [ -n "$fc" ] && "$fc" switch backup 2>&1 || { echo "unsupported action on this router: $action"; return 1; }; fi ;;
-    history)
-      if have /opt/bin/xray-go; then /opt/bin/xray-go history 2>&1
-      elif have /opt/bin/vless-go-history; then /opt/bin/vless-go-history 2>&1
-      elif have /opt/bin/history; then /opt/bin/history 2>&1
-      else echo "unsupported action on this router: $action"; return 1; fi ;;
-    watchdog_log) tail -n 100 /opt/var/log/vless-go-watchdog.log 2>/dev/null || true ;;
-    recovery_log) tail -n 100 /opt/var/log/vless-go-recover.log 2>/dev/null || tail -n 100 /opt/var/log/xray-minimal-go-failover.log 2>/dev/null || true ;;
-    recover_status|recover_check|recover_run|recover_enable|recover_disable)
-      case "$action" in
-        recover_status) sub="status" ;;
-        recover_check) sub="check" ;;
-        recover_run) sub="run" ;;
-        recover_enable) sub="enable-hourly" ;;
-        recover_disable) sub="disable-hourly" ;;
-      esac
-      if have /opt/bin/xray-go; then
-        if [ "$sub" = "run" ]; then /opt/bin/xray-go recover 2>&1; else /opt/bin/xray-go recover "$sub" 2>&1; fi
-      elif have /opt/bin/vless-go-recover; then
-        /opt/bin/vless-go-recover --mode minimal "$sub" 2>&1
-      else echo "unsupported action on this router: $action"; return 1; fi ;;
+    doctor) doctor_cmd ;;
+    switch_primary) switch_cmd primary ;;
+    switch_backup) switch_cmd backup ;;
+    history) history_cmd ;;
+    watchdog_log) watchdog_log_cmd ;;
+    recovery_log) recovery_log_cmd ;;
+    recover_status) recover_cmd status ;;
+    recover_check) recover_cmd check ;;
+    recover_run) recover_cmd run ;;
+    recover_enable) recover_cmd enable-hourly ;;
+    recover_disable) recover_cmd disable-hourly ;;
     set_primary_source) set_source primary "$selector" "$source" ;;
     set_backup_source) set_source backup "$selector" "$source" ;;
-    reboot)
-      echo "Router reboot scheduled by control bot. Agent will disconnect now."
-      ( sleep 2; reboot ) >/dev/null 2>&1 &
-      return 0 ;;
+    reboot) echo "Router reboot scheduled by control bot. Agent will disconnect now."; ( sleep 2; reboot ) >/dev/null 2>&1 & ;;
     *) echo "unknown action: $action"; return 1 ;;
   esac
 }
 
 post_result() {
-  command_id="$1"
-  ok="$2"
-  output="$3"
+  command_id="$1"; ok="$2"; output="$3"
   escaped_output="$(printf '%s' "$output" | json_escape)"
   payload='{"command_id":"'"$command_id"'","router_id":"'"$ROUTER_ID"'","ok":'"$ok"',"output":"'"$escaped_output"'"}'
-  curl -fsS -H "Content-Type: application/json" -H "Authorization: Bearer $AGENT_TOKEN" -d "$payload" "${SERVER_URL%/}/agent/result" >/dev/null
+  curl -fsS -H "Content-Type: application/json; charset=utf-8" -H "Authorization: Bearer $AGENT_TOKEN" -d "$payload" "${SERVER_URL%/}/agent/result" >/dev/null
 }
 
 notify_startup() {
-  msg="Router started. Agent online. name=$ROUTER_NAME id=$ROUTER_ID features=$(features)"
+  msg="Router started. Agent online. name=$ROUTER_NAME id=$ROUTER_ID runtime=$(runtime) features=$(features)"
   post_result "agent_start" true "$msg" || log "startup notification failed"
 }
 
@@ -170,15 +244,11 @@ check_slot_change() {
   slot="$(active_slot | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
   [ -n "$slot" ] || return 0
   mkdir -p "$(dirname "$SLOT_STATE_FILE")" 2>/dev/null || true
-  if [ ! -s "$SLOT_STATE_FILE" ]; then
-    printf '%s\n' "$slot" > "$SLOT_STATE_FILE" 2>/dev/null || true
-    return 0
-  fi
+  if [ ! -s "$SLOT_STATE_FILE" ]; then printf '%s\n' "$slot" > "$SLOT_STATE_FILE" 2>/dev/null || true; return 0; fi
   old="$(sed -n '1p' "$SLOT_STATE_FILE" 2>/dev/null | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
   [ "$old" = "$slot" ] && return 0
   printf '%s\n' "$slot" > "$SLOT_STATE_FILE" 2>/dev/null || true
-  msg="Active slot changed on $ROUTER_NAME ($ROUTER_ID): $old -> $slot"
-  post_result "slot_change" true "$msg" || log "slot change notification failed: $old -> $slot"
+  post_result "slot_change" true "Active slot changed on $ROUTER_NAME ($ROUTER_ID): $old -> $slot" || log "slot change notification failed"
 }
 
 poll_once() {
@@ -186,7 +256,7 @@ poll_once() {
   st="$(short_status | json_escape)"
   rn="$(printf '%s' "$ROUTER_NAME" | json_escape)"
   payload='{"router_id":"'"$ROUTER_ID"'","name":"'"$rn"'","status":"'"$st"'"}'
-  resp="$(curl -fsS -H "Content-Type: application/json" -H "Authorization: Bearer $AGENT_TOKEN" -d "$payload" "${SERVER_URL%/}/agent/poll" 2>&1)" || { log "poll failed: $resp"; return 1; }
+  resp="$(curl -fsS -H "Content-Type: application/json; charset=utf-8" -H "Authorization: Bearer $AGENT_TOKEN" -d "$payload" "${SERVER_URL%/}/agent/poll" 2>&1)" || { log "poll failed: $resp"; return 1; }
   command_id="$(printf '%s' "$resp" | json_get id)"
   [ -n "$command_id" ] || return 0
   action="$(printf '%s' "$resp" | json_get action)"
@@ -200,7 +270,7 @@ poll_once() {
   check_slot_change
 }
 
-log "xray-go-agent-shell started router_id=$ROUTER_ID name=$ROUTER_NAME server=$SERVER_URL"
+log "xray-go-agent-shell started router_id=$ROUTER_ID name=$ROUTER_NAME server=$SERVER_URL runtime=$(runtime)"
 notify_startup
 check_slot_change
 while :; do
