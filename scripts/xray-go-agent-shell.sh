@@ -56,13 +56,28 @@ normalize_selector() {
 }
 
 features() {
+  if ! have /opt/bin/xray-go && failover_cmd >/dev/null 2>&1; then
+    out="status,switch,source_update"
+    if have /opt/bin/vless-go-doctor || have /opt/bin/xray-doctor; then out="$out,doctor"; fi
+    if have /opt/bin/vless-go-history || have /opt/bin/history; then out="$out,history"; fi
+    if have /opt/bin/vless-go-watchdog || have /opt/bin/watchdog || [ -f /opt/var/log/vless-go-watchdog.log ]; then out="$out,watchdog"; fi
+    if have /opt/bin/vless-go-recover; then out="$out,recovery"; fi
+    if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
+    printf '%s' "$out"
+    return 0
+  fi
+
+  if ! have /opt/bin/xray-go && minimal_mode; then
+    out="status,switch"
+    if have /opt/bin/vless-go-doctor || have /opt/bin/xray-doctor; then out="$out,doctor"; fi
+    if have /opt/bin/vless-go-recover; then out="$out,recovery"; fi
+    if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
+    printf '%s' "$out"
+    return 0
+  fi
+
   out=""
-  if have /opt/bin/xray-go || failover_cmd >/dev/null 2>&1 || minimal_mode; then out="$out,status,switch"; fi
-  if failover_cmd >/dev/null 2>&1 || have /opt/bin/minimal-go-update; then out="$out,source_update"; fi
-  if have /opt/bin/xray-go || have /opt/bin/vless-go-doctor || have /opt/bin/xray-doctor; then out="$out,doctor"; fi
-  if have /opt/bin/xray-go || have /opt/bin/vless-go-history || have /opt/bin/history || [ -f /opt/var/log/minimal-go-switch-history.log ]; then out="$out,history"; fi
-  if have /opt/bin/vless-go-watchdog || have /opt/bin/watchdog || [ -f /opt/var/log/vless-go-watchdog.log ] || [ -f /opt/var/log/xray-minimal-go-failover.log ]; then out="$out,watchdog"; fi
-  if have /opt/bin/xray-go || have /opt/bin/vless-go-recover; then out="$out,recovery"; fi
+  if have /opt/bin/xray-go; then out="$out,status,switch,source_update,doctor,history,watchdog,recovery"; fi
   if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
   out="${out#,}"
   [ -n "$out" ] || out="status"
