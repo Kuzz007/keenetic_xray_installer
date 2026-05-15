@@ -28,27 +28,38 @@ func (s *Server) startAddRouterWizard(chatID int64) {
 	wizardMu.Lock()
 	wizardByChat[chatID] = wizardState{Flow: "add_router", Step: "router_id"}
 	wizardMu.Unlock()
-	s.sendMessage(chatID, "Введите ID роутера латиницей, например: home, dacha, office\n\nДля отмены: /cancel")
+	s.sendMessage(chatID, "➕ Добавление роутера\n\nВведите ID роутера латиницей.\n\nПримеры: home, dacha, office\n\nДля отмены: /cancel")
 }
 
 func sourceKeyboard(routerID string) inlineKeyboard {
 	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
-		{{Text: "Статус источников", CallbackData: "act:source_status:" + routerID}},
-		{{Text: "Заменить основной", CallbackData: "setsrc:primary:" + routerID}},
-		{{Text: "Заменить резервный", CallbackData: "setsrc:backup:" + routerID}},
-		{{Text: "Назад", CallbackData: "router:" + routerID}, {Text: "Главное меню", CallbackData: "menu"}},
+		{{Text: "📊 Статус источников", CallbackData: "act:source_status:" + routerID}},
+		{{Text: "⬆️ Заменить основной", CallbackData: "setsrc:primary:" + routerID}},
+		{{Text: "⬇️ Заменить резервный", CallbackData: "setsrc:backup:" + routerID}},
+		{{Text: "⬅️ Назад", CallbackData: "router:" + routerID}, {Text: "🏠 Главное меню", CallbackData: "menu"}},
 	}}
 }
 
 func (s *Server) sendSourceMenu(chatID int64, routerID string) {
-	s.sendMessageWithKeyboard(chatID, "Источники роутера: "+routerID, sourceKeyboard(routerID))
+	s.mu.Lock()
+	rt := s.cfg.Routers[routerID]
+	name := routerID
+	if rt != nil && strings.TrimSpace(rt.Name) != "" {
+		name = rt.Name
+	}
+	s.mu.Unlock()
+	if rt == nil {
+		s.sendMessageWithKeyboard(chatID, "⚠️ Роутер не найден: "+routerID, s.routersKeyboard())
+		return
+	}
+	s.sendMessageWithKeyboard(chatID, "🔗 Источники\n\n📡 "+name+"\nID: "+routerID+"\n\nВыберите действие для primary/backup источников.", sourceKeyboard(routerID))
 }
 
 func (s *Server) startSetSourceWizard(chatID int64, routerID, slot string) {
 	wizardMu.Lock()
 	wizardByChat[chatID] = wizardState{Flow: "set_source", Step: "selector", RouterID: routerID, Slot: slot}
 	wizardMu.Unlock()
-	s.sendMessage(chatID, "Роутер: "+routerID+"\nСлот: "+slot+"\n\nВведите selector, например: first, index:0, index:1.\nМожно также ввести просто 0 или 1 — бот преобразует в index:0 / index:1.\n\nДля отмены: /cancel")
+	s.sendMessage(chatID, "🔗 Замена источника\n\n📡 Роутер: "+routerID+"\nСлот: "+slot+"\n\nВведите selector.\n\nПримеры:\n• first\n• index:0\n• index:1\n\nМожно ввести просто 0 или 1 — бот преобразует в index:0 / index:1.\n\nДля отмены: /cancel")
 }
 
 func (s *Server) handleWizardText(chatID int64, text string) bool {
@@ -61,7 +72,7 @@ func (s *Server) handleWizardText(chatID int64, text string) bool {
 	text = strings.TrimSpace(text)
 	if text == "/cancel" || strings.EqualFold(text, "cancel") {
 		wizardCancel(chatID)
-		s.sendMessage(chatID, "Диалог отменён.")
+		s.sendMessage(chatID, "↩️ Диалог отменён.")
 		return true
 	}
 	switch st.Flow {
@@ -71,7 +82,7 @@ func (s *Server) handleWizardText(chatID int64, text string) bool {
 		return s.handleSetSourceWizardStep(chatID, st, text)
 	default:
 		wizardCancel(chatID)
-		s.sendMessage(chatID, "Диалог сброшен: неизвестный flow.")
+		s.sendMessage(chatID, "⚠️ Диалог сброшен: неизвестный flow.")
 		return true
 	}
 }
@@ -80,14 +91,14 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 	switch st.Step {
 	case "router_id":
 		if !validRouterID(text) {
-			s.sendMessage(chatID, "Некорректный ID. Используй только латиницу, цифры, _ или -. Пример: dacha\n\nДля отмены: /cancel")
+			s.sendMessage(chatID, "⚠️ Некорректный ID.\n\nИспользуй только латиницу, цифры, _ или -.\nПример: dacha\n\nДля отмены: /cancel")
 			return true
 		}
 		s.mu.Lock()
 		_, exists := s.cfg.Routers[text]
 		s.mu.Unlock()
 		if exists {
-			s.sendMessage(chatID, "Такой роутер уже есть: "+text+"\nВведите другой ID или /cancel")
+			s.sendMessage(chatID, "⚠️ Такой роутер уже есть: "+text+"\n\nВведите другой ID или /cancel")
 			return true
 		}
 		st.RouterID = text
@@ -95,7 +106,7 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 		wizardMu.Lock()
 		wizardByChat[chatID] = st
 		wizardMu.Unlock()
-		s.sendMessage(chatID, "Введите имя роутера, например: Дом, Дача, Офис\n\nДля отмены: /cancel")
+		s.sendMessage(chatID, "🏷 Имя роутера\n\nВведите display name.\n\nПримеры: Дом, Дача, Офис\n\nДля отмены: /cancel")
 		return true
 	case "name":
 		name := strings.TrimSpace(text)
@@ -105,14 +116,14 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 		token, err := randomTokenHex(24)
 		if err != nil {
 			wizardCancel(chatID)
-			s.sendMessage(chatID, "Не удалось сгенерировать token: "+err.Error())
+			s.sendMessage(chatID, "❌ Не удалось сгенерировать token:\n"+err.Error())
 			return true
 		}
 		s.mu.Lock()
 		if _, exists := s.cfg.Routers[st.RouterID]; exists {
 			s.mu.Unlock()
 			wizardCancel(chatID)
-			s.sendMessage(chatID, "Роутер уже существует: "+st.RouterID)
+			s.sendMessage(chatID, "⚠️ Роутер уже существует: "+st.RouterID)
 			return true
 		}
 		s.cfg.Routers[st.RouterID] = &Router{ID: st.RouterID, Name: name, Token: token}
@@ -123,7 +134,7 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 		s.mu.Unlock()
 		wizardCancel(chatID)
 		if err != nil {
-			s.sendMessage(chatID, "Роутер не сохранён: "+err.Error())
+			s.sendMessage(chatID, "❌ Роутер не сохранён:\n"+err.Error())
 			return true
 		}
 		serverURL := agentServerURL(s.cfg.Listen)
@@ -131,7 +142,7 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 		return true
 	default:
 		wizardCancel(chatID)
-		s.sendMessage(chatID, "Диалог сброшен.")
+		s.sendMessage(chatID, "⚠️ Диалог сброшен.")
 		return true
 	}
 }
@@ -144,11 +155,11 @@ func (s *Server) handleSetSourceWizardStep(chatID int64, st wizardState, text st
 		wizardMu.Lock()
 		wizardByChat[chatID] = st
 		wizardMu.Unlock()
-		s.sendMessage(chatID, "Теперь отправьте VLESS ссылку или subscription URL.\nСсылка не будет показана обратно в чат.\n\nДля отмены: /cancel")
+		s.sendMessage(chatID, "🔐 Источник\n\nSelector: "+st.Selector+"\n\nТеперь отправьте VLESS ссылку или subscription URL.\nСсылка не будет показана обратно в чат.\n\nДля отмены: /cancel")
 		return true
 	case "source":
 		if strings.TrimSpace(text) == "" {
-			s.sendMessage(chatID, "Источник пустой. Отправьте ссылку или /cancel")
+			s.sendMessage(chatID, "⚠️ Источник пустой.\n\nОтправьте ссылку или /cancel")
 			return true
 		}
 		action := "set_primary_source"
@@ -161,19 +172,19 @@ func (s *Server) handleSetSourceWizardStep(chatID int64, st wizardState, text st
 			s.sendMessage(chatID, err.Error())
 			return true
 		}
-		s.sendMessageWithKeyboard(chatID, "Источник поставлен в очередь: "+id+"\nЗначение скрыто.", routerKeyboard(st.RouterID))
+		s.sendMessageWithKeyboard(chatID, "✅ Источник поставлен в очередь\n\nCommand: "+id+"\nSlot: "+st.Slot+"\nSelector: "+st.Selector+"\n\nЗначение скрыто.", routerKeyboard(st.RouterID))
 		return true
 	default:
 		wizardCancel(chatID)
-		s.sendMessage(chatID, "Диалог сброшен.")
+		s.sendMessage(chatID, "⚠️ Диалог сброшен.")
 		return true
 	}
 }
 
 func addRouterDoneMessage(routerID, name, token, serverURL string) string {
-	msg := fmt.Sprintf("Роутер добавлен: %s (%s)\n\nAgent token:\n%s\n\nОткрой меню роутера и нажми 📦 Установка агента.\nВыбери Go-agent для Full/Minimal Go или Legacy shell-agent для Viva/MT7621/старых MIPS.", routerID, name, token)
+	msg := fmt.Sprintf("✅ Роутер добавлен\n\n📡 %s\nID: %s\n\nAgent token:\n%s\n\nОткрой меню роутера и нажми 📦 Установка агента.", name, routerID, token)
 	if strings.Contains(serverURL, "VPS_IP") {
-		msg += "\n\nЕсли в команде установки будет VPS_IP, замени его на внешний IP или DNS VPS."
+		msg += "\n\n⚠️ Если в команде установки будет VPS_IP, замени его на внешний IP или DNS VPS."
 	}
 	return msg
 }
