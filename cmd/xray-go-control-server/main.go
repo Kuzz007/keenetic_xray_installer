@@ -52,10 +52,17 @@ type Result struct {
 	At        string `json:"at,omitempty"`
 }
 
+type ActiveMenu struct {
+	ChatID    int64
+	MessageID int
+	RouterID  string
+}
+
 type Server struct {
-	cfg       Config
-	mu        sync.Mutex
-	lastUpdID int64
+	cfg         Config
+	mu          sync.Mutex
+	lastUpdID   int64
+	activeMenus map[string]ActiveMenu
 }
 
 func main() {
@@ -65,7 +72,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
-	s := &Server{cfg: cfg}
+	s := &Server{cfg: cfg, activeMenus: map[string]ActiveMenu{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/agent/poll", s.handlePoll)
 	mux.HandleFunc("/agent/result", s.handleResult)
@@ -118,6 +125,8 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res.At = time.Now().Format("2006-01-02 15:04:05")
+	routerID := rt.ID
+	routerName := rt.Name
 	s.mu.Lock()
 	rt.Results = append(rt.Results, res)
 	if len(rt.Results) > 20 {
@@ -126,7 +135,9 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	_ = json.NewEncoder(w).Encode(map[string]string{"ok": "1"})
 	if s.cfg.BotToken != "" && s.cfg.AdminUserID != 0 {
-		s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(rt.Name, res))
+		if !s.editActiveRouterResult(routerID, res) {
+			s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res))
+		}
 	}
 }
 
@@ -171,9 +182,10 @@ type tgUpdate struct {
 	CallbackQuery *tgCallbackQuery `json:"callback_query"`
 }
 type tgMessage struct {
-	Chat tgChat `json:"chat"`
-	From tgUser `json:"from"`
-	Text string `json:"text"`
+	MessageID int    `json:"message_id"`
+	Chat      tgChat `json:"chat"`
+	From      tgUser `json:"from"`
+	Text      string `json:"text"`
 }
 type tgChat struct {
 	ID int64 `json:"id"`
@@ -321,8 +333,10 @@ func (s *Server) handleCallback(cb *tgCallbackQuery) {
 		return
 	}
 	chatID := s.cfg.AdminUserID
+	messageID := 0
 	if cb.Message != nil {
 		chatID = cb.Message.Chat.ID
+		messageID = cb.Message.MessageID
 	}
 	data := cb.Data
 	s.answerCallback(cb.ID, "")
@@ -346,6 +360,7 @@ func (s *Server) handleCallback(cb *tgCallbackQuery) {
 		s.sendAgentInstallCommand(chatID, routerID, "shell")
 	case strings.HasPrefix(data, "sources:"):
 		routerID := strings.TrimPrefix(data, "sources:")
+		s.setActiveMenu(routerID, chatID, messageID)
 		s.sendSourceMenu(chatID, routerID)
 	case strings.HasPrefix(data, "setsrc:"):
 		parts := strings.SplitN(data, ":", 3)
@@ -360,9 +375,10 @@ func (s *Server) handleCallback(cb *tgCallbackQuery) {
 		s.deleteRouter(chatID, routerID)
 	case strings.HasPrefix(data, "router:"):
 		routerID := strings.TrimPrefix(data, "router:")
+		s.setActiveMenu(routerID, chatID, messageID)
 		s.sendRouterMenu(chatID, routerID)
 	case strings.HasPrefix(data, "act:"):
-		s.handleActionCallback(chatID, data)
+		s.handleActionCallback(chatID, messageID, data)
 	default:
 		s.sendMessageWithKeyboard(chatID, "Неизвестная кнопка", mainMenuKeyboard())
 	}
@@ -437,13 +453,16 @@ func (s *Server) sendRouterMenu(chatID int64, routerID string) {
 	s.sendMessageWithKeyboard(chatID, card, routerKeyboardForStatus(routerID, status))
 }
 
-func (s *Server) handleActionCallback(chatID int64, data string) {
+func (s *Server) handleActionCallback(chatID int64, messageID int, data string) {
 	parts := strings.SplitN(data, ":", 3)
 	if len(parts) != 3 {
 		s.sendMessageWithKeyboard(chatID, "Некорректная кнопка", mainMenuKeyboard())
 		return
 	}
 	name, routerID := parts[1], parts[2]
+	if messageID > 0 {
+		s.setActiveMenu(routerID, chatID, messageID)
+	}
 	if name == "results" {
 		s.mu.Lock()
 		rt := s.cfg.Routers[routerID]
@@ -452,20 +471,36 @@ func (s *Server) handleActionCallback(chatID int64, data string) {
 			status = rt.Status
 		}
 		s.mu.Unlock()
-		s.sendMessageWithKeyboard(chatID, s.results(routerID), routerKeyboardForStatus(routerID, status))
+		text := s.results(routerID)
+		if messageID > 0 && s.editMessageWithKeyboard(chatID, messageID, text, routerKeyboardForStatus(routerID, status)) {
+			return
+		}
+		s.sendMessageWithKeyboard(chatID, text, routerKeyboardForStatus(routerID, status))
 		return
 	}
 	action := callbackAction(name)
 	if action == "" {
-		s.sendMessageWithKeyboard(chatID, "Действие не поддерживается: "+name, routerKeyboard(routerID))
+		text := "Действие не поддерживается: " + name
+		if messageID > 0 && s.editMessageWithKeyboard(chatID, messageID, text, routerKeyboard(routerID)) {
+			return
+		}
+		s.sendMessageWithKeyboard(chatID, text, routerKeyboard(routerID))
 		return
 	}
 	id, err := s.enqueue(routerID, Command{Action: action})
 	if err != nil {
+		if messageID > 0 && s.editMessageWithKeyboard(chatID, messageID, err.Error(), s.routersKeyboard()) {
+			return
+		}
 		s.sendMessageWithKeyboard(chatID, err.Error(), s.routersKeyboard())
 		return
 	}
-	s.sendMessageWithKeyboard(chatID, "📨 Команда поставлена в очередь:\n"+id, routerKeyboard(routerID))
+	text := s.routerMenuTextWithExtra(routerID, "⏳ Команда в очереди\n"+id)
+	kb := s.currentRouterKeyboard(routerID)
+	if messageID > 0 && s.editMessageWithKeyboard(chatID, messageID, text, kb) {
+		return
+	}
+	s.sendMessageWithKeyboard(chatID, text, kb)
 }
 
 func callbackAction(name string) string {
@@ -627,6 +662,57 @@ func (s *Server) results(routerID string) string {
 	return prettyResults(s.cfg.Routers[routerID])
 }
 
+func (s *Server) setActiveMenu(routerID string, chatID int64, messageID int) {
+	if routerID == "" || chatID == 0 || messageID == 0 {
+		return
+	}
+	s.mu.Lock()
+	if s.activeMenus == nil {
+		s.activeMenus = map[string]ActiveMenu{}
+	}
+	s.activeMenus[routerID] = ActiveMenu{ChatID: chatID, MessageID: messageID, RouterID: routerID}
+	s.mu.Unlock()
+}
+
+func (s *Server) activeMenu(routerID string) (ActiveMenu, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, ok := s.activeMenus[routerID]
+	return m, ok
+}
+
+func (s *Server) currentRouterKeyboard(routerID string) inlineKeyboard {
+	s.mu.Lock()
+	rt := s.cfg.Routers[routerID]
+	status := ""
+	if rt != nil {
+		status = rt.Status
+	}
+	s.mu.Unlock()
+	return routerKeyboardForStatus(routerID, status)
+}
+
+func (s *Server) routerMenuTextWithExtra(routerID, extra string) string {
+	s.mu.Lock()
+	rt := s.cfg.Routers[routerID]
+	card := prettyRouterCard(rt)
+	s.mu.Unlock()
+	if strings.TrimSpace(extra) == "" {
+		return card
+	}
+	return limit(card+"\n\n"+extra, 3900)
+}
+
+func (s *Server) editActiveRouterResult(routerID string, res Result) bool {
+	active, ok := s.activeMenu(routerID)
+	if !ok {
+		return false
+	}
+	extra := "Последний ответ:\n" + prettyResultMessage("", res)
+	text := s.routerMenuTextWithExtra(routerID, extra)
+	return s.editMessageWithKeyboard(active.ChatID, active.MessageID, text, s.currentRouterKeyboard(routerID))
+}
+
 func (s *Server) sendMessage(chatID int64, text string) {
 	s.sendMessageWithKeyboard(chatID, text, inlineKeyboard{})
 }
@@ -648,6 +734,33 @@ func (s *Server) sendMessageWithKeyboard(chatID int64, text string, keyboard inl
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
+}
+
+func (s *Server) editMessageWithKeyboard(chatID int64, messageID int, text string, keyboard inlineKeyboard) bool {
+	if s.cfg.BotToken == "" || chatID == 0 || messageID == 0 {
+		return false
+	}
+	payload := map[string]any{"chat_id": chatID, "message_id": messageID, "text": limit(text, 3900)}
+	if len(keyboard.InlineKeyboard) > 0 {
+		payload["reply_markup"] = keyboard
+	}
+	body, _ := json.Marshal(payload)
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/editMessageText", s.cfg.BotToken)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		log.Printf("editMessageText: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if strings.Contains(string(b), "message is not modified") {
+			return true
+		}
+		log.Printf("editMessageText status=%s body=%s", resp.Status, string(b))
+		return false
+	}
+	return true
 }
 
 func (s *Server) answerCallback(callbackID, text string) {
