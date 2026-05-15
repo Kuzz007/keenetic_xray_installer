@@ -61,7 +61,7 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 
 	if f.has("recovery") {
 		rows = append(rows, []inlineButton{
-			{Text: "🛡 Recovery status", CallbackData: "act:recover_status:" + routerID},
+			{Text: "🛡 Recovery", CallbackData: "act:recover_status:" + routerID},
 			{Text: "♻️ Recover now", CallbackData: "act:recover:" + routerID},
 		})
 	}
@@ -71,20 +71,13 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 		logRow = append(logRow, inlineButton{Text: "🕘 History", CallbackData: "act:history:" + routerID})
 	}
 	if f.has("watchdog") {
-		logRow = append(logRow, inlineButton{Text: "👁 Watchdog log", CallbackData: "act:watchdog:" + routerID})
+		logRow = append(logRow, inlineButton{Text: "👁 Logs", CallbackData: "act:watchdog:" + routerID})
 	}
 	if len(logRow) > 0 {
 		rows = append(rows, logRow)
 	}
 
-	if f.has("recovery") {
-		rows = append(rows, []inlineButton{
-			{Text: "📄 Recovery log", CallbackData: "act:recoverylog:" + routerID},
-			{Text: "📬 Results", CallbackData: "act:results:" + routerID},
-		})
-	} else {
-		rows = append(rows, []inlineButton{{Text: "📬 Results", CallbackData: "act:results:" + routerID}})
-	}
+	rows = append(rows, []inlineButton{{Text: "📬 Results", CallbackData: "act:results:" + routerID}})
 
 	if f.has("reboot") {
 		rows = append(rows, []inlineButton{{Text: "🔄 Перезагрузить роутер", CallbackData: "act:reboot:" + routerID}})
