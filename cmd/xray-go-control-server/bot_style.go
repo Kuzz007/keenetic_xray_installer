@@ -89,11 +89,23 @@ func importantStatusParts(status string) []string {
 	if status == "" {
 		return nil
 	}
+	hasActiveSlot := false
+	for _, part := range strings.Split(status, ";") {
+		p := strings.ToLower(strings.TrimSpace(part))
+		if strings.Contains(p, "active slot:") || strings.Contains(p, "активный слот:") {
+			hasActiveSlot = true
+			break
+		}
+	}
 	seen := map[string]bool{}
 	out := []string{}
 	for _, part := range strings.Split(status, ";") {
 		p := strings.TrimSpace(part)
+		lower := strings.ToLower(p)
 		if p == "" || strings.HasPrefix(p, "features:") || seen[p] {
+			continue
+		}
+		if hasActiveSlot && strings.HasPrefix(lower, "active:") {
 			continue
 		}
 		seen[p] = true
