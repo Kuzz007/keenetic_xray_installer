@@ -56,7 +56,23 @@ normalize_selector() {
 }
 
 features() {
-  if ! have /opt/bin/xray-go && failover_cmd >/dev/null 2>&1; then
+  if have /opt/bin/xray-go; then
+    out="status,switch,source_update,doctor,history,watchdog,recovery"
+    if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
+    printf '%s' "$out"
+    return 0
+  fi
+
+  if minimal_mode; then
+    out="status,switch"
+    if have /opt/bin/vless-go-doctor || have /opt/bin/xray-doctor; then out="$out,doctor"; fi
+    if have /opt/bin/vless-go-recover; then out="$out,recovery"; fi
+    if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
+    printf '%s' "$out"
+    return 0
+  fi
+
+  if failover_cmd >/dev/null 2>&1; then
     out="status,switch,source_update"
     if have /opt/bin/vless-go-doctor || have /opt/bin/xray-doctor; then out="$out,doctor"; fi
     if have /opt/bin/vless-go-history || have /opt/bin/history; then out="$out,history"; fi
@@ -67,29 +83,18 @@ features() {
     return 0
   fi
 
-  if ! have /opt/bin/xray-go && minimal_mode; then
-    out="status,switch"
-    if have /opt/bin/vless-go-doctor || have /opt/bin/xray-doctor; then out="$out,doctor"; fi
-    if have /opt/bin/vless-go-recover; then out="$out,recovery"; fi
-    if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
-    printf '%s' "$out"
-    return 0
-  fi
-
-  out=""
-  if have /opt/bin/xray-go; then out="$out,status,switch,source_update,doctor,history,watchdog,recovery"; fi
+  out="status"
   if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
-  out="${out#,}"
-  [ -n "$out" ] || out="status"
   printf '%s' "$out"
 }
 
 status_cmd() {
   if have /opt/bin/xray-go; then /opt/bin/xray-go status 2>&1; return $?; fi
   fc="$(failover_cmd 2>/dev/null || true)"
-  if [ -n "$fc" ]; then "$fc" status 2>&1; return $?; fi
+  if [ -n "$fc" ] && ! minimal_mode; then "$fc" status 2>&1; return $?; fi
   if have /opt/bin/minimal-go-status; then /opt/bin/minimal-go-status 2>&1; return $?; fi
   if have /opt/bin/vless-go-recover; then /opt/bin/vless-go-recover --mode minimal status 2>&1; return $?; fi
+  if [ -n "$fc" ]; then "$fc" status 2>&1; return $?; fi
   echo "status command not found"
   return 1
 }
