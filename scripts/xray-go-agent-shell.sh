@@ -114,17 +114,30 @@ set_source() {
   "$fc" "set-$slot" "$source" --selector "$selector" 2>&1
 }
 
+doctor_cmd() {
+  if have /opt/bin/xray-go; then
+    /opt/bin/xray-go doctor --support 2>&1 || /opt/bin/xray-go doctor 2>&1
+    return $?
+  fi
+  if have /opt/bin/vless-go-doctor; then
+    /opt/bin/vless-go-doctor 2>&1
+    return $?
+  fi
+  if have /opt/bin/xray-doctor; then
+    /opt/bin/xray-doctor --support 2>&1 || /opt/bin/xray-doctor 2>&1
+    return $?
+  fi
+  echo "unsupported action on this router: doctor"
+  return 1
+}
+
 run_action() {
   action="$1"
   selector="$2"
   source="$3"
   case "$action" in
     status|source_status) status_cmd ;;
-    doctor)
-      if have /opt/bin/xray-go; then /opt/bin/xray-go doctor --support 2>&1
-      elif have /opt/bin/vless-go-doctor; then /opt/bin/vless-go-doctor --support 2>&1
-      elif have /opt/bin/xray-doctor; then /opt/bin/xray-doctor --support 2>&1
-      else echo "unsupported action on this router: $action"; return 1; fi ;;
+    doctor) doctor_cmd ;;
     switch_primary)
       if have /opt/bin/xray-go; then /opt/bin/xray-go switch primary 2>&1
       elif have /opt/bin/minimal-go-switch; then /opt/bin/minimal-go-switch primary 2>&1
