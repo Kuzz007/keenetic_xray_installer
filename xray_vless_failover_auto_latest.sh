@@ -36,8 +36,8 @@ usage() {
 Usage: xray_vless_failover_auto_latest.sh [MODE] [EDITION] [OPTIONS]
 
 Default behavior:
-  If no installation is detected, install the selected edition.
-  If an existing installation is detected, update the matching edition without asking.
+  If no configured runtime is detected, install the selected edition.
+  If an existing configured runtime is detected, update the matching edition without asking.
 
 Modes:
   --detect-only        Print detection result and exit. No changes.
@@ -47,7 +47,7 @@ Modes:
   --dry-run           Alias for --detect-only compatibility.
 
 Editions:
-  --auto              Select edition by installed files first, then free /opt space. Default.
+  --auto              Select edition by configured runtime first, then free /opt space. Default.
   --go, --force-go    Force Go/Entware latest edition.
   --minimal-go        Force Minimal Go edition.
   --minimal, --force-minimal
@@ -319,16 +319,36 @@ service_status() {
     fi
 }
 
+configured_minimal_runtime() {
+    [ -s /opt/etc/xray/minimal-go-active ] && return 0
+    [ -x /opt/etc/init.d/S25xray-minimal-go-failover ] && [ -s /opt/etc/xray/vless-go.primary ] && return 0
+    return 1
+}
+
+configured_shell_agent() {
+    [ -x /opt/etc/init.d/S28xray-go-agent-shell ] && [ -s /opt/etc/xray/xray-go-agent.conf ] && return 0
+    [ -x /opt/bin/xray-go-agent-shell ] && [ -s /opt/etc/xray/xray-go-agent.conf ] && return 0
+    return 1
+}
+
+configured_go_runtime() {
+    [ -s /opt/etc/xray/vless-go.active ] && return 0
+    [ -x /opt/etc/init.d/S26vless-go-watchdog ] && [ -s /opt/etc/xray/vless-go.primary ] && return 0
+    return 1
+}
+
+configured_go_agent() {
+    [ -x /opt/etc/init.d/S28xray-go-agent ] && [ -s /opt/etc/xray/xray-go-agent.conf ] && return 0
+    [ -x /opt/bin/xray-go-agent ] && [ -s /opt/etc/xray/xray-go-agent.conf ] && return 0
+    return 1
+}
+
 installed_edition() {
-    if [ -s /opt/etc/xray/minimal-go-active ] || [ -x /opt/bin/minimal-go-status ] || [ -x /opt/etc/init.d/S25xray-minimal-go-failover ]; then
+    if configured_minimal_runtime || configured_shell_agent; then
         echo minimal-go
         return 0
     fi
-    if [ -x /opt/bin/xray-go-agent-shell ] || [ -x /opt/etc/init.d/S28xray-go-agent-shell ]; then
-        echo minimal-go
-        return 0
-    fi
-    if [ -s /opt/etc/xray/vless-go.active ] || [ -x /opt/bin/xray-go ] || [ -x /opt/bin/xray-failover-go ] || pkg_installed failover-go; then
+    if configured_go_runtime || configured_go_agent; then
         echo go
         return 0
     fi
@@ -527,7 +547,7 @@ INSTALLED_EDITION="$(installed_edition)"
 if [ "$EDITION" = "auto" ]; then
     if [ "$INSTALLED_EDITION" != "none" ]; then
         SELECTED="$INSTALLED_EDITION"
-        SELECT_REASON="existing installation detected"
+        SELECT_REASON="configured runtime detected"
     elif [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
         SELECTED="minimal-go"
         SELECT_REASON="free /opt space is below threshold"
@@ -543,7 +563,7 @@ fi
 if [ "$MODE" = "install" ] && [ "$INSTALLED_EDITION" != "none" ] && [ "$EDITION" = "auto" ]; then
     MODE="update-only"
     SELECTED="$INSTALLED_EDITION"
-    SELECT_REASON="existing installation detected; auto update mode"
+    SELECT_REASON="configured runtime detected; auto update mode"
 fi
 
 FREE_MB="$(space_mb "$FREE_KB")"
@@ -568,7 +588,7 @@ case "$MODE" in
         exit 0
         ;;
     update-only)
-        echo "Existing installation update path selected. No interactive install prompt will be shown."
+        echo "Existing configured runtime update path selected. No interactive install prompt will be shown."
         run_update_only
         exit 0
         ;;
