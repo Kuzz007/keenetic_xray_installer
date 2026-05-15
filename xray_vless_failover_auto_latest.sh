@@ -8,8 +8,6 @@ set -e
 #   - Minimal Go edition for low /opt storage
 
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main}"
-REPO="${REPO:-Kuzz007/keenetic_xray_installer}"
-RELEASE_TAG="${RELEASE_TAG:-latest}"
 GO_FEED_URL="${GO_FEED_URL:-$REPO_BASE/scripts/install-entware-feed.sh}"
 MINIMAL_GO_URL="${MINIMAL_GO_URL:-$REPO_BASE/xray_vless_failover_minimal_go.sh}"
 MINIMAL_NEXT_URL="${MINIMAL_NEXT_URL:-$REPO_BASE/xray_vless_failover_minimal_next.sh}"
@@ -17,7 +15,6 @@ RECOVER_URL="${RECOVER_URL:-$REPO_BASE/scripts/vless-go-recover.sh}"
 DOCTOR_URL="${DOCTOR_URL:-$REPO_BASE/scripts/vless-go-doctor.sh}"
 SHELL_AGENT_URL="${SHELL_AGENT_URL:-$REPO_BASE/scripts/xray-go-agent-shell.sh}"
 AUTO_INSTALLER_URL="${AUTO_INSTALLER_URL:-$REPO_BASE/scripts/xray-go-agent-auto-install.sh}"
-AGENT_WATCHDOG_URL="${AGENT_WATCHDOG_URL:-$REPO_BASE/scripts/xray-go-agent-watchdog.sh}"
 
 GO_TMP="/opt/tmp/install-entware-feed.latest.sh"
 MINIMAL_GO_TMP="/opt/tmp/xray_vless_failover_minimal_go.sh"
@@ -36,8 +33,8 @@ usage() {
 Usage: xray_vless_failover_auto_latest.sh [MODE] [EDITION] [OPTIONS]
 
 Default behavior:
-  If no configured runtime is detected, install the selected edition.
-  If an existing configured runtime is detected, update the matching edition without asking.
+  If no installation is detected, install the selected edition.
+  If an existing installation is detected, update the matching edition without asking.
 
 Modes:
   --detect-only        Print detection result and exit. No changes.
@@ -47,7 +44,7 @@ Modes:
   --dry-run           Alias for --detect-only compatibility.
 
 Editions:
-  --auto              Select edition by configured runtime first, then free /opt space. Default.
+  --auto              Select edition by installed files first, then free /opt space. Default.
   --go, --force-go    Force Go/Entware latest edition.
   --minimal-go        Force Minimal Go edition.
   --minimal, --force-minimal
@@ -319,36 +316,16 @@ service_status() {
     fi
 }
 
-configured_minimal_runtime() {
-    [ -s /opt/etc/xray/minimal-go-active ] && return 0
-    [ -x /opt/etc/init.d/S25xray-minimal-go-failover ] && [ -s /opt/etc/xray/vless-go.primary ] && return 0
-    return 1
-}
-
-configured_shell_agent() {
-    [ -x /opt/etc/init.d/S28xray-go-agent-shell ] && [ -s /opt/etc/xray/xray-go-agent.conf ] && return 0
-    [ -x /opt/bin/xray-go-agent-shell ] && [ -s /opt/etc/xray/xray-go-agent.conf ] && return 0
-    return 1
-}
-
-configured_go_runtime() {
-    [ -s /opt/etc/xray/vless-go.active ] && return 0
-    [ -x /opt/etc/init.d/S26vless-go-watchdog ] && [ -s /opt/etc/xray/vless-go.primary ] && return 0
-    return 1
-}
-
-configured_go_agent() {
-    [ -x /opt/etc/init.d/S28xray-go-agent ] && [ -s /opt/etc/xray/xray-go-agent.conf ] && return 0
-    [ -x /opt/bin/xray-go-agent ] && [ -s /opt/etc/xray/xray-go-agent.conf ] && return 0
-    return 1
-}
-
 installed_edition() {
-    if configured_minimal_runtime || configured_shell_agent; then
+    if [ -s /opt/etc/xray/minimal-go-active ] || [ -x /opt/bin/minimal-go-status ] || [ -x /opt/etc/init.d/S25xray-minimal-go-failover ]; then
         echo minimal-go
         return 0
     fi
-    if configured_go_runtime || configured_go_agent; then
+    if [ -x /opt/bin/xray-go-agent-shell ] || [ -x /opt/etc/init.d/S28xray-go-agent-shell ]; then
+        echo minimal-go
+        return 0
+    fi
+    if [ -s /opt/etc/xray/vless-go.active ] || [ -x /opt/bin/xray-go ] || [ -x /opt/bin/xray-failover-go ] || pkg_installed failover-go; then
         echo go
         return 0
     fi
@@ -387,7 +364,6 @@ run_doctor() {
     echo "  active full slot: $(file_state /opt/etc/xray/vless-go.active)"
     echo "  vless-go-recover: $(command_state /opt/bin/vless-go-recover)"
     echo "  vless-go-doctor: $(command_state /opt/bin/vless-go-doctor)"
-    echo "  agent watchdog: $(command_state /opt/bin/xray-go-agent-watchdog)"
     echo "  shell agent: $(command_state /opt/bin/xray-go-agent-shell)"
     echo "  go agent: $(command_state /opt/bin/xray-go-agent)"
     echo "  minimal failover init: $(service_status /opt/etc/init.d/S25xray-minimal-go-failover)"
@@ -415,67 +391,11 @@ restart_if_allowed() {
     "$init" restart >/dev/null 2>&1 || "$init" start >/dev/null 2>&1 || true
 }
 
-detect_agent_asset() {
-    oa=""
-    if command -v opkg >/dev/null 2>&1; then
-        oa="$(opkg print-architecture 2>/dev/null | awk '$2 != "all" && ($3 + 0) >= max { arch = $2; max = $3 + 0 } END { print arch }')"
-    fi
-    ka="$(uname -m 2>/dev/null || echo unknown)"
-    case "$oa:$ka" in
-        *aarch64*:*|*arm64*:*|*:aarch64|*:arm64) echo xray-go-agent-linux-arm64 ;;
-        *mipsel*:*|*mipsle*:*|*mipselsf*:*) echo xray-go-agent-linux-mipsle ;;
-        *:mips|*mips*:mips) echo xray-go-agent-linux-mips ;;
-        *) echo "" ;;
-    esac
-}
-
-update_go_agent_binary() {
-    [ -x /opt/bin/xray-go-agent ] || return 1
-    asset="$(detect_agent_asset)"
-    if [ -z "$asset" ]; then
-        echo "WARN: cannot detect Go-agent asset for this architecture" >&2
-        return 1
-    fi
-    url="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/${asset}"
-    tmp="/opt/bin/xray-go-agent.tmp.$$"
-    echo "Downloading Go-agent binary: $url"
-    if ! curl -fL --retry 2 --retry-delay 3 -o "$tmp" "$url"; then
-        rm -f "$tmp"
-        echo "WARN: failed to download Go-agent binary" >&2
-        return 1
-    fi
-    chmod +x "$tmp"
-    mv "$tmp" /opt/bin/xray-go-agent
-    restart_if_allowed /opt/etc/init.d/S28xray-go-agent
-    return 0
-}
-
-install_agent_watchdog() {
-    mkdir -p /opt/bin /opt/var/spool/cron/crontabs /opt/var/log
-    download_file "$AGENT_WATCHDOG_URL" /opt/bin/xray-go-agent-watchdog "agent watchdog" || return 1
-    sh -n /opt/bin/xray-go-agent-watchdog
-    chmod +x /opt/bin/xray-go-agent-watchdog
-    [ "$NO_CRON" = "1" ] && return 0
-    cron_file="/opt/var/spool/cron/crontabs/root"
-    touch "$cron_file" 2>/dev/null || true
-    chmod 600 "$cron_file" 2>/dev/null || true
-    tmp="${cron_file}.$$"
-    grep -v '# xray-go-agent-watchdog' "$cron_file" > "$tmp" 2>/dev/null || true
-    printf '*/5 * * * * /opt/bin/xray-go-agent-watchdog --quiet # xray-go-agent-watchdog\n' >> "$tmp"
-    mv "$tmp" "$cron_file"
-    ensure_cron
-    return 0
-}
-
 run_update_only() {
     bootstrap_selected_dependencies "$SELECTED"
     updated="0"
 
     if refresh_doctor; then
-        updated="1"
-    fi
-
-    if install_agent_watchdog; then
         updated="1"
     fi
 
@@ -494,10 +414,6 @@ run_update_only() {
             updated="1"
             restart_if_allowed /opt/etc/init.d/S28xray-go-agent-shell
         fi
-    fi
-
-    if update_go_agent_binary; then
-        updated="1"
     fi
 
     if [ "$SELECTED" = "go" ]; then
@@ -547,7 +463,7 @@ INSTALLED_EDITION="$(installed_edition)"
 if [ "$EDITION" = "auto" ]; then
     if [ "$INSTALLED_EDITION" != "none" ]; then
         SELECTED="$INSTALLED_EDITION"
-        SELECT_REASON="configured runtime detected"
+        SELECT_REASON="existing installation detected"
     elif [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
         SELECTED="minimal-go"
         SELECT_REASON="free /opt space is below threshold"
@@ -563,7 +479,7 @@ fi
 if [ "$MODE" = "install" ] && [ "$INSTALLED_EDITION" != "none" ] && [ "$EDITION" = "auto" ]; then
     MODE="update-only"
     SELECTED="$INSTALLED_EDITION"
-    SELECT_REASON="configured runtime detected; auto update mode"
+    SELECT_REASON="existing installation detected; auto update mode"
 fi
 
 FREE_MB="$(space_mb "$FREE_KB")"
@@ -583,12 +499,11 @@ case "$MODE" in
         ;;
     repair)
         bootstrap_selected_dependencies "$SELECTED"
-        install_agent_watchdog || true
         echo "Repair complete for selected edition: $SELECTED"
         exit 0
         ;;
     update-only)
-        echo "Existing configured runtime update path selected. No interactive install prompt will be shown."
+        echo "Existing installation update path selected. No interactive install prompt will be shown."
         run_update_only
         exit 0
         ;;
@@ -600,7 +515,6 @@ if [ "$DRY_RUN" = "1" ]; then
 fi
 
 bootstrap_selected_dependencies "$SELECTED"
-install_agent_watchdog || true
 
 case "$SELECTED" in
     minimal-go)
