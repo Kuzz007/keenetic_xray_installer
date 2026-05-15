@@ -421,6 +421,20 @@ func routerKeyboard(routerID string) inlineKeyboard {
 	}}
 }
 
+func (s *Server) routerKeyboardCurrent(routerID string) inlineKeyboard {
+	s.mu.Lock()
+	rt := s.cfg.Routers[routerID]
+	status := ""
+	if rt != nil {
+		status = rt.Status
+	}
+	s.mu.Unlock()
+	if status == "" {
+		return routerKeyboard(routerID)
+	}
+	return routerKeyboardForStatus(routerID, status)
+}
+
 func (s *Server) sendRouterMenu(chatID int64, routerID string) {
 	s.mu.Lock()
 	rt := s.cfg.Routers[routerID]
@@ -457,7 +471,7 @@ func (s *Server) handleActionCallback(chatID int64, data string) {
 	}
 	action := callbackAction(name)
 	if action == "" {
-		s.sendMessageWithKeyboard(chatID, "Действие не поддерживается: "+name, routerKeyboard(routerID))
+		s.sendMessageWithKeyboard(chatID, "Действие не поддерживается: "+name, s.routerKeyboardCurrent(routerID))
 		return
 	}
 	id, err := s.enqueue(routerID, Command{Action: action})
@@ -465,7 +479,7 @@ func (s *Server) handleActionCallback(chatID int64, data string) {
 		s.sendMessageWithKeyboard(chatID, err.Error(), s.routersKeyboard())
 		return
 	}
-	s.sendMessageWithKeyboard(chatID, "📨 Команда поставлена в очередь:\n"+id, routerKeyboard(routerID))
+	s.sendMessageWithKeyboard(chatID, "📨 Команда поставлена в очередь:\n"+id, s.routerKeyboardCurrent(routerID))
 }
 
 func callbackAction(name string) string {
@@ -601,7 +615,7 @@ func (s *Server) routerList() string {
 	online := 0
 	items := []string{}
 	for _, id := range ids {
-		rt := s.cfg.Routers[id]
+	rt := s.cfg.Routers[id]
 		if rt != nil && time.Since(rt.LastSeen) < 30*time.Second {
 			online++
 		}
@@ -618,192 +632,71 @@ func (s *Server) routerList() string {
 		}
 		items = append(items, prettyRouterListItem(name, rt.LastSeen, rt.Status))
 	}
-	return strings.Join(items, "\n\n")
+	return strings.Join(items, "\n")
 }
 
 func (s *Server) results(routerID string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return prettyResults(s.cfg.Routers[routerID])
+	rt := s.cfg.Routers[routerID]
+	if rt == nil {
+		return "unknown router: " + routerID
+	}
+	if len(rt.Results) == 0 {
+		return "Результатов пока нет."
+	}
+	lines := []string{"📬 Последние результаты: " + rt.Name}
+	for _, r := range rt.Results {
+		status := "✅ OK"
+		if !r.OK {
+			status = "❌ FAIL"
+		}
+		out := strings.TrimSpace(r.Output)
+		if len(out) > 3500 {
+			out = out[:3500] + "\n..."
+		}
+		lines = append(lines, fmt.Sprintf("\n%s %s\n%s", status, r.CommandID, out))
+	}
+	return strings.Join(lines, "\n")
 }
 
-func (s *Server) sendMessage(chatID int64, text string) {
-	s.sendMessageWithKeyboard(chatID, text, inlineKeyboard{})
-}
-
-func (s *Server) sendMessageWithKeyboard(chatID int64, text string, keyboard inlineKeyboard) {
-	if s.cfg.BotToken == "" {
+func (s *Server) sendAgentInstallMenu(chatID int64, routerID string) {
+	s.mu.Lock()
+	rt := s.cfg.Routers[routerID]
+	s.mu.Unlock()
+	if rt == nil {
+		s.sendMessageWithKeyboard(chatID, "unknown router: "+routerID, s.routersKeyboard())
 		return
 	}
-	payload := map[string]any{"chat_id": chatID, "text": limit(text, 3900)}
-	if len(keyboard.InlineKeyboard) > 0 {
-		payload["reply_markup"] = keyboard
-	}
-	body, _ := json.Marshal(payload)
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", s.cfg.BotToken)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		log.Printf("sendMessage: %v", err)
+	kb := inlineKeyboard{InlineKeyboard: [][]inlineButton{
+		{{Text: "🤖 Go agent", CallbackData: "install-go:" + routerID}, {Text: "🐚 Shell agent", CallbackData: "install-shell:" + routerID}},
+		{{Text: "⬅️ Назад", CallbackData: "router:" + routerID}},
+	}}
+	text := fmt.Sprintf("📦 Установка агента для %s\n\nGo agent: для поддерживаемых arch.\nShell agent: fallback для MIPS/старых Entware.", rt.Name)
+	s.sendMessageWithKeyboard(chatID, text, kb)
+}
+
+func (s *Server) sendAgentInstallCommand(chatID int64, routerID, agentType string) {
+	s.mu.Lock()
+	rt := s.cfg.Routers[routerID]
+	s.mu.Unlock()
+	if rt == nil {
+		s.sendMessageWithKeyboard(chatID, "unknown router: "+routerID, s.routersKeyboard())
 		return
 	}
-	_, _ = io.Copy(io.Discard, resp.Body)
-	_ = resp.Body.Close()
+	cmd := fmt.Sprintf("curl -fsSL -o /opt/bin/xray-go-agent-auto-install https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/xray-go-agent-auto-install.sh && chmod +x /opt/bin/xray-go-agent-auto-install && /opt/bin/xray-go-agent-auto-install --server-url '%s' --router-id '%s' --router-name '%s' --agent-token '%s' --poll-interval 5", publicServerURL(), rt.ID, shellQuoteValue(rt.Name), rt.Token)
+	if agentType == "go" {
+		cmd += " --agent go"
+	} else if agentType == "shell" {
+		cmd += " --agent shell"
+	}
+	s.sendMessageWithKeyboard(chatID, "Выполни на роутере:\n\n`"+cmd+"`", routerKeyboard(routerID))
 }
 
-func (s *Server) answerCallback(callbackID, text string) {
-	if s.cfg.BotToken == "" || callbackID == "" {
-		return
+func publicServerURL() string {
+	u := os.Getenv("XRAY_GO_PUBLIC_SERVER_URL")
+	if strings.TrimSpace(u) != "" {
+		return strings.TrimSpace(u)
 	}
-	payload := map[string]any{"callback_query_id": callbackID}
-	if text != "" {
-		payload["text"] = text
-	}
-	body, _ := json.Marshal(payload)
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/answerCallbackQuery", s.cfg.BotToken)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		log.Printf("answerCallback: %v", err)
-		return
-	}
-	_, _ = io.Copy(io.Discard, resp.Body)
-	_ = resp.Body.Close()
-}
-
-func helpText() string {
-	return strings.TrimSpace(`❔ Помощь
-
-Основные команды:
-/menu — главное меню
-/routers — список роутеров
-/add_router <router_id> [имя] — добавить роутер
-
-Быстрые команды:
-/status_<router>
-/doctor_<router>
-/switch_primary_<router>
-/switch_backup_<router>
-/recover_status_<router>
-/recover_check_<router>
-/recover_<router>
-/recover_enable_<router>
-/recover_disable_<router>
-/history_<router>
-/watchdog_<router>
-/recoverylog_<router>
-/source_status_<router>
-/results_<router>
-
-Источники:
-/set_primary_<router> <selector> <url>
-/set_backup_<router> <selector> <url>`)
-}
-
-func loadConfig(path string) (Config, error) {
-	cfg := Config{ConfigPath: path, Listen: ":18090", Routers: map[string]*Router{}}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return cfg, err
-	}
-	vals := map[string]string{}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		k, v, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		vals[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), "\"")
-	}
-	if vals["LISTEN"] != "" {
-		cfg.Listen = vals["LISTEN"]
-	}
-	cfg.BotToken = vals["BOT_TOKEN"]
-	if vals["ADMIN_USER_ID"] != "" {
-		cfg.AdminUserID, _ = strconv.ParseInt(vals["ADMIN_USER_ID"], 10, 64)
-	}
-	for _, item := range strings.Split(vals["ROUTERS"], ",") {
-		parts := strings.SplitN(strings.TrimSpace(item), ":", 3)
-		if len(parts) < 2 {
-			continue
-		}
-		name := parts[0]
-		if len(parts) == 3 {
-			name = parts[2]
-		}
-		cfg.Routers[parts[0]] = &Router{ID: parts[0], Token: parts[1], Name: name}
-	}
-	if cfg.BotToken == "" || cfg.AdminUserID == 0 {
-		return cfg, fmt.Errorf("BOT_TOKEN and ADMIN_USER_ID are required")
-	}
-	if len(cfg.Routers) == 0 {
-		return cfg, fmt.Errorf("ROUTERS is required")
-	}
-	return cfg, nil
-}
-
-func (s *Server) persistConfigLocked() error {
-	ids := make([]string, 0, len(s.cfg.Routers))
-	for id := range s.cfg.Routers {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	items := make([]string, 0, len(ids))
-	for _, id := range ids {
-		r := s.cfg.Routers[id]
-		items = append(items, r.ID+":"+r.Token+":"+r.Name)
-	}
-	content := fmt.Sprintf("LISTEN=\"%s\"\nBOT_TOKEN=\"%s\"\nADMIN_USER_ID=\"%d\"\nROUTERS=\"%s\"\n", s.cfg.Listen, s.cfg.BotToken, s.cfg.AdminUserID, strings.Join(items, ","))
-	return os.WriteFile(s.cfg.ConfigPath, []byte(content), 0660)
-}
-
-func compactStatus(status string) string {
-	status = strings.TrimSpace(status)
-	if status == "" {
-		return "нет heartbeat"
-	}
-	seen := map[string]bool{}
-	out := []string{}
-	for _, part := range strings.Split(status, ";") {
-		p := strings.TrimSpace(part)
-		if p == "" || seen[p] {
-			continue
-		}
-		seen[p] = true
-		out = append(out, p)
-	}
-	if len(out) == 0 {
-		return status
-	}
-	return strings.Join(out, "; ")
-}
-
-func validRouterID(id string) bool {
-	if id == "" {
-		return false
-	}
-	for _, r := range id {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func randomTokenHex(n int) (string, error) {
-	b := make([]byte, n)
-	_, err := rand.Read(b)
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
-}
-
-func limit(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "\n...truncated..."
+	return "http://185.252.177.2:18090"
 }
