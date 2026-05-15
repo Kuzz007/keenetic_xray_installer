@@ -21,9 +21,10 @@ ROUTER_NAME="${ROUTER_NAME:-$ROUTER_ID}"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
 have() { [ -x "$1" ]; }
+exists() { [ -e "$1" ]; }
 
 json_escape() {
-  sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' '
+  LC_ALL=C tr '\r\n\t' '   ' | LC_ALL=C tr -d '\000-\010\013\014\016-\037' | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
 json_unescape() {
@@ -41,6 +42,10 @@ failover_cmd() {
   return 1
 }
 
+minimal_mode() {
+  exists /opt/etc/xray/minimal-go-active || have /opt/bin/minimal-go-status || have /opt/bin/minimal-go-switch || [ -x /opt/etc/init.d/S25xray-minimal-go-failover ]
+}
+
 normalize_selector() {
   sel="$(printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
   [ -n "$sel" ] || { printf '%s' "first"; return 0; }
@@ -53,11 +58,12 @@ normalize_selector() {
 
 features() {
   out=""
-  if have /opt/bin/xray-go || failover_cmd >/dev/null 2>&1; then out="$out,status,switch"; fi
-  if failover_cmd >/dev/null 2>&1; then out="$out,source_update"; fi
-  if have /opt/bin/xray-go || have /opt/bin/vless-go-doctor || have /opt/bin/xray-doctor; then out="$out,doctor"; fi
-  if have /opt/bin/xray-go || have /opt/bin/vless-go-history || have /opt/bin/history; then out="$out,history"; fi
-  if have /opt/bin/vless-go-watchdog || have /opt/bin/watchdog || [ -f /opt/var/log/vless-go-watchdog.log ]; then out="$out,watchdog"; fi
+  if have /opt/bin/xray-go || failover_cmd >/dev/null 2>&1 || minimal_mode; then out="$out,status"; fi
+  if have /opt/bin/xray-go || failover_cmd >/dev/null 2>&1 || have /opt/bin/minimal-go-switch; then out="$out,switch"; fi
+  if failover_cmd >/dev/null 2>&1 || have /opt/bin/minimal-go-update; then out="$out,source_update"; fi
+  if have /opt/bin/xray-go || have /opt/bin/vless-go-doctor || have /opt/bin/xray-doctor || minimal_mode; then out="$out,doctor"; fi
+  if have /opt/bin/xray-go || have /opt/bin/vless-go-history || have /opt/bin/history || exists /opt/var/log/minimal-go-switch-history.log; then out="$out,history"; fi
+  if have /opt/bin/vless-go-watchdog || have /opt/bin/watchdog || exists /opt/var/log/vless-go-watchdog.log || exists /opt/var/log/xray-minimal-go-failover.log; then out="$out,watchdog"; fi
   if have /opt/bin/xray-go || have /opt/bin/vless-go-recover; then out="$out,recovery"; fi
   if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
   out="${out#,}"
@@ -69,6 +75,8 @@ status_cmd() {
   if have /opt/bin/xray-go; then /opt/bin/xray-go status 2>&1; return $?; fi
   fc="$(failover_cmd 2>/dev/null || true)"
   if [ -n "$fc" ]; then "$fc" status 2>&1; return $?; fi
+  if have /opt/bin/minimal-go-status; then /opt/bin/minimal-go-status 2>&1; return $?; fi
+  if have /opt/bin/vless-go-recover; then /opt/bin/vless-go-recover --mode minimal status 2>&1; return $?; fi
   echo "status command not found"
   return 1
 }
@@ -76,13 +84,13 @@ status_cmd() {
 active_slot() {
   if [ -s /opt/etc/xray/minimal-go-active ]; then sed -n '1p' /opt/etc/xray/minimal-go-active; return 0; fi
   if [ -s /opt/etc/xray/vless-go.active ]; then sed -n '1p' /opt/etc/xray/vless-go.active; return 0; fi
-  status_cmd 2>/dev/null | sed -n 's/.*active slot:[[:space:]]*//p; s/.*активный слот:[[:space:]]*//p' | head -n 1
+  status_cmd 2>/dev/null | sed -n 's/.*active slot:[[:space:]]*//p; s/.*active:[[:space:]]*//p; s/.*активный слот:[[:space:]]*//p' | head -n 1
 }
 
 short_status() {
   st="$(status_cmd 2>&1)"
   feat="$(features)"
-  printf '%s\n' "$st" | grep -E 'активный слот:|health: OK|hourly recovery:|daemon: запущен|основной профиль:|резервный профиль:' | tr '\n' '; '
+  printf '%s\n' "$st" | grep -E 'active:|active slot:|активный слот:|health: OK|hourly recovery:|cron: running|crond: running|daemon: запущен|основной профиль:|резервный профиль:' | tr '\n' '; '
   printf 'features: %s' "$feat"
 }
 
@@ -91,12 +99,90 @@ set_source() {
   selector="$(normalize_selector "${2:-}")"
   source="$3"
   [ -n "$source" ] || { echo "source is empty"; return 1; }
-  fc="$(failover_cmd 2>/dev/null || true)"
-  [ -n "$fc" ] || { echo "not found: /opt/bin/vless-go-failover or /opt/bin/failover"; return 1; }
   mkdir -p /opt/etc/xray/source-backups
+  if minimal_mode && have /opt/bin/minimal-go-update; then
+    old="/opt/etc/xray/minimal-go-$slot.url"
+    if [ -s "$old" ]; then cp "$old" "/opt/etc/xray/source-backups/$(date '+%Y%m%d-%H%M%S').minimal-$slot" 2>/dev/null || true; fi
+    /opt/bin/minimal-go-update "$slot" "$source" 2>&1
+    return $?
+  fi
+  fc="$(failover_cmd 2>/dev/null || true)"
+  [ -n "$fc" ] || { echo "not found: minimal-go-update, /opt/bin/vless-go-failover or /opt/bin/failover"; return 1; }
   old="/opt/etc/xray/vless-go.$slot"
   if [ -s "$old" ]; then cp "$old" "/opt/etc/xray/source-backups/$(date '+%Y%m%d-%H%M%S').$slot" 2>/dev/null || true; fi
   "$fc" "set-$slot" "$source" --selector "$selector" 2>&1
+}
+
+minimal_doctor() {
+  echo "== Minimal Go status =="
+  status_cmd 2>&1 || true
+  if have /opt/bin/vless-go-recover; then
+    echo
+    echo "== Recovery =="
+    /opt/bin/vless-go-recover --mode minimal status 2>&1 || true
+  fi
+  echo
+  echo "== Services =="
+  [ -x /opt/etc/init.d/S24xray ] && /opt/etc/init.d/S24xray status 2>&1 || true
+  [ -x /opt/etc/init.d/S25xray-minimal-go-failover ] && /opt/etc/init.d/S25xray-minimal-go-failover status 2>&1 || true
+}
+
+doctor_cmd() {
+  if minimal_mode; then minimal_doctor; return $?; fi
+  if have /opt/bin/xray-go; then /opt/bin/xray-go doctor --support 2>&1 || /opt/bin/xray-go doctor 2>&1; return $?; fi
+  if have /opt/bin/vless-go-doctor; then /opt/bin/vless-go-doctor 2>&1; return $?; fi
+  if have /opt/bin/xray-doctor; then /opt/bin/xray-doctor --support 2>&1 || /opt/bin/xray-doctor 2>&1; return $?; fi
+  echo "unsupported action on this router: doctor"
+  return 1
+}
+
+switch_cmd() {
+  slot="$1"
+  if have /opt/bin/xray-go; then /opt/bin/xray-go switch "$slot" 2>&1; return $?; fi
+  fc="$(failover_cmd 2>/dev/null || true)"
+  if [ -n "$fc" ]; then "$fc" switch "$slot" 2>&1; return $?; fi
+  if have /opt/bin/minimal-go-switch; then /opt/bin/minimal-go-switch "$slot" 2>&1; return $?; fi
+  echo "unsupported switch on this router"
+  return 1
+}
+
+history_cmd() {
+  if have /opt/bin/xray-go; then /opt/bin/xray-go history 2>&1; return $?; fi
+  if have /opt/bin/vless-go-history; then /opt/bin/vless-go-history 2>&1; return $?; fi
+  if have /opt/bin/history; then /opt/bin/history 2>&1; return $?; fi
+  if exists /opt/var/log/minimal-go-switch-history.log; then tail -n 100 /opt/var/log/minimal-go-switch-history.log 2>/dev/null || true; return 0; fi
+  echo "unsupported history on this router"
+  return 1
+}
+
+watchdog_log() {
+  if exists /opt/var/log/vless-go-watchdog.log; then tail -n 100 /opt/var/log/vless-go-watchdog.log 2>/dev/null || true; return 0; fi
+  if exists /opt/var/log/xray-minimal-go-failover.log; then tail -n 100 /opt/var/log/xray-minimal-go-failover.log 2>/dev/null || true; return 0; fi
+  echo "watchdog log not found"
+  return 1
+}
+
+recovery_log() {
+  if exists /opt/var/log/vless-go-recover.log; then tail -n 100 /opt/var/log/vless-go-recover.log 2>/dev/null || true; return 0; fi
+  if exists /opt/var/log/xray-minimal-go-failover.log; then tail -n 100 /opt/var/log/xray-minimal-go-failover.log 2>/dev/null || true; return 0; fi
+  echo "recovery log not found"
+  return 1
+}
+
+recover_cmd() {
+  sub="$1"
+  if have /opt/bin/xray-go; then
+    if [ "$sub" = "run" ]; then /opt/bin/xray-go recover 2>&1; else /opt/bin/xray-go recover "$sub" 2>&1; fi
+    return $?
+  fi
+  if have /opt/bin/vless-go-recover; then
+    mode="full"
+    minimal_mode && mode="minimal"
+    /opt/bin/vless-go-recover --mode "$mode" "$sub" 2>&1
+    return $?
+  fi
+  echo "unsupported recovery on this router"
+  return 1
 }
 
 run_action() {
@@ -105,37 +191,17 @@ run_action() {
   source="$3"
   case "$action" in
     status|source_status) status_cmd ;;
-    doctor)
-      if have /opt/bin/xray-go; then /opt/bin/xray-go doctor --support 2>&1
-      elif have /opt/bin/vless-go-doctor; then /opt/bin/vless-go-doctor --support 2>&1
-      elif have /opt/bin/xray-doctor; then /opt/bin/xray-doctor --support 2>&1
-      else echo "unsupported action on this router: $action"; return 1; fi ;;
-    switch_primary)
-      if have /opt/bin/xray-go; then /opt/bin/xray-go switch primary 2>&1
-      else fc="$(failover_cmd 2>/dev/null || true)"; [ -n "$fc" ] && "$fc" switch primary 2>&1 || { echo "unsupported action on this router: $action"; return 1; }; fi ;;
-    switch_backup)
-      if have /opt/bin/xray-go; then /opt/bin/xray-go switch backup 2>&1
-      else fc="$(failover_cmd 2>/dev/null || true)"; [ -n "$fc" ] && "$fc" switch backup 2>&1 || { echo "unsupported action on this router: $action"; return 1; }; fi ;;
-    history)
-      if have /opt/bin/xray-go; then /opt/bin/xray-go history 2>&1
-      elif have /opt/bin/vless-go-history; then /opt/bin/vless-go-history 2>&1
-      elif have /opt/bin/history; then /opt/bin/history 2>&1
-      else echo "unsupported action on this router: $action"; return 1; fi ;;
-    watchdog_log) tail -n 100 /opt/var/log/vless-go-watchdog.log 2>/dev/null || true ;;
-    recovery_log) tail -n 100 /opt/var/log/vless-go-recover.log 2>/dev/null || true ;;
-    recover_status|recover_check|recover_run|recover_enable|recover_disable)
-      case "$action" in
-        recover_status) sub="status" ;;
-        recover_check) sub="check" ;;
-        recover_run) sub="run" ;;
-        recover_enable) sub="enable-hourly" ;;
-        recover_disable) sub="disable-hourly" ;;
-      esac
-      if have /opt/bin/xray-go; then
-        if [ "$sub" = "run" ]; then /opt/bin/xray-go recover 2>&1; else /opt/bin/xray-go recover "$sub" 2>&1; fi
-      elif have /opt/bin/vless-go-recover; then
-        /opt/bin/vless-go-recover "$sub" 2>&1
-      else echo "unsupported action on this router: $action"; return 1; fi ;;
+    doctor) doctor_cmd ;;
+    switch_primary) switch_cmd primary ;;
+    switch_backup) switch_cmd backup ;;
+    history) history_cmd ;;
+    watchdog_log) watchdog_log ;;
+    recovery_log) recovery_log ;;
+    recover_status) recover_cmd status ;;
+    recover_check) recover_cmd check ;;
+    recover_run) recover_cmd run ;;
+    recover_enable) recover_cmd enable-hourly ;;
+    recover_disable) recover_cmd disable-hourly ;;
     set_primary_source) set_source primary "$selector" "$source" ;;
     set_backup_source) set_source backup "$selector" "$source" ;;
     reboot)
