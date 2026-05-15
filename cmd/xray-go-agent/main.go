@@ -43,6 +43,14 @@ type PollResponse struct {
 	Command *Command `json:"command,omitempty"`
 }
 
+type Runtime string
+
+const (
+	RuntimeFullGo    Runtime = "go-full"
+	RuntimeMinimalGo Runtime = "minimal-go"
+	RuntimeUnknown   Runtime = "unknown"
+)
+
 const slotStateFile = "/opt/var/run/xray-go-agent.last-slot"
 
 func main() {
@@ -54,7 +62,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
-	log.Printf("xray-go-agent started router_id=%s name=%s server=%s", cfg.RouterID, cfg.RouterName, cfg.ServerURL)
+	log.Printf("xray-go-agent started router_id=%s name=%s server=%s runtime=%s", cfg.RouterID, cfg.RouterName, cfg.ServerURL, detectRuntime())
 	if err := notifyStartup(cfg); err != nil {
 		log.Printf("startup notification failed: %v", err)
 	}
@@ -79,14 +87,13 @@ func main() {
 }
 
 func pollOnce(cfg Config) error {
-	status := shortStatus()
-	body := map[string]string{"router_id": cfg.RouterID, "name": cfg.RouterName, "status": status}
+	body := map[string]string{"router_id": cfg.RouterID, "name": cfg.RouterName, "status": shortStatus()}
 	payload, _ := json.Marshal(body)
 	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(cfg.ServerURL, "/")+"/agent/poll", bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	req.Header.Set("Authorization", "Bearer "+cfg.AgentToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -115,7 +122,7 @@ func postResult(cfg Config, res Result) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	req.Header.Set("Authorization", "Bearer "+cfg.AgentToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -131,7 +138,7 @@ func postResult(cfg Config, res Result) error {
 
 func notifyStartup(cfg Config) error {
 	features := strings.Join(detectFeatures(), ",")
-	msg := fmt.Sprintf("Router started. Agent online. name=%s id=%s features=%s", cfg.RouterName, cfg.RouterID, features)
+	msg := fmt.Sprintf("Router started. Agent online. name=%s id=%s runtime=%s features=%s", cfg.RouterName, cfg.RouterID, detectRuntime(), features)
 	return postResult(cfg, Result{CommandID: "agent_start", RouterID: cfg.RouterID, OK: true, Output: msg})
 }
 
@@ -161,6 +168,16 @@ func checkSlotChange(cfg Config) error {
 	return postResult(cfg, Result{CommandID: "slot_change", RouterID: cfg.RouterID, OK: true, Output: msg})
 }
 
+func detectRuntime() Runtime {
+	if exists("/opt/bin/xray-go") || exists("/opt/bin/vless-go-failover") || exists("/opt/bin/failover") || exists("/opt/etc/xray/vless-go.active") {
+		return RuntimeFullGo
+	}
+	if exists("/opt/etc/xray/minimal-go-active") || exists("/opt/bin/minimal-go-status") || exists("/opt/bin/minimal-go-switch") || exists("/opt/etc/init.d/S25xray-minimal-go-failover") {
+		return RuntimeMinimalGo
+	}
+	return RuntimeUnknown
+}
+
 func activeSlot() string {
 	for _, path := range []string{"/opt/etc/xray/minimal-go-active", "/opt/etc/xray/vless-go.active"} {
 		if data, err := os.ReadFile(path); err == nil {
@@ -179,8 +196,8 @@ func activeSlot() string {
 	}
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		for _, marker := range []string{"active slot:", "активный слот:"} {
-			if idx := strings.Index(line, marker); idx >= 0 {
+		for _, marker := range []string{"active slot:", "active:", "активный слот:"} {
+			if idx := strings.Index(strings.ToLower(line), marker); idx >= 0 {
 				return strings.TrimSpace(line[idx+len(marker):])
 			}
 		}
@@ -191,10 +208,10 @@ func activeSlot() string {
 func runAllowed(c Command) (bool, string) {
 	var cmd []string
 	switch c.Action {
-	case "status":
+	case "status", "source_status":
 		cmd = statusCommand()
 	case "doctor":
-		cmd = doctorCommand()
+		return doctor()
 	case "switch_primary":
 		cmd = switchCommand("primary")
 	case "switch_backup":
@@ -212,11 +229,9 @@ func runAllowed(c Command) (bool, string) {
 	case "history":
 		cmd = historyCommand()
 	case "watchdog_log":
-		cmd = []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/vless-go-watchdog.log 2>/dev/null || true"}
+		cmd = watchdogLogCommand()
 	case "recovery_log":
-		cmd = []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/vless-go-recover.log 2>/dev/null || true"}
-	case "source_status":
-		cmd = statusCommand()
+		cmd = recoveryLogCommand()
 	case "set_primary_source":
 		return setSource("primary", c.Selector, c.Source)
 	case "set_backup_source":
@@ -232,6 +247,40 @@ func runAllowed(c Command) (bool, string) {
 	return run(cmd, 180*time.Second)
 }
 
+func doctor() (bool, string) {
+	switch detectRuntime() {
+	case RuntimeMinimalGo:
+		parts := []string{"== Minimal Go doctor =="}
+		if cmd := statusCommand(); len(cmd) > 0 {
+			_, out := run(cmd, 60*time.Second)
+			parts = append(parts, out)
+		}
+		if exists("/opt/bin/vless-go-recover") {
+			_, out := run([]string{"/opt/bin/vless-go-recover", "--mode", "minimal", "status"}, 60*time.Second)
+			parts = append(parts, "== Recovery ==", out)
+		}
+		if exists("/bin/sh") {
+			_, out := run([]string{"/bin/sh", "-c", "/opt/etc/init.d/S24xray status 2>&1 || true; /opt/etc/init.d/S25xray-minimal-go-failover status 2>&1 || true"}, 30*time.Second)
+			parts = append(parts, "== Services ==", out)
+		}
+		return true, strings.Join(parts, "\n")
+	case RuntimeFullGo:
+		if exists("/opt/bin/xray-go") {
+			return run([]string{"/opt/bin/xray-go", "doctor", "--support"}, 180*time.Second)
+		}
+		if exists("/opt/bin/vless-go-doctor") {
+			return run([]string{"/opt/bin/vless-go-doctor"}, 180*time.Second)
+		}
+		if exists("/opt/bin/xray-doctor") {
+			return run([]string{"/opt/bin/xray-doctor", "--support"}, 180*time.Second)
+		}
+	}
+	if exists("/opt/bin/vless-go-doctor") {
+		return run([]string{"/opt/bin/vless-go-doctor"}, 180*time.Second)
+	}
+	return false, "unsupported action on this router: doctor"
+}
+
 func setSource(slot, selector, source string) (bool, string) {
 	selector = normalizeSelector(selector)
 	if strings.TrimSpace(source) == "" {
@@ -245,10 +294,12 @@ func setSource(slot, selector, source string) (bool, string) {
 		return false, "unsupported source update on this router"
 	}
 	_ = os.MkdirAll("/opt/etc/xray/source-backups", 0700)
-	oldPath := "/opt/etc/xray/vless-go." + slot
-	if data, err := os.ReadFile(oldPath); err == nil && len(data) > 0 {
-		name := time.Now().Format("20060102-150405") + "." + slot
-		_ = os.WriteFile(filepath.Join("/opt/etc/xray/source-backups", name), data, 0600)
+	oldPaths := []string{"/opt/etc/xray/vless-go." + slot, "/opt/etc/xray/minimal-go-" + slot + ".url"}
+	for _, oldPath := range oldPaths {
+		if data, err := os.ReadFile(oldPath); err == nil && len(data) > 0 {
+			name := time.Now().Format("20060102-150405") + "." + filepath.Base(oldPath)
+			_ = os.WriteFile(filepath.Join("/opt/etc/xray/source-backups", name), data, 0600)
+		}
 	}
 	ok, out := run(cmd, 180*time.Second)
 	if ok {
@@ -271,7 +322,7 @@ func run(cmd []string, timeout time.Duration) (bool, string) {
 	c.Stdout = &out
 	c.Stderr = &out
 	err := c.Run()
-	text := strings.TrimSpace(out.String())
+	text := cleanText(strings.TrimSpace(out.String()))
 	if ctx.Err() == context.DeadlineExceeded {
 		return false, text + "\nTIMEOUT"
 	}
@@ -282,6 +333,21 @@ func run(cmd []string, timeout time.Duration) (bool, string) {
 		text = "OK"
 	}
 	return true, text
+}
+
+func cleanText(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' {
+			return r
+		}
+		if r == '\r' {
+			return -1
+		}
+		if r < 32 {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 func rebootRouter() (bool, string) {
@@ -298,29 +364,29 @@ func rebootRouter() (bool, string) {
 
 func shortStatus() string {
 	cmd := statusCommand()
-	features := detectFeatures()
-	featureLine := "features: " + strings.Join(features, ",")
+	featureLine := "features: " + strings.Join(detectFeatures(), ",")
+	runtimeLine := "agent: " + string(detectRuntime())
 	if len(cmd) == 0 {
-		return "status_error: no supported status command; " + featureLine
+		return "status_error: no supported status command; " + runtimeLine + "; " + featureLine
 	}
 	ok, out := run(cmd, 25*time.Second)
 	if !ok {
-		return "status_error: " + out + "; " + featureLine
+		return "status_error: " + out + "; " + runtimeLine + "; " + featureLine
 	}
 	lines := []string{}
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.Contains(line, "активный слот:") || strings.Contains(line, "health: OK") || strings.Contains(line, "hourly recovery:") || strings.Contains(line, "daemon: запущен") || strings.Contains(line, "основной профиль:") || strings.Contains(line, "резервный профиль:") {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "active:") || strings.Contains(lower, "active slot:") || strings.Contains(lower, "активный слот:") || strings.Contains(lower, "health: ok") || strings.Contains(lower, "hourly recovery:") || strings.Contains(lower, "cron: running") || strings.Contains(lower, "crond: running") || strings.Contains(lower, "daemon: запущен") || strings.Contains(lower, "основной профиль:") || strings.Contains(lower, "резервный профиль:") {
 			lines = append(lines, line)
 		}
 	}
-	lines = append(lines, featureLine)
+	lines = append(lines, runtimeLine, featureLine)
 	return strings.Join(lines, "; ")
 }
 
 func detectFeatures() []string {
 	features := []string{}
-
 	if len(statusCommand()) > 0 {
 		features = append(features, "status")
 	}
@@ -330,13 +396,13 @@ func detectFeatures() []string {
 	if len(setSourceCommand("primary", "first", "probe")) > 0 {
 		features = append(features, "source_update")
 	}
-	if len(doctorCommand()) > 0 {
+	if _, out := doctor(); out != "unsupported action on this router: doctor" {
 		features = append(features, "doctor")
 	}
 	if len(historyCommand()) > 0 {
 		features = append(features, "history")
 	}
-	if exists("/opt/bin/vless-go-watchdog") || exists("/opt/bin/watchdog") || exists("/opt/var/log/vless-go-watchdog.log") {
+	if len(watchdogLogCommand()) > 0 {
 		features = append(features, "watchdog")
 	}
 	if len(recoverCommand("status")) > 0 {
@@ -361,18 +427,11 @@ func statusCommand() []string {
 	if exists("/opt/bin/failover") {
 		return []string{"/opt/bin/failover", "status"}
 	}
-	return nil
-}
-
-func doctorCommand() []string {
-	if exists("/opt/bin/xray-go") {
-		return []string{"/opt/bin/xray-go", "doctor", "--support"}
+	if exists("/opt/bin/minimal-go-status") {
+		return []string{"/opt/bin/minimal-go-status"}
 	}
-	if exists("/opt/bin/vless-go-doctor") {
-		return []string{"/opt/bin/vless-go-doctor", "--support"}
-	}
-	if exists("/opt/bin/xray-doctor") {
-		return []string{"/opt/bin/xray-doctor", "--support"}
+	if exists("/opt/bin/vless-go-recover") {
+		return []string{"/opt/bin/vless-go-recover", "--mode", "minimal", "status"}
 	}
 	return nil
 }
@@ -387,25 +446,25 @@ func switchCommand(slot string) []string {
 	if exists("/opt/bin/failover") {
 		return []string{"/opt/bin/failover", "switch", slot}
 	}
+	if exists("/opt/bin/minimal-go-switch") {
+		return []string{"/opt/bin/minimal-go-switch", slot}
+	}
 	return nil
 }
 
 func recoverCommand(action string) []string {
 	if exists("/opt/bin/xray-go") {
-		switch action {
-		case "run":
+		if action == "run" {
 			return []string{"/opt/bin/xray-go", "recover"}
-		default:
-			return []string{"/opt/bin/xray-go", "recover", action}
 		}
+		return []string{"/opt/bin/xray-go", "recover", action}
 	}
 	if exists("/opt/bin/vless-go-recover") {
-		switch action {
-		case "run":
-			return []string{"/opt/bin/vless-go-recover", "run"}
-		default:
-			return []string{"/opt/bin/vless-go-recover", action}
+		mode := "full"
+		if detectRuntime() == RuntimeMinimalGo {
+			mode = "minimal"
 		}
+		return []string{"/opt/bin/vless-go-recover", "--mode", mode, action}
 	}
 	return nil
 }
@@ -420,10 +479,36 @@ func historyCommand() []string {
 	if exists("/opt/bin/history") {
 		return []string{"/opt/bin/history"}
 	}
+	if exists("/opt/var/log/minimal-go-switch-history.log") {
+		return []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/minimal-go-switch-history.log 2>/dev/null || true"}
+	}
+	return nil
+}
+
+func watchdogLogCommand() []string {
+	if exists("/opt/var/log/vless-go-watchdog.log") {
+		return []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/vless-go-watchdog.log 2>/dev/null || true"}
+	}
+	if exists("/opt/var/log/xray-minimal-go-failover.log") {
+		return []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/xray-minimal-go-failover.log 2>/dev/null || true"}
+	}
+	return nil
+}
+
+func recoveryLogCommand() []string {
+	if exists("/opt/var/log/vless-go-recover.log") {
+		return []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/vless-go-recover.log 2>/dev/null || true"}
+	}
+	if exists("/opt/var/log/xray-minimal-go-failover.log") {
+		return []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/xray-minimal-go-failover.log 2>/dev/null || true"}
+	}
 	return nil
 }
 
 func setSourceCommand(slot, selector, source string) []string {
+	if exists("/opt/bin/minimal-go-update") && detectRuntime() == RuntimeMinimalGo {
+		return []string{"/opt/bin/minimal-go-update", slot, source}
+	}
 	if exists("/opt/bin/vless-go-failover") {
 		return []string{"/opt/bin/vless-go-failover", "set-" + slot, source, "--selector", selector}
 	}
