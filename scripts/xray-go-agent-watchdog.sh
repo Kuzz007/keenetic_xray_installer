@@ -22,7 +22,10 @@ log() {
 alive() {
   init="$1"
   [ -x "$init" ] || return 1
-  "$init" status 2>&1 | grep -qi 'alive\|running'
+  out="$($init status 2>&1 || true)"
+  printf '%s\n' "$out" | grep -qi 'alive' && return 0
+  printf '%s\n' "$out" | grep -qi 'running' && return 0
+  return 1
 }
 
 check_service() {
