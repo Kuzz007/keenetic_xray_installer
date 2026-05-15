@@ -32,6 +32,10 @@ usage() {
     cat <<'USAGE'
 Usage: xray_vless_failover_auto_latest.sh [MODE] [EDITION] [OPTIONS]
 
+Default behavior:
+  If no installation is detected, install the selected edition.
+  If an existing installation is detected, update the matching edition without asking.
+
 Modes:
   --detect-only        Print detection result and exit. No changes.
   --doctor            Print diagnostics and exit. No changes.
@@ -40,7 +44,7 @@ Modes:
   --dry-run           Alias for --detect-only compatibility.
 
 Editions:
-  --auto              Select edition by free /opt space. Default.
+  --auto              Select edition by installed files first, then free /opt space. Default.
   --go, --force-go    Force Go/Entware latest edition.
   --minimal-go        Force Minimal Go edition.
   --minimal, --force-minimal
@@ -312,10 +316,27 @@ service_status() {
     fi
 }
 
+installed_edition() {
+    if [ -s /opt/etc/xray/vless-go.active ] || [ -x /opt/bin/xray-go ] || [ -x /opt/bin/xray-failover-go ] || pkg_installed failover-go; then
+        echo go
+        return 0
+    fi
+    if [ -s /opt/etc/xray/minimal-go-active ] || [ -x /opt/bin/minimal-go-status ] || [ -x /opt/etc/init.d/S25xray-minimal-go-failover ]; then
+        echo minimal-go
+        return 0
+    fi
+    if [ -x /opt/bin/xray-go-agent-shell ] || [ -x /opt/etc/init.d/S28xray-go-agent-shell ]; then
+        echo minimal-go
+        return 0
+    fi
+    echo none
+}
+
 print_detection() {
     cat <<EOF
 Free /opt space: ${FREE_KB} KB (${FREE_MB} MB)
 Full/Go threshold: ${THRESHOLD_KB} KB (${THRESHOLD_MB} MB)
+Installed edition: $INSTALLED_EDITION
 Selected edition: $SELECTED
 Selection reason: $SELECT_REASON
 Mode: $MODE
@@ -437,8 +458,13 @@ case "$MODE" in
     *) echo "ERROR: unsupported MODE=$MODE" >&2; exit 1 ;;
 esac
 
+INSTALLED_EDITION="$(installed_edition)"
+
 if [ "$EDITION" = "auto" ]; then
-    if [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
+    if [ "$INSTALLED_EDITION" != "none" ]; then
+        SELECTED="$INSTALLED_EDITION"
+        SELECT_REASON="existing installation detected"
+    elif [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
         SELECTED="minimal-go"
         SELECT_REASON="free /opt space is below threshold"
     else
@@ -448,6 +474,12 @@ if [ "$EDITION" = "auto" ]; then
 else
     SELECTED="$EDITION"
     SELECT_REASON="explicit edition override"
+fi
+
+if [ "$MODE" = "install" ] && [ "$INSTALLED_EDITION" != "none" ] && [ "$EDITION" = "auto" ]; then
+    MODE="update-only"
+    SELECTED="$INSTALLED_EDITION"
+    SELECT_REASON="existing installation detected; auto update mode"
 fi
 
 FREE_MB="$(space_mb "$FREE_KB")"
@@ -471,6 +503,7 @@ case "$MODE" in
         exit 0
         ;;
     update-only)
+        echo "Existing installation update path selected. No interactive install prompt will be shown."
         run_update_only
         exit 0
         ;;
