@@ -23,7 +23,7 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
 have() { [ -x "$1" ]; }
 
 json_escape() {
-  sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' '
+  LC_ALL=C tr '\r\n\t' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
 json_unescape() {
