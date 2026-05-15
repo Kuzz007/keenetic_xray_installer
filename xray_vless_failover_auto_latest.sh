@@ -12,6 +12,7 @@ GO_FEED_URL="${GO_FEED_URL:-$REPO_BASE/scripts/install-entware-feed.sh}"
 MINIMAL_GO_URL="${MINIMAL_GO_URL:-$REPO_BASE/xray_vless_failover_minimal_go.sh}"
 MINIMAL_NEXT_URL="${MINIMAL_NEXT_URL:-$REPO_BASE/xray_vless_failover_minimal_next.sh}"
 RECOVER_URL="${RECOVER_URL:-$REPO_BASE/scripts/vless-go-recover.sh}"
+DOCTOR_URL="${DOCTOR_URL:-$REPO_BASE/scripts/vless-go-doctor.sh}"
 SHELL_AGENT_URL="${SHELL_AGENT_URL:-$REPO_BASE/scripts/xray-go-agent-shell.sh}"
 AUTO_INSTALLER_URL="${AUTO_INSTALLER_URL:-$REPO_BASE/scripts/xray-go-agent-auto-install.sh}"
 
@@ -62,6 +63,7 @@ Environment overrides:
   GO_FEED_URL=<url>
   MINIMAL_GO_URL=<url>
   MINIMAL_NEXT_URL=<url>
+  DOCTOR_URL=<url>
 
 This script does not modify legacy xray_vless_failover_auto.sh.
 USAGE
@@ -196,12 +198,40 @@ ensure_cron() {
     fi
 }
 
+ensure_doctor() {
+    if [ -x /opt/bin/vless-go-doctor ]; then
+        return 0
+    fi
+    echo "Installing doctor helper..."
+    mkdir -p /opt/bin
+    download_file "$DOCTOR_URL" /opt/bin/vless-go-doctor "vless-go-doctor" || {
+        echo "WARN: failed to download doctor helper: $DOCTOR_URL" >&2
+        return 0
+    }
+    if sh -n /opt/bin/vless-go-doctor; then
+        chmod +x /opt/bin/vless-go-doctor
+    else
+        echo "WARN: downloaded doctor helper failed syntax check" >&2
+        rm -f /opt/bin/vless-go-doctor
+        return 0
+    fi
+}
+
+refresh_doctor() {
+    echo "Refreshing doctor helper..."
+    mkdir -p /opt/bin
+    download_file "$DOCTOR_URL" /opt/bin/vless-go-doctor "vless-go-doctor" || return 1
+    sh -n /opt/bin/vless-go-doctor
+    chmod +x /opt/bin/vless-go-doctor
+}
+
 bootstrap_common_dependencies() {
     need_opkg
     mkdir -p /opt/tmp /opt/etc/xray /opt/var/log
     opkg update
     ensure_curl
     opkg_install_missing ca-certificates ca-bundle >/dev/null 2>&1 || true
+    ensure_doctor
 }
 
 bootstrap_go_dependencies() {
@@ -312,6 +342,7 @@ run_doctor() {
     echo "  active minimal slot: $(file_state /opt/etc/xray/minimal-go-active)"
     echo "  active full slot: $(file_state /opt/etc/xray/vless-go.active)"
     echo "  vless-go-recover: $(command_state /opt/bin/vless-go-recover)"
+    echo "  vless-go-doctor: $(command_state /opt/bin/vless-go-doctor)"
     echo "  shell agent: $(command_state /opt/bin/xray-go-agent-shell)"
     echo "  go agent: $(command_state /opt/bin/xray-go-agent)"
     echo "  minimal failover init: $(service_status /opt/etc/init.d/S25xray-minimal-go-failover)"
@@ -322,6 +353,13 @@ run_doctor() {
         echo
         echo "Recovery status ($rmode):"
         /opt/bin/vless-go-recover --mode "$rmode" status 2>/dev/null || true
+    fi
+    if [ -x /opt/bin/vless-go-doctor ]; then
+        echo
+        echo "Doctor helper: installed at /opt/bin/vless-go-doctor"
+    else
+        echo
+        echo "Doctor helper: missing; run --repair or --update-only to install it"
     fi
 }
 
@@ -335,6 +373,10 @@ restart_if_allowed() {
 run_update_only() {
     bootstrap_selected_dependencies "$SELECTED"
     updated="0"
+
+    if refresh_doctor; then
+        updated="1"
+    fi
 
     if [ -x /opt/bin/vless-go-recover ] || [ "$SELECTED" = "minimal-go" ] || [ "$SELECTED" = "go" ]; then
         download_file "$RECOVER_URL" /opt/bin/vless-go-recover "vless-go-recover" || true
