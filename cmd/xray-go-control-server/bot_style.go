@@ -94,15 +94,15 @@ func prettyResults(rt *Router) string {
 	if len(rt.Results) == 0 {
 		return "📬 Результатов пока нет"
 	}
-	out := []string{"📬 Последние события: " + rt.Name, ""}
+	items := []string{}
 	for _, r := range rt.Results {
 		icon := "✅"
 		if !r.OK {
 			icon = "❌"
 		}
-		out = append(out, fmt.Sprintf("%s [%s] %s\n%s", icon, r.At, r.CommandID, limit(normalizeResultOutput(r.Output), 900)))
+		items = append(items, fmt.Sprintf("%s [%s] %s\n%s", icon, r.At, r.CommandID, limit(normalizeResultOutput(r.Output), 900)))
 	}
-	return strings.Join(out, "\n---\n")
+	return "📬 Последние события: " + rt.Name + "\n\n" + strings.Join(items, "\n---\n")
 }
 
 func normalizeResultOutput(s string) string {

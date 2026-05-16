@@ -25,7 +25,7 @@ func (s *Server) routersKeyboardWithUpdateScripts() inlineKeyboard {
 }
 
 func (s *Server) enqueueDoctorAll() string {
-	return s.enqueueBulkAction("doctor", "🩺 Диагностика поставлена в очередь", "Команда безопасная: выполняет doctor на каждом роутере и вернёт результат отдельным сообщением/в Results.")
+	return s.enqueueBulkActionWithCommandID("doctor", "doctor_all", "🩺 Диагностика поставлена в очередь", "Команда безопасная: выполняет doctor на каждом роутере и вернёт результат отдельным сообщением/в Results.")
 }
 
 func (s *Server) enqueueUpdateScriptsAll() string {
@@ -37,6 +37,10 @@ func (s *Server) enqueueUpdateAgentsAll() string {
 }
 
 func (s *Server) enqueueBulkAction(action, title, note string) string {
+	return s.enqueueBulkActionWithCommandID(action, action, title, note)
+}
+
+func (s *Server) enqueueBulkActionWithCommandID(action, idPrefix, title, note string) string {
 	now := time.Now().Unix()
 	s.mu.Lock()
 	ids := make([]string, 0, len(s.cfg.Routers))
@@ -54,7 +58,7 @@ func (s *Server) enqueueBulkAction(action, title, note string) string {
 		if strings.TrimSpace(name) == "" {
 			name = id
 		}
-		cmd := Command{ID: fmt.Sprintf("%s-%d", action, now), Action: action}
+		cmd := Command{ID: fmt.Sprintf("%s-%d", idPrefix, now), Action: action}
 		rt.Queue = append(rt.Queue, cmd)
 		queued = append(queued, fmt.Sprintf("• %s (%s): %s", name, id, cmd.ID))
 	}
