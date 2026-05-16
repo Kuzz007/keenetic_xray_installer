@@ -69,7 +69,7 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		}
 		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
 	case strings.HasPrefix(data, "act:"):
-		s.handleActionCallback(chatID, messageID, data)
+		s.handleActionCallbackStrict(cb.ID, chatID, messageID, data)
 	default:
 		s.editMenuOnly(cb.ID, chatID, messageID, "Неизвестная кнопка", mainMenuKeyboard())
 	}
