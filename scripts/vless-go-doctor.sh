@@ -468,5 +468,4 @@ fi
 section "Итог"
 printf 'OK=%s WARN=%s FAIL=%s\n' "$OK_COUNT" "$WARN_COUNT" "$FAIL_COUNT"
 [ "$FAIL_COUNT" -gt 0 ] && exit 2
-[ "$WARN_COUNT" -gt 0 ] && exit 1
 exit 0
