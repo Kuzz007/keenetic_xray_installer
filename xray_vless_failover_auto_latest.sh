@@ -10,12 +10,14 @@ set -e
 
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main}"
 GO_FEED_URL="${GO_FEED_URL:-$REPO_BASE/scripts/install-entware-feed.sh}"
+GO_FULL_URL="${GO_FULL_URL:-$REPO_BASE/xray_vless_failover_go.sh}"
 MINIMAL_GO_URL="${MINIMAL_GO_URL:-$REPO_BASE/xray_vless_failover_minimal_go.sh}"
 MINIMAL_NEXT_URL="${MINIMAL_NEXT_URL:-$REPO_BASE/xray_vless_failover_minimal_next.sh}"
 RECOVER_URL="${RECOVER_URL:-$REPO_BASE/scripts/vless-go-recover.sh}"
 DOCTOR_URL="${DOCTOR_URL:-$REPO_BASE/scripts/vless-go-doctor.sh}"
 
 GO_TMP="/opt/tmp/install-entware-feed.latest.sh"
+GO_FULL_TMP="/opt/tmp/xray_vless_failover_go.sh"
 MINIMAL_GO_TMP="/opt/tmp/xray_vless_failover_minimal_go.sh"
 MINIMAL_NEXT_TMP="/opt/tmp/xray_vless_failover_minimal_next.sh"
 
@@ -58,6 +60,7 @@ Environment overrides:
   NO_RESTART=1
   REPO_BASE=https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main
   GO_FEED_URL=<url>
+  GO_FULL_URL=<url>
   MINIMAL_GO_URL=<url>
   MINIMAL_NEXT_URL=<url>
 
@@ -357,20 +360,13 @@ safe_update_minimal_go() {
 
 safe_update_go() {
     echo "Safe update for Go/Entware latest edition..."
-    echo "Repair-lite: helpers/package refresh only; no config rewrite, no source rewrite."
+    echo "Repair-lite: delegated to Full Go installer --repair-only; no config rewrite, no source rewrite."
     bootstrap_go_dependencies
-    download_helper "$RECOVER_URL" /opt/bin/vless-go-recover "recovery helper" || true
-    download_helper "$DOCTOR_URL" /opt/bin/vless-go-doctor "doctor helper" || true
-    if has_opkg_package failover-go; then
-        echo "Refreshing failover-go package lists..."
-        opkg update || true
-        opkg upgrade failover-go || opkg install failover-go || true
-    else
-        echo "failover-go package not installed; package upgrade skipped."
-    fi
-    download_installer "$GO_FEED_URL" "$GO_TMP" "Go/Entware latest"
-    echo "Go feed installer refreshed at: $GO_TMP"
-    echo "No config rewrite performed. Run the installer manually for full reinstall if needed."
+    download_installer "$GO_FULL_URL" "$GO_FULL_TMP" "Full Go repair"
+    args="--repair-only --no-restart"
+    [ "$NO_CRON" = "1" ] && args="$args --no-cron"
+    echo "Running Full Go repair: $GO_FULL_TMP $args"
+    sh "$GO_FULL_TMP" $args
 }
 
 safe_update_minimal_next() {
