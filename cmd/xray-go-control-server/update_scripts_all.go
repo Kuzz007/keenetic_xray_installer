@@ -9,17 +9,29 @@ import (
 
 func (s *Server) routersKeyboardWithUpdateScripts() inlineKeyboard {
 	kb := s.routersKeyboard()
-	row := []inlineButton{{Text: "🔄 Обновить скрипты на всех", CallbackData: "update_scripts_all"}}
+	rows := [][]inlineButton{
+		{{Text: "🔄 Обновить скрипты на всех", CallbackData: "update_scripts_all"}},
+		{{Text: "🔁 Обновить агентов на всех", CallbackData: "update_agents_all"}},
+	}
 	if len(kb.InlineKeyboard) == 0 {
-		kb.InlineKeyboard = append(kb.InlineKeyboard, row)
+		kb.InlineKeyboard = append(kb.InlineKeyboard, rows...)
 		return kb
 	}
 	last := kb.InlineKeyboard[len(kb.InlineKeyboard)-1]
-	kb.InlineKeyboard = append(kb.InlineKeyboard[:len(kb.InlineKeyboard)-1], row, last)
+	kb.InlineKeyboard = append(kb.InlineKeyboard[:len(kb.InlineKeyboard)-1], rows...)
+	kb.InlineKeyboard = append(kb.InlineKeyboard, last)
 	return kb
 }
 
 func (s *Server) enqueueUpdateScriptsAll() string {
+	return s.enqueueBulkAction("update_scripts", "🔄 Обновление скриптов поставлено в очередь", "Команда безопасная: auto_latest --update-only --no-restart.")
+}
+
+func (s *Server) enqueueUpdateAgentsAll() string {
+	return s.enqueueBulkAction("update_agent", "🔁 Обновление агентов поставлено в очередь", "Команда перезапустит agent service. После обновления ожидайте agent_start от каждого роутера.")
+}
+
+func (s *Server) enqueueBulkAction(action, title, note string) string {
 	now := time.Now().Unix()
 	s.mu.Lock()
 	ids := make([]string, 0, len(s.cfg.Routers))
@@ -37,7 +49,7 @@ func (s *Server) enqueueUpdateScriptsAll() string {
 		if strings.TrimSpace(name) == "" {
 			name = id
 		}
-		cmd := Command{ID: fmt.Sprintf("update_scripts-%d", now), Action: "update_scripts"}
+		cmd := Command{ID: fmt.Sprintf("%s-%d", action, now), Action: action}
 		rt.Queue = append(rt.Queue, cmd)
 		queued = append(queued, fmt.Sprintf("• %s (%s): %s", name, id, cmd.ID))
 	}
@@ -46,5 +58,5 @@ func (s *Server) enqueueUpdateScriptsAll() string {
 	if len(queued) == 0 {
 		return "⚠️ Роутеры не найдены."
 	}
-	return "🔄 Обновление скриптов поставлено в очередь\n\n" + strings.Join(queued, "\n") + "\n\nКоманда безопасная: auto_latest --update-only --no-restart."
+	return title + "\n\n" + strings.Join(queued, "\n") + "\n\n" + note
 }
