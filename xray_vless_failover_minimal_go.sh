@@ -103,6 +103,7 @@ is_vless() { case "$1" in vless://*) return 0 ;; *) return 1 ;; esac; }
 
 opkg_bin() { if command -v opkg >/dev/null 2>&1; then command -v opkg; elif [ -x /opt/bin/opkg ]; then echo /opt/bin/opkg; else echo ""; fi; }
 get_xray_bin() { if command -v xray >/dev/null 2>&1; then command -v xray; elif [ -x /opt/sbin/xray ]; then echo /opt/sbin/xray; elif [ -x /opt/bin/xray ]; then echo /opt/bin/xray; else echo ""; fi; }
+elf_magic() { file="$1"; if command -v hexdump >/dev/null 2>&1; then hexdump -n 4 -e '4/1 "%02x"' "$file" 2>/dev/null; elif command -v od >/dev/null 2>&1; then dd if="$file" bs=1 count=4 2>/dev/null | od -t x1 | awk 'NR==1 { for (i=2; i<=NF; i++) printf "%s", $i }'; else echo ""; fi; }
 
 detect_entware_arch() { OPKG_BIN="$(opkg_bin)"; [ -n "$OPKG_BIN" ] || return 0; "$OPKG_BIN" print-architecture 2>/dev/null | awk '$2 != "all" && ($3+0) >= max { arch=$2; max=$3+0 } END { if (arch != "") print arch }'; }
 asset_name_for_arch() { case "$1" in aarch64-3.10|aarch64*|arm64) echo xray-failover-go-linux-arm64 ;; mips|mipsel|mipsel-*|mipsel_*|mipselsf-*|mipselsf_*|mipsel-3.4|mipsel-3.4_kn|mipselsf-k3.4|mipselsf-k3.4_kn) echo xray-failover-go-linux-mipsle ;; *) echo "" ;; esac; }
@@ -145,10 +146,11 @@ install_go_resolver() {
     tmp="$TMP_DIR/xray-failover-go.$$"
     echo "Downloading Go resolver: $URL"
     curl -fL -o "$tmp" "$URL"
-    magic="$(dd if="$tmp" bs=4 count=1 2>/dev/null | od -A n -t x1 | tr -d ' \n' || true)"
+    magic="$(elf_magic "$tmp")"
     if [ "$magic" != "7f454c46" ]; then
         rm -f "$tmp" 2>/dev/null || true
         echo "ERROR: downloaded Go resolver is not an ELF binary: $URL" >&2
+        echo "ELF magic: ${magic:-unavailable}" >&2
         exit 1
     fi
     mv "$tmp" "$GO_RESOLVER"
