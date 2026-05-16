@@ -124,7 +124,7 @@ func postResult(cfg Config, res Result) error {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("result status %s: %s", resp.Status, strings.TrimSpace(string(b)))
+		return fmt.Errorf("result status %s: %s", strings.TrimSpace(resp.Status), strings.TrimSpace(string(b)))
 	}
 	return nil
 }
@@ -217,6 +217,8 @@ func runAllowed(c Command) (bool, string) {
 		cmd = []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/vless-go-recover.log 2>/dev/null || true"}
 	case "source_status":
 		cmd = statusCommand()
+	case "update_scripts":
+		return updateScripts()
 	case "set_primary_source":
 		return setSource("primary", c.Selector, c.Source)
 	case "set_backup_source":
@@ -344,6 +346,7 @@ func detectFeatures() []string {
 	}
 	if exists("/bin/sh") {
 		features = append(features, "reboot")
+		features = append(features, "update_scripts")
 	}
 	if len(features) == 0 {
 		features = append(features, "status")
