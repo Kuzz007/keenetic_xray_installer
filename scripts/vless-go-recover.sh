@@ -8,11 +8,15 @@ FULL_BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 FULL_FAILOVER_CMD="/opt/bin/vless-go-failover"
 FULL_WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
 FULL_HISTORY_CMD="/opt/bin/vless-go-history"
+MINIMAL_COMMON="/opt/libexec/minimal-go-common.sh"
 MINIMAL_ACTIVE_STORE="$XRAY_DIR/minimal-go-active"
 MINIMAL_BACKUP_STORE="$XRAY_DIR/minimal-go-backup.url"
 MINIMAL_SWITCH_CMD="/opt/bin/minimal-go-switch"
 MINIMAL_FAILOVER_INIT="/opt/etc/init.d/S25xray-minimal-go-failover"
 MINIMAL_HISTORY_LOG="/opt/var/log/minimal-go-switch-history.log"
+SOCKS_HOST_SET="${SOCKS_HOST+x}"
+SOCKS_PORT_SET="${SOCKS_PORT+x}"
+CHECK_URLS_SET="${CHECK_URLS+x}"
 SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
 SOCKS_PORT="${SOCKS_PORT:-10808}"
 CHECK_URLS="${CHECK_URLS:-http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204 http://www.gstatic.com/generate_204}"
@@ -44,6 +48,8 @@ Commands:
 
 Notes:
   - Supports Full Go and Minimal Go. Mode is auto-detected by default.
+  - Minimal mode reads /opt/libexec/minimal-go-common.sh when present.
+  - Environment variables SOCKS_HOST, SOCKS_PORT and CHECK_URLS override runtime defaults.
   - Healthy hourly checks are silent.
   - Recovery actions are logged to the mode-specific recovery log.
   - Router reboot is intentionally not automatic.
@@ -73,6 +79,25 @@ detect_mode() {
         echo unknown
     fi
 }
+
+load_minimal_runtime_config() {
+    [ "$(detect_mode)" = minimal ] || return 0
+    [ -f "$MINIMAL_COMMON" ] || return 0
+
+    # shellcheck disable=SC1090
+    . "$MINIMAL_COMMON"
+
+    # Environment overrides must win over values sourced from minimal-go-common.sh.
+    [ -n "$SOCKS_HOST_SET" ] && SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
+    [ -n "$SOCKS_PORT_SET" ] && SOCKS_PORT="${SOCKS_PORT:-10808}"
+    [ -n "$CHECK_URLS_SET" ] && CHECK_URLS="${CHECK_URLS:-http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204 http://www.gstatic.com/generate_204}"
+
+    SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
+    SOCKS_PORT="${SOCKS_PORT:-10808}"
+    CHECK_URLS="${CHECK_URLS:-http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204 http://www.gstatic.com/generate_204}"
+}
+
+load_minimal_runtime_config
 
 recovery_log_file() {
     if [ -n "$LOG_FILE_OVERRIDE" ]; then
