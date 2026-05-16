@@ -350,12 +350,13 @@ run_doctor() {
 
 safe_update_minimal_go() {
     echo "Safe update for Minimal Go edition..."
-    echo "Repair-lite: helpers/installers only; no config rewrite, no source rewrite."
+    echo "Repair-lite: delegated to Minimal Go installer --repair-only; no config rewrite, no source rewrite."
     bootstrap_minimal_go_dependencies
-    download_helper "$RECOVER_URL" /opt/bin/vless-go-recover "recovery helper" || true
-    download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go"
-    echo "Minimal Go installer refreshed at: $MINIMAL_GO_TMP"
-    echo "No config rewrite performed. Run the installer manually for full reinstall if needed."
+    download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go repair"
+    args="--repair-only"
+    [ "$NO_CRON" = "1" ] && args="$args --no-cron"
+    echo "Running Minimal Go repair: $MINIMAL_GO_TMP $args"
+    sh "$MINIMAL_GO_TMP" $args
 }
 
 safe_update_go() {
