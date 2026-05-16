@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -69,6 +70,9 @@ func doctorResultStatus(res Result) string {
 	if !res.OK {
 		return "FAIL"
 	}
+	if status, ok := doctorJSONStatus(res.Output); ok {
+		return status
+	}
 	out := strings.ToUpper(res.Output)
 	if strings.Contains(out, "[FAIL]") || nonzeroCounter(out, "FAIL") {
 		return "FAIL"
@@ -77,6 +81,25 @@ func doctorResultStatus(res Result) string {
 		return "WARN"
 	}
 	return "OK"
+}
+
+func doctorJSONStatus(output string) (string, bool) {
+	var d struct {
+		Schema    string `json:"schema"`
+		Status    string `json:"status"`
+		FailCount int    `json:"fail_count"`
+		WarnCount int    `json:"warn_count"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &d); err != nil || d.Schema != "xray-go.doctor.v1" {
+		return "", false
+	}
+	if d.FailCount > 0 || strings.EqualFold(d.Status, "fail") {
+		return "FAIL", true
+	}
+	if d.WarnCount > 0 || strings.EqualFold(d.Status, "warn") {
+		return "WARN", true
+	}
+	return "OK", true
 }
 
 func nonzeroCounter(out, name string) bool {

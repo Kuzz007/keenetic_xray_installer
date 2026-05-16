@@ -228,7 +228,7 @@ func runAllowed(c Command) (bool, string) {
 	case "status":
 		cmd = statusCommand()
 	case "doctor":
-		cmd = doctorCommand()
+		return runDoctor()
 	case "switch_primary":
 		cmd = switchCommand("primary")
 	case "switch_backup":
@@ -268,6 +268,33 @@ func runAllowed(c Command) (bool, string) {
 		return false, "unsupported action on this router: " + c.Action
 	}
 	return run(cmd, 180*time.Second)
+}
+
+func runDoctor() (bool, string) {
+	if exists("/opt/bin/xray-go") {
+		ok, out := run([]string{"/opt/bin/xray-go", "doctor", "--json"}, 180*time.Second)
+		trimmed := strings.TrimSpace(out)
+		if isDoctorJSON(trimmed) {
+			return ok, trimmed
+		}
+		ok, out = run([]string{"/opt/bin/xray-go", "doctor", "--support"}, 180*time.Second)
+		if ok || strings.TrimSpace(out) != "" {
+			return ok, out
+		}
+		return run([]string{"/opt/bin/xray-go", "doctor"}, 180*time.Second)
+	}
+	cmd := doctorCommand()
+	if len(cmd) == 0 {
+		return false, "unsupported action on this router: doctor"
+	}
+	return run(cmd, 180*time.Second)
+}
+
+func isDoctorJSON(out string) bool {
+	var data struct {
+		Schema string `json:"schema"`
+	}
+	return json.Unmarshal([]byte(out), &data) == nil && data.Schema == "xray-go.doctor.v1"
 }
 
 func setSource(slot, selector, source string) (bool, string) {

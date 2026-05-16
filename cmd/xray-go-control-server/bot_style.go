@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -84,6 +85,9 @@ func prettyResultMessage(routerName string, res Result) string {
 		statusText = "FAIL"
 	}
 	out := normalizeResultOutput(res.Output)
+	if prettyJSON, ok := prettyDoctorJSON(out); ok {
+		out = prettyJSON
+	}
 	return fmt.Sprintf("%s %s: %s %s\n\n%s", statusIcon, routerName, statusText, res.CommandID, limit(out, 3500))
 }
 
@@ -100,9 +104,47 @@ func prettyResults(rt *Router) string {
 		if !r.OK {
 			icon = "❌"
 		}
-		items = append(items, fmt.Sprintf("%s [%s] %s\n%s", icon, r.At, r.CommandID, limit(normalizeResultOutput(r.Output), 900)))
+		out := normalizeResultOutput(r.Output)
+		if prettyJSON, ok := prettyDoctorJSON(out); ok {
+			out = prettyJSON
+		}
+		items = append(items, fmt.Sprintf("%s [%s] %s\n%s", icon, r.At, r.CommandID, limit(out, 900)))
 	}
 	return "📬 Последние события: " + rt.Name + "\n\n" + strings.Join(items, "\n---\n")
+}
+
+type doctorJSONView struct {
+	Schema     string `json:"schema"`
+	OK         bool   `json:"ok"`
+	Status     string `json:"status"`
+	ExitCode   int    `json:"exit_code"`
+	OKCount    int    `json:"ok_count"`
+	WarnCount  int    `json:"warn_count"`
+	FailCount  int    `json:"fail_count"`
+	ActiveSlot string `json:"active_slot"`
+}
+
+func prettyDoctorJSON(s string) (string, bool) {
+	var d doctorJSONView
+	if err := json.Unmarshal([]byte(strings.TrimSpace(s)), &d); err != nil || d.Schema != "xray-go.doctor.v1" {
+		return "", false
+	}
+	icon := "✅"
+	status := strings.ToUpper(d.Status)
+	switch strings.ToLower(d.Status) {
+	case "warn":
+		icon = "⚠️"
+	case "fail":
+		icon = "❌"
+	}
+	lines := []string{
+		fmt.Sprintf("%s Doctor JSON: %s", icon, status),
+		fmt.Sprintf("OK=%d WARN=%d FAIL=%d exit=%d", d.OKCount, d.WarnCount, d.FailCount, d.ExitCode),
+	}
+	if strings.TrimSpace(d.ActiveSlot) != "" {
+		lines = append(lines, "active slot: "+d.ActiveSlot)
+	}
+	return strings.Join(lines, "\n"), true
 }
 
 func normalizeResultOutput(s string) string {
