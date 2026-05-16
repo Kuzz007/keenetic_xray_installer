@@ -21,7 +21,10 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 	case data == "help":
 		s.editMenuOnly(cb.ID, chatID, messageID, helpText(), mainMenuKeyboard())
 	case data == "routers":
-		s.editMenuOnly(cb.ID, chatID, messageID, s.routerList(), s.routersKeyboard())
+		s.editMenuOnly(cb.ID, chatID, messageID, s.routerList(), s.routersKeyboardWithUpdateScripts())
+	case data == "update_scripts_all":
+		text := s.enqueueUpdateScriptsAll()
+		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
 	case data == "add_router_help":
 		s.startAddRouterWizard(chatID)
 	case strings.HasPrefix(data, "install:"):
@@ -29,7 +32,7 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.setActiveMenu(routerID, chatID, messageID)
 		text, kb, ok := s.agentInstallMenuView(routerID)
 		if !ok {
-			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboard())
+			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboardWithUpdateScripts())
 			return
 		}
 		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
@@ -44,7 +47,7 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.setActiveMenu(routerID, chatID, messageID)
 		text, kb, ok := s.sourceMenuView(routerID)
 		if !ok {
-			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboard())
+			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboardWithUpdateScripts())
 			return
 		}
 		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
@@ -64,7 +67,7 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.setActiveMenu(routerID, chatID, messageID)
 		text, kb, ok := s.routerMenuView(routerID)
 		if !ok {
-			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboard())
+			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboardWithUpdateScripts())
 			return
 		}
 		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
@@ -93,7 +96,7 @@ func (s *Server) routerMenuView(routerID string) (string, inlineKeyboard, bool) 
 	}
 	s.mu.Unlock()
 	if rt == nil {
-		return "unknown router: " + routerID, s.routersKeyboard(), false
+		return "unknown router: " + routerID, s.routersKeyboardWithUpdateScripts(), false
 	}
 	return card, routerKeyboardForStatus(routerID, status), true
 }
@@ -107,7 +110,7 @@ func (s *Server) sourceMenuView(routerID string) (string, inlineKeyboard, bool) 
 	}
 	s.mu.Unlock()
 	if rt == nil {
-		return "⚠️ Роутер не найден: " + routerID, s.routersKeyboard(), false
+		return "⚠️ Роутер не найден: " + routerID, s.routersKeyboardWithUpdateScripts(), false
 	}
 	text := "🔗 Источники\n\n📡 " + name + "\nID: " + routerID + "\n\nВыберите действие для primary/backup источников."
 	return text, sourceKeyboard(routerID), true
@@ -118,7 +121,7 @@ func (s *Server) agentInstallMenuView(routerID string) (string, inlineKeyboard, 
 	rt := s.cfg.Routers[routerID]
 	s.mu.Unlock()
 	if rt == nil {
-		return "⚠️ Router not found: " + routerID, s.routersKeyboard(), false
+		return "⚠️ Router not found: " + routerID, s.routersKeyboardWithUpdateScripts(), false
 	}
 	msg := strings.TrimSpace("📦 Установка агента\n\n📡 " + rt.Name + "\nID: " + rt.ID + "\n\nРекомендуемый вариант: ⚙️ Auto install.\n\nОн сам определит архитектуру роутера и выберет агент:\n• ARM64 / aarch64 → Go-agent\n• MIPS / MT7621 / старые Keenetic → Legacy shell-agent\n\n🧩 Legacy shell-agent оставлен как ручной вариант для диагностики и старых MIPS.")
 	return msg, agentInstallKeyboard(routerID), true

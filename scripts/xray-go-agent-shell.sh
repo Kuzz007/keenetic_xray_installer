@@ -70,6 +70,7 @@ features() {
   if have /opt/bin/vless-go-watchdog || have /opt/bin/watchdog || exists /opt/var/log/vless-go-watchdog.log || exists /opt/var/log/xray-minimal-go-failover.log; then out="$out,watchdog"; fi
   if have /opt/bin/xray-go || have /opt/bin/vless-go-recover; then out="$out,recovery"; fi
   if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
+  out="$out,update_scripts"
   out="${out#,}"
   [ -n "$out" ] || out="status"
   printf '%s' "$out"
@@ -189,6 +190,16 @@ recover_cmd() {
   return 1
 }
 
+update_scripts_cmd() {
+  mkdir -p /opt/tmp
+  url="https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh"
+  dst="/opt/tmp/xray_vless_failover_auto_latest.sh"
+  echo "Updating router scripts via auto_latest repair path..."
+  curl -fsSL -H 'Cache-Control: no-cache' -o "$dst" "$url" || return $?
+  chmod +x "$dst" || return $?
+  "$dst" --update-only --no-restart
+}
+
 run_action() {
   action="$1"
   selector="$2"
@@ -208,6 +219,7 @@ run_action() {
     recover_disable) recover_cmd disable-hourly ;;
     set_primary_source) set_source primary "$selector" "$source" ;;
     set_backup_source) set_source backup "$selector" "$source" ;;
+    update_scripts) update_scripts_cmd ;;
     reboot)
       echo "Router reboot scheduled by control bot. Agent will disconnect now."
       ( sleep 2; reboot ) >/dev/null 2>&1 &
