@@ -17,11 +17,11 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 	s.answerCallback(cb.ID, "")
 	switch {
 	case data == "menu":
-		s.editOrSendMessageWithKeyboard(chatID, messageID, prettyMainMenuText(), mainMenuKeyboard())
+		s.editMenuOnly(cb.ID, chatID, messageID, prettyMainMenuText(), mainMenuKeyboard())
 	case data == "help":
-		s.editOrSendMessageWithKeyboard(chatID, messageID, helpText(), mainMenuKeyboard())
+		s.editMenuOnly(cb.ID, chatID, messageID, helpText(), mainMenuKeyboard())
 	case data == "routers":
-		s.editOrSendMessageWithKeyboard(chatID, messageID, s.routerList(), s.routersKeyboard())
+		s.editMenuOnly(cb.ID, chatID, messageID, s.routerList(), s.routersKeyboard())
 	case data == "add_router_help":
 		s.startAddRouterWizard(chatID)
 	case strings.HasPrefix(data, "install:"):
@@ -29,10 +29,10 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.setActiveMenu(routerID, chatID, messageID)
 		text, kb, ok := s.agentInstallMenuView(routerID)
 		if !ok {
-			s.editOrSendMessageWithKeyboard(chatID, messageID, text, s.routersKeyboard())
+			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboard())
 			return
 		}
-		s.editOrSendMessageWithKeyboard(chatID, messageID, text, kb)
+		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
 	case strings.HasPrefix(data, "install-go:"):
 		routerID := strings.TrimPrefix(data, "install-go:")
 		s.sendAgentInstallCommand(chatID, routerID, "go")
@@ -44,10 +44,10 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.setActiveMenu(routerID, chatID, messageID)
 		text, kb, ok := s.sourceMenuView(routerID)
 		if !ok {
-			s.editOrSendMessageWithKeyboard(chatID, messageID, text, s.routersKeyboard())
+			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboard())
 			return
 		}
-		s.editOrSendMessageWithKeyboard(chatID, messageID, text, kb)
+		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
 	case strings.HasPrefix(data, "setsrc:"):
 		parts := strings.SplitN(data, ":", 3)
 		if len(parts) == 3 {
@@ -64,15 +64,23 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.setActiveMenu(routerID, chatID, messageID)
 		text, kb, ok := s.routerMenuView(routerID)
 		if !ok {
-			s.editOrSendMessageWithKeyboard(chatID, messageID, text, s.routersKeyboard())
+			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboard())
 			return
 		}
-		s.editOrSendMessageWithKeyboard(chatID, messageID, text, kb)
+		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
 	case strings.HasPrefix(data, "act:"):
 		s.handleActionCallback(chatID, messageID, data)
 	default:
-		s.editOrSendMessageWithKeyboard(chatID, messageID, "Неизвестная кнопка", mainMenuKeyboard())
+		s.editMenuOnly(cb.ID, chatID, messageID, "Неизвестная кнопка", mainMenuKeyboard())
 	}
+}
+
+func (s *Server) editMenuOnly(callbackID string, chatID int64, messageID int, text string, keyboard inlineKeyboard) bool {
+	if messageID > 0 && s.editMessageWithKeyboard(chatID, messageID, text, keyboard) {
+		return true
+	}
+	s.answerCallback(callbackID, "Не удалось обновить это сообщение. Открой /menu заново.")
+	return false
 }
 
 func (s *Server) routerMenuView(routerID string) (string, inlineKeyboard, bool) {
