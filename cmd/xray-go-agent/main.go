@@ -251,6 +251,8 @@ func runAllowed(c Command) (bool, string) {
 		cmd = statusCommand()
 	case "update_scripts":
 		return updateScripts()
+	case "update_agent":
+		return updateAgent()
 	case "set_primary_source":
 		return setSource("primary", c.Selector, c.Source)
 	case "set_backup_source":
@@ -379,6 +381,7 @@ func detectFeatures() []string {
 	if exists("/bin/sh") {
 		features = append(features, "reboot")
 		features = append(features, "update_scripts")
+		features = append(features, "update_agent")
 	}
 	if len(features) == 0 {
 		features = append(features, "status")
