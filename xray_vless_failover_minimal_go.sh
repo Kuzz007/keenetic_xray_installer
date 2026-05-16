@@ -44,10 +44,11 @@ ASSUME_YES="${ASSUME_YES:-0}"
 FORCE_GO_RESOLVER_UPDATE="${FORCE_GO_RESOLVER_UPDATE:-0}"
 NO_CRON="${NO_CRON:-0}"
 NO_RESTART="${NO_RESTART:-0}"
+REPAIR_ONLY="${REPAIR_ONLY:-0}"
 
 usage() {
     cat <<'USAGE'
-Usage: xray_vless_failover_minimal_go.sh [--yes] [--force-go-resolver] [--no-cron] [--no-restart]
+Usage: xray_vless_failover_minimal_go.sh [--yes] [--repair-only] [--force-go-resolver] [--no-cron] [--no-restart]
 
 Minimal Go edition:
   - direct vless:// links only
@@ -59,15 +60,17 @@ Minimal Go edition:
 
 Options:
   --yes                  Do not ask interactive confirmation
+  --repair-only          Refresh helpers/runtime files without source/config rewrite
   --force-go-resolver    Re-download /opt/bin/xray-failover-go even if it already exists
   --no-cron              Do not install/start cron and do not enable hourly recovery
   --no-restart           Do not restart/start Minimal Go failover daemon at the end
-                         Note: initial config generation may still restart Xray via minimal-go-switch.
+                         Note: normal install still restarts Xray via minimal-go-switch.
 
 Environment:
   GO_TAG=latest
   REPO_BRANCH=main
   ASSUME_YES=1
+  REPAIR_ONLY=1
   FORCE_GO_RESOLVER_UPDATE=1
   NO_CRON=1
   NO_RESTART=1
@@ -83,6 +86,7 @@ USAGE
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -y|--yes) ASSUME_YES="1"; shift ;;
+        --repair-only|--update-only|--safe-update) REPAIR_ONLY="1"; ASSUME_YES="1"; shift ;;
         --force-go-resolver|--force-resolver) FORCE_GO_RESOLVER_UPDATE="1"; shift ;;
         --no-cron) NO_CRON="1"; shift ;;
         --no-restart) NO_RESTART="1"; shift ;;
@@ -417,6 +421,23 @@ enable_hourly_recovery_default() {
     [ -x "$RECOVER_CMD" ] || return 0
     "$RECOVER_CMD" --mode minimal enable-hourly "$HOURLY_RECOVERY_SCHEDULE" >/dev/null 2>&1 || echo "WARN: failed to enable hourly recovery. Run: vless-go-recover --mode minimal enable-hourly"
 }
+
+repair_only() {
+    echo "Repair-only mode: helpers/runtime refresh; no source rewrite, no Xray config rewrite."
+    install_packages
+    install_go_resolver
+    install_recover_helper
+    create_xray_init
+    write_common_helpers
+    write_runtime_commands
+    enable_hourly_recovery_default
+    echo "Repair-only complete."
+}
+
+if [ "$REPAIR_ONLY" = "1" ]; then
+    repair_only
+    exit 0
+fi
 
 install_packages
 install_go_resolver
