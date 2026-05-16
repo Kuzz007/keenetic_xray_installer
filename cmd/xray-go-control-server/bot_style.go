@@ -6,11 +6,30 @@ import (
 	"time"
 )
 
+const routerOnlineTTL = 15 * time.Second
+
 func onlineState(lastSeen time.Time) (string, string) {
-	if !lastSeen.IsZero() && time.Since(lastSeen) < 30*time.Second {
+	if !lastSeen.IsZero() && time.Since(lastSeen) < routerOnlineTTL {
 		return "🟢", "online"
 	}
 	return "⚫", "offline"
+}
+
+func heartbeatAge(lastSeen time.Time) string {
+	if lastSeen.IsZero() {
+		return "нет данных"
+	}
+	age := time.Since(lastSeen)
+	if age < 0 {
+		age = 0
+	}
+	if age < time.Minute {
+		return fmt.Sprintf("%d сек назад", int(age.Seconds()))
+	}
+	if age < time.Hour {
+		return fmt.Sprintf("%d мин назад", int(age.Minutes()))
+	}
+	return fmt.Sprintf("%d ч назад", int(age.Hours()))
 }
 
 func prettyMainMenuText() string {
@@ -25,7 +44,7 @@ func prettyRouterListHeader(total, online int) string {
 
 func prettyRouterListItem(name string, lastSeen time.Time, status string) string {
 	dot, state := onlineState(lastSeen)
-	lines := []string{fmt.Sprintf("%s %s — %s", dot, name, state)}
+	lines := []string{fmt.Sprintf("%s %s — %s, heartbeat %s", dot, name, state, heartbeatAge(lastSeen))}
 	for _, part := range importantStatusParts(status) {
 		lines = append(lines, "   "+part)
 	}
@@ -40,11 +59,12 @@ func prettyRouterCard(rt *Router) string {
 	lines := []string{
 		fmt.Sprintf("📡 %s", rt.Name),
 		fmt.Sprintf("%s %s", dot, state),
+		fmt.Sprintf("heartbeat: %s", heartbeatAge(rt.LastSeen)),
 		"",
 	}
 	parts := importantStatusParts(rt.Status)
 	if len(parts) == 0 {
-		lines = append(lines, "heartbeat: нет данных")
+		lines = append(lines, "status: нет данных")
 	} else {
 		for _, part := range parts {
 			lines = append(lines, "• "+part)
@@ -129,7 +149,7 @@ func decorateStatusPart(part string) string {
 		return "💚 " + part
 	case strings.Contains(lower, "health:"):
 		return "❤️ " + part
-	case strings.Contains(lower, "active slot") || strings.Contains(lower, "активный слот"):
+	case strings.Contains(lower, "active slot") || strings.Contains(lower, "active:") || strings.Contains(lower, "активный слот"):
 		return "🔀 " + part
 	case strings.Contains(lower, "cron: running") || strings.Contains(lower, "crond: running"):
 		return "⏱ " + part
