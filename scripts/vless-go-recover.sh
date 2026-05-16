@@ -17,6 +17,9 @@ MINIMAL_HISTORY_LOG="/opt/var/log/minimal-go-switch-history.log"
 SOCKS_HOST_SET="${SOCKS_HOST+x}"
 SOCKS_PORT_SET="${SOCKS_PORT+x}"
 CHECK_URLS_SET="${CHECK_URLS+x}"
+SOCKS_HOST_ENV="${SOCKS_HOST:-}"
+SOCKS_PORT_ENV="${SOCKS_PORT:-}"
+CHECK_URLS_ENV="${CHECK_URLS:-}"
 SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
 SOCKS_PORT="${SOCKS_PORT:-10808}"
 CHECK_URLS="${CHECK_URLS:-http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204 http://www.gstatic.com/generate_204}"
@@ -88,9 +91,9 @@ load_minimal_runtime_config() {
     . "$MINIMAL_COMMON"
 
     # Environment overrides must win over values sourced from minimal-go-common.sh.
-    [ -n "$SOCKS_HOST_SET" ] && SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
-    [ -n "$SOCKS_PORT_SET" ] && SOCKS_PORT="${SOCKS_PORT:-10808}"
-    [ -n "$CHECK_URLS_SET" ] && CHECK_URLS="${CHECK_URLS:-http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204 http://www.gstatic.com/generate_204}"
+    [ -n "$SOCKS_HOST_SET" ] && SOCKS_HOST="$SOCKS_HOST_ENV"
+    [ -n "$SOCKS_PORT_SET" ] && SOCKS_PORT="$SOCKS_PORT_ENV"
+    [ -n "$CHECK_URLS_SET" ] && CHECK_URLS="$CHECK_URLS_ENV"
 
     SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
     SOCKS_PORT="${SOCKS_PORT:-10808}"
