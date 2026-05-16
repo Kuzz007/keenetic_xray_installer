@@ -22,6 +22,9 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.editMenuOnly(cb.ID, chatID, messageID, helpText(), mainMenuKeyboard())
 	case data == "routers":
 		s.editMenuOnly(cb.ID, chatID, messageID, s.routerList(), s.routersKeyboardWithUpdateScripts())
+	case data == "doctor_all":
+		text := s.enqueueDoctorAll()
+		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
 	case data == "update_scripts_all":
 		text := s.enqueueUpdateScriptsAll()
 		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
