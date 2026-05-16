@@ -136,8 +136,8 @@ func notifyStartup(cfg Config) error {
 }
 
 func checkSlotChange(cfg Config) error {
-	slot := strings.TrimSpace(activeSlot())
-	if slot == "" {
+	slots := activeSlotCandidates()
+	if len(slots) == 0 {
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(slotStateFile), 0755); err != nil {
@@ -146,33 +146,54 @@ func checkSlotChange(cfg Config) error {
 	oldBytes, err := os.ReadFile(slotStateFile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return os.WriteFile(slotStateFile, []byte(slot+"\n"), 0644)
+			return os.WriteFile(slotStateFile, []byte(slots[0]+"\n"), 0644)
 		}
 		return err
 	}
 	old := strings.TrimSpace(string(oldBytes))
-	if old == slot {
+	newSlot := ""
+	for _, slot := range slots {
+		if slot != "" && slot != old {
+			newSlot = slot
+			break
+		}
+	}
+	if newSlot == "" {
 		return nil
 	}
-	if err := os.WriteFile(slotStateFile, []byte(slot+"\n"), 0644); err != nil {
+	if err := os.WriteFile(slotStateFile, []byte(newSlot+"\n"), 0644); err != nil {
 		return err
 	}
-	msg := fmt.Sprintf("Active slot changed on %s (%s): %s -> %s", cfg.RouterName, cfg.RouterID, old, slot)
+	msg := fmt.Sprintf("Active slot changed on %s (%s): %s -> %s", cfg.RouterName, cfg.RouterID, old, newSlot)
 	return postResult(cfg, Result{CommandID: "slot_change", RouterID: cfg.RouterID, OK: true, Output: msg})
 }
 
 func activeSlot() string {
-	if slot := activeSlotFromStatus(); slot != "" {
-		return slot
+	slots := activeSlotCandidates()
+	if len(slots) == 0 {
+		return ""
 	}
+	return slots[0]
+}
+
+func activeSlotCandidates() []string {
+	seen := map[string]bool{}
+	out := []string{}
+	add := func(slot string) {
+		slot = strings.TrimSpace(slot)
+		if slot == "" || seen[slot] {
+			return
+		}
+		seen[slot] = true
+		out = append(out, slot)
+	}
+	add(activeSlotFromStatus())
 	for _, path := range []string{"/opt/etc/xray/minimal-go-active", "/opt/etc/xray/vless-go.active"} {
 		if data, err := os.ReadFile(path); err == nil {
-			if slot := strings.TrimSpace(string(data)); slot != "" {
-				return slot
-			}
+			add(string(data))
 		}
 	}
-	return ""
+	return out
 }
 
 func activeSlotFromStatus() string {
