@@ -113,11 +113,11 @@ ensure_cron() {
     mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
     touch /opt/var/spool/cron/crontabs/root 2>/dev/null || true
     chmod 600 /opt/var/spool/cron/crontabs/root 2>/dev/null || true
-    if ! command -v crond >/dev/null 2>&1; then
+    if ! command -v cron >/dev/null 2>&1 && ! command -v crond >/dev/null 2>&1; then
         opkg install cron >/dev/null 2>&1 || opkg install cronie >/dev/null 2>&1 || opkg install busybox-cron >/dev/null 2>&1 || echo "WARN: cron package not installed; hourly recovery may require manual cron setup."
     fi
-    if command -v crond >/dev/null 2>&1 && ! ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then
-        if [ -x /opt/etc/init.d/S10cron ]; then /opt/etc/init.d/S10cron start >/dev/null 2>&1 || true; elif [ -x /opt/etc/init.d/S10crond ]; then /opt/etc/init.d/S10crond start >/dev/null 2>&1 || true; else crond -c /opt/var/spool/cron/crontabs >/dev/null 2>&1 || crond >/dev/null 2>&1 || true; fi
+    if ! ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1; then
+        if [ -x /opt/etc/init.d/S10cron ]; then /opt/etc/init.d/S10cron start >/dev/null 2>&1 || true; elif [ -x /opt/etc/init.d/S10crond ]; then /opt/etc/init.d/S10crond start >/dev/null 2>&1 || true; elif command -v crond >/dev/null 2>&1; then crond -c /opt/var/spool/cron/crontabs >/dev/null 2>&1 || crond >/dev/null 2>&1 || true; elif command -v cron >/dev/null 2>&1; then cron >/dev/null 2>&1 || true; fi
     fi
 }
 
