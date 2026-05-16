@@ -3,6 +3,7 @@ set -u
 
 CONF="/opt/etc/xray/xray-go-agent.conf"
 ONCE="0"
+AGENT_VERSION="0.1.4-shell-experimental"
 SLOT_STATE_FILE="${SLOT_STATE_FILE:-/opt/var/run/xray-go-agent-shell.last-slot}"
 
 while [ "$#" -gt 0 ]; do
@@ -76,6 +77,28 @@ features() {
   printf '%s' "$out"
 }
 
+has_feature() {
+  case ",$(features)," in
+    *,"$1",*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+capabilities() {
+  out="agent_start,slot_change"
+  has_feature status && out="$out,status,source_status"
+  has_feature switch && out="$out,switch_primary,switch_backup"
+  has_feature source_update && out="$out,set_primary_source,set_backup_source"
+  has_feature doctor && out="$out,doctor"
+  has_feature history && out="$out,history"
+  has_feature watchdog && out="$out,watchdog_log,recovery_log"
+  has_feature recovery && out="$out,recover_status,recover_check,recover_run,recover_enable,recover_disable"
+  has_feature reboot && out="$out,reboot"
+  has_feature update_scripts && out="$out,update_scripts"
+  has_feature update_agent && out="$out,update_agent"
+  printf '%s' "$out"
+}
+
 status_cmd() {
   if have /opt/bin/xray-go; then /opt/bin/xray-go status 2>&1; return $?; fi
   fc="$(failover_cmd 2>/dev/null || true)"
@@ -95,8 +118,9 @@ active_slot() {
 short_status() {
   st="$(status_cmd 2>&1)"
   feat="$(features)"
+  caps="$(capabilities)"
   printf '%s\n' "$st" | grep -E 'active:|active slot:|активный слот:|health: OK|hourly recovery:|cron: running|crond: running|daemon: запущен|основной профиль:|резервный профиль:' | tr '\n' '; '
-  printf 'features: %s' "$feat"
+  printf 'agent: shell version=%s; capabilities: %s; features: %s' "$AGENT_VERSION" "$caps" "$feat"
 }
 
 set_source() {
@@ -252,7 +276,7 @@ post_result() {
 }
 
 notify_startup() {
-  msg="Router started. Agent online. name=$ROUTER_NAME id=$ROUTER_ID features=$(features)"
+  msg="Router started. Agent online. name=$ROUTER_NAME id=$ROUTER_ID version=$AGENT_VERSION capabilities=$(capabilities) features=$(features)"
   post_result "agent_start" true "$msg" || log "startup notification failed"
 }
 
@@ -290,7 +314,7 @@ poll_once() {
   check_slot_change
 }
 
-log "xray-go-agent-shell started router_id=$ROUTER_ID name=$ROUTER_NAME server=$SERVER_URL"
+log "xray-go-agent-shell started version=$AGENT_VERSION router_id=$ROUTER_ID name=$ROUTER_NAME server=$SERVER_URL"
 notify_startup
 check_slot_change
 while :; do
