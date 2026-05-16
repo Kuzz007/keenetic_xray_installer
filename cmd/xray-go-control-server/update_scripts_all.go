@@ -42,6 +42,7 @@ func (s *Server) enqueueBulkAction(action, title, note string) string {
 
 func (s *Server) enqueueBulkActionWithCommandID(action, idPrefix, title, note string) string {
 	now := time.Now().Unix()
+	commandID := fmt.Sprintf("%s-%d", idPrefix, now)
 	s.mu.Lock()
 	ids := make([]string, 0, len(s.cfg.Routers))
 	for id := range s.cfg.Routers {
@@ -49,6 +50,7 @@ func (s *Server) enqueueBulkActionWithCommandID(action, idPrefix, title, note st
 	}
 	sort.Strings(ids)
 	queued := make([]string, 0, len(ids))
+	expected := map[string]string{}
 	for _, id := range ids {
 		rt := s.cfg.Routers[id]
 		if rt == nil {
@@ -58,12 +60,16 @@ func (s *Server) enqueueBulkActionWithCommandID(action, idPrefix, title, note st
 		if strings.TrimSpace(name) == "" {
 			name = id
 		}
-		cmd := Command{ID: fmt.Sprintf("%s-%d", idPrefix, now), Action: action}
+		cmd := Command{ID: commandID, Action: action}
 		rt.Queue = append(rt.Queue, cmd)
 		queued = append(queued, fmt.Sprintf("• %s (%s): %s", name, id, cmd.ID))
+		expected[id] = name
 	}
 	s.mu.Unlock()
 
+	if idPrefix == "doctor_all" {
+		rememberDoctorBatch(commandID, expected)
+	}
 	if len(queued) == 0 {
 		return "⚠️ Роутеры не найдены."
 	}
