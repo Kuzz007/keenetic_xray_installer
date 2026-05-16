@@ -162,6 +162,9 @@ func checkSlotChange(cfg Config) error {
 }
 
 func activeSlot() string {
+	if slot := activeSlotFromStatus(); slot != "" {
+		return slot
+	}
 	for _, path := range []string{"/opt/etc/xray/minimal-go-active", "/opt/etc/xray/vless-go.active"} {
 		if data, err := os.ReadFile(path); err == nil {
 			if slot := strings.TrimSpace(string(data)); slot != "" {
@@ -169,6 +172,10 @@ func activeSlot() string {
 			}
 		}
 	}
+	return ""
+}
+
+func activeSlotFromStatus() string {
 	cmd := statusCommand()
 	if len(cmd) == 0 {
 		return ""
@@ -177,6 +184,10 @@ func activeSlot() string {
 	if !ok {
 		return ""
 	}
+	return parseActiveSlot(out)
+}
+
+func parseActiveSlot(out string) string {
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
 		for _, marker := range []string{"active slot:", "active:", "активный слот:"} {
@@ -312,7 +323,7 @@ func shortStatus() string {
 	lines := []string{}
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.Contains(line, "активный слот:") || strings.Contains(line, "health: OK") || strings.Contains(line, "hourly recovery:") || strings.Contains(line, "daemon: запущен") || strings.Contains(line, "основной профиль:") || strings.Contains(line, "резервный профиль:") {
+		if strings.Contains(line, "активный слот:") || strings.Contains(line, "active slot:") || strings.Contains(line, "active:") || strings.Contains(line, "health: OK") || strings.Contains(line, "hourly recovery:") || strings.Contains(line, "daemon: запущен") || strings.Contains(line, "основной профиль:") || strings.Contains(line, "резервный профиль:") {
 			lines = append(lines, line)
 		}
 	}
