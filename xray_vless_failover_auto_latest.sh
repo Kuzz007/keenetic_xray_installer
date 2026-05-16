@@ -40,7 +40,7 @@ Edition selection:
 Modes:
   --detect-only          Print detection/selection only; make no changes
   --doctor               Print diagnostics and recovery status; make no install changes
-  --update-only          Safe update/repair-lite for already installed edition
+  --update-only          Safe repair-lite update for already installed edition
   --dry-run              Alias for --detect-only compatibility
 
 Other options:
@@ -313,9 +313,9 @@ run_recovery_status() {
 }
 
 run_doctor() {
-    print_detection
-    echo
     echo "Diagnostics:"
+    echo "  installed runtime: $INSTALLED_EDITION"
+    echo "  selected runtime: $SELECTED"
     echo "  opkg: $(command -v opkg >/dev/null 2>&1 && echo yes || echo no)"
     echo "  curl: $(command -v curl >/dev/null 2>&1 && echo yes || echo no)"
     echo "  xray: $(command -v xray >/dev/null 2>&1 || [ -x /opt/bin/xray ] || [ -x /opt/sbin/xray ] && echo yes || echo no)"
@@ -326,7 +326,7 @@ run_doctor() {
     echo "  minimal failover init: $([ -x /opt/etc/init.d/S25xray-minimal-go-failover ] && /opt/etc/init.d/S25xray-minimal-go-failover status 2>/dev/null | sed -n '1p' || echo not installed)"
     echo "  xray-go: $([ -x /opt/bin/xray-go ] && echo yes || echo no)"
     echo "  vless-go-failover: $([ -x /opt/bin/vless-go-failover ] && echo yes || echo no)"
-    echo "  failover-go package: $(has_opkg_package failover-go && echo yes || echo no)"
+    echo "  failover-go package present: $(has_opkg_package failover-go && echo yes || echo no)"
     echo "  vless-go-recover: $([ -x /opt/bin/vless-go-recover ] && echo yes || echo no)"
     echo "  vless-go-doctor: $([ -x /opt/bin/vless-go-doctor ] && echo yes || echo no)"
     echo
@@ -347,6 +347,7 @@ run_doctor() {
 
 safe_update_minimal_go() {
     echo "Safe update for Minimal Go edition..."
+    echo "Repair-lite: helpers/installers only; no config rewrite, no source rewrite."
     bootstrap_minimal_go_dependencies
     download_helper "$RECOVER_URL" /opt/bin/vless-go-recover "recovery helper" || true
     download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go"
@@ -356,6 +357,7 @@ safe_update_minimal_go() {
 
 safe_update_go() {
     echo "Safe update for Go/Entware latest edition..."
+    echo "Repair-lite: helpers/package refresh only; no config rewrite, no source rewrite."
     bootstrap_go_dependencies
     download_helper "$RECOVER_URL" /opt/bin/vless-go-recover "recovery helper" || true
     download_helper "$DOCTOR_URL" /opt/bin/vless-go-doctor "doctor helper" || true
@@ -373,6 +375,7 @@ safe_update_go() {
 
 safe_update_minimal_next() {
     echo "Safe update for Minimal-next edition..."
+    echo "Repair-lite: installer refresh only; no config rewrite, no source rewrite."
     bootstrap_minimal_next_dependencies
     download_installer "$MINIMAL_NEXT_URL" "$MINIMAL_NEXT_TMP" "Minimal-next"
     echo "Minimal-next installer refreshed at: $MINIMAL_NEXT_TMP"
@@ -380,6 +383,7 @@ safe_update_minimal_next() {
 }
 
 run_update_only() {
+    echo "Update-only mode: repair-lite; no config rewrite, no source rewrite, no Telegram agent changes."
     case "$SELECTED" in
         minimal-go) safe_update_minimal_go ;;
         go) safe_update_go ;;
@@ -442,6 +446,7 @@ case "$MODE" in
         exit 0
         ;;
     doctor)
+        echo
         run_doctor
         exit 0
         ;;
