@@ -25,6 +25,9 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 	case data == "update_scripts_all":
 		text := s.enqueueUpdateScriptsAll()
 		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
+	case data == "update_agents_all":
+		text := s.enqueueUpdateAgentsAll()
+		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
 	case data == "add_router_help":
 		s.startAddRouterWizard(chatID)
 	case strings.HasPrefix(data, "install:"):
