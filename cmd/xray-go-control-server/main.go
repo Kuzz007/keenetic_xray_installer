@@ -55,7 +55,10 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	res.At = time.Now().Format("2006-01-02 15:04:05"); routerID, routerName := rt.ID, rt.Name
 	s.mu.Lock(); rt.Results = append(rt.Results, res); if len(rt.Results) > 20 { rt.Results = rt.Results[len(rt.Results)-20:] }; s.mu.Unlock()
 	_ = json.NewEncoder(w).Encode(map[string]string{"ok":"1"})
-	if s.cfg.BotToken != "" && s.cfg.AdminUserID != 0 { if isStandaloneResult(res.CommandID) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } else if !s.editActiveRouterResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } }
+	if s.cfg.BotToken != "" && s.cfg.AdminUserID != 0 {
+		if isStandaloneResult(res.CommandID) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } else if !s.editActiveRouterResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) }
+		if summary, ok := s.recordDoctorAllResult(routerName, res); ok { s.sendMessage(s.cfg.AdminUserID, summary) }
+	}
 }
 
 func isStandaloneResult(commandID string) bool { return strings.HasPrefix(commandID, "slot_change") || strings.HasPrefix(commandID, "agent_start") || strings.HasPrefix(commandID, "doctor_all") }
