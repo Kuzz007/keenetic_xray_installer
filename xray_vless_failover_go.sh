@@ -100,6 +100,7 @@ done
 read_tty() { prompt="$1"; if [ -r /dev/tty ]; then printf "%s" "$prompt" >/dev/tty; IFS= read -r REPLY </dev/tty; else printf "%s" "$prompt" >&2; IFS= read -r REPLY; fi; }
 get_xray_bin() { if command -v xray >/dev/null 2>&1; then command -v xray; elif [ -x /opt/sbin/xray ]; then echo "/opt/sbin/xray"; elif [ -x /opt/bin/xray ]; then echo "/opt/bin/xray"; else echo ""; fi; }
 copy_mode() { src="$1"; dst="$2"; mode="${3:-755}"; mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"; chmod "$mode" "$dst"; }
+elf_magic() { file="$1"; if command -v hexdump >/dev/null 2>&1; then hexdump -n 4 -e '4/1 "%02x"' "$file" 2>/dev/null; elif command -v od >/dev/null 2>&1; then dd if="$file" bs=1 count=4 2>/dev/null | od -t x1 | awk 'NR==1 { for (i=2; i<=NF; i++) printf "%s", $i }'; else echo ""; fi; }
 
 install_script() {
     src="$1"
@@ -217,9 +218,10 @@ install_go_resolver() {
         exit 1
     fi
 
-    magic="$(dd if="$tmp_bin" bs=4 count=1 2>/dev/null | od -A n -t x1 | tr -d ' \n' || true)"
+    magic="$(elf_magic "$tmp_bin")"
     if [ "$magic" != "7f454c46" ]; then
         echo "ОШИБКА: скачанный Go resolver не является ELF-бинарником." >&2
+        echo "ELF magic: ${magic:-unavailable}" >&2
         echo "Проверьте URL и наличие release asset для архитектуры: $GO_ASSET_NAME" >&2
         rm -f "$tmp_bin" 2>/dev/null || true
         exit 1
