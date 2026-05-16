@@ -20,7 +20,7 @@ xray-go - единая команда управления Keenetic Xray Go edit
 
 Использование:
   xray-go status
-  xray-go doctor [--support|--verbose]
+  xray-go doctor [--support|--verbose|--json]
   xray-go menu
   xray-go history [--follow]
   xray-go logs watchdog [--follow]
@@ -38,6 +38,10 @@ Support mode:
     Безопасный diagnostic output для отправки в поддержку.
     Не включает verbose detail log, который может содержать метаданные профиля/сервера.
     Включает safe summary hourly recovery без raw VLESS/subscription sources.
+
+Machine-readable mode:
+  xray-go doctor --json
+    Выполняет обычный doctor и выводит краткий JSON summary без raw diagnostic output.
 
 Recovery mode:
   xray-go recover
@@ -87,9 +91,64 @@ show_status() {
     show_recovery_summary
 }
 
+json_escape() {
+    sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\n/\\n/g;s/\r//g;s/\t/  /g'
+}
+
+counter_from_summary() {
+    name="$1"
+    file="$2"
+    value="$(sed -n 's/.*'"$name"'=\([0-9][0-9]*\).*/\1/p' "$file" 2>/dev/null | tail -n 1)"
+    [ -n "$value" ] || value="0"
+    printf '%s' "$value"
+}
+
+active_slot_from_output() {
+    sed -n 's/.*active slot:[[:space:]]*//p; s/.*active:[[:space:]]*//p; s/.*активный слот:[[:space:]]*//p' "$1" 2>/dev/null | tail -n 1 | json_escape
+}
+
+run_doctor_json() {
+    need_exec "$GO_DOCTOR_CMD"
+    tmp="/tmp/xray-go-doctor-json.$$"
+    rc="0"
+    "$GO_DOCTOR_CMD" >"$tmp" 2>&1 || rc="$?"
+    ok_count="$(counter_from_summary OK "$tmp")"
+    warn_count="$(counter_from_summary WARN "$tmp")"
+    fail_count="$(counter_from_summary FAIL "$tmp")"
+    active_slot="$(active_slot_from_output "$tmp")"
+    status="ok"
+    if [ "${fail_count:-0}" -gt 0 ] || [ "$rc" -ne 0 ]; then
+        status="fail"
+    elif [ "${warn_count:-0}" -gt 0 ]; then
+        status="warn"
+    fi
+    printf '{'
+    printf '"schema":"xray-go.doctor.v1"'
+    printf ',"ok":%s' "$( [ "$status" = "fail" ] && printf false || printf true )"
+    printf ',"status":"%s"' "$status"
+    printf ',"exit_code":%s' "$rc"
+    printf ',"ok_count":%s' "$ok_count"
+    printf ',"warn_count":%s' "$warn_count"
+    printf ',"fail_count":%s' "$fail_count"
+    printf ',"active_slot":"%s"' "$active_slot"
+    printf ',"support_safe":true'
+    printf ',"raw_output_included":false'
+    printf '}\n'
+    rm -f "$tmp" 2>/dev/null || true
+    exit "$rc"
+}
+
 run_doctor() {
     need_exec "$GO_DOCTOR_CMD"
     case "${1:-}" in
+        --json|json)
+            shift || true
+            if [ "$#" -gt 0 ]; then
+                echo "ОШИБКА: xray-go doctor --json не принимает дополнительные аргументы." >&2
+                exit 2
+            fi
+            run_doctor_json
+            ;;
         --support|support)
             shift || true
             if [ "$#" -gt 0 ]; then
