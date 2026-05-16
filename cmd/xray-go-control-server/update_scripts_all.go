@@ -10,6 +10,7 @@ import (
 func (s *Server) routersKeyboardWithUpdateScripts() inlineKeyboard {
 	kb := s.routersKeyboard()
 	rows := [][]inlineButton{
+		{{Text: "🩺 Диагностика всех", CallbackData: "doctor_all"}},
 		{{Text: "🔄 Обновить скрипты на всех", CallbackData: "update_scripts_all"}},
 		{{Text: "🔁 Обновить агентов на всех", CallbackData: "update_agents_all"}},
 	}
@@ -21,6 +22,10 @@ func (s *Server) routersKeyboardWithUpdateScripts() inlineKeyboard {
 	kb.InlineKeyboard = append(kb.InlineKeyboard[:len(kb.InlineKeyboard)-1], rows...)
 	kb.InlineKeyboard = append(kb.InlineKeyboard, last)
 	return kb
+}
+
+func (s *Server) enqueueDoctorAll() string {
+	return s.enqueueBulkAction("doctor", "🩺 Диагностика поставлена в очередь", "Команда безопасная: выполняет doctor на каждом роутере и вернёт результат отдельным сообщением/в Results.")
 }
 
 func (s *Server) enqueueUpdateScriptsAll() string {
