@@ -28,6 +28,7 @@ DRY_RUN="${DRY_RUN:-0}"
 MODE="${MODE:-install}"
 NO_CRON="${NO_CRON:-0}"
 NO_RESTART="${NO_RESTART:-0}"
+FORCE_GO_RESOLVER_UPDATE="${FORCE_GO_RESOLVER_UPDATE:-0}"
 
 usage() {
     cat <<'USAGE'
@@ -47,6 +48,7 @@ Modes:
 
 Other options:
   --yes                  Do not ask interactive install confirmation
+  --force-go-resolver    Re-download /opt/bin/xray-failover-go during update-only repair
   --no-cron              Do not create/modify cron entries in safe update path
   --no-restart           Do not restart services in safe update path
   -h, --help             Show help
@@ -56,6 +58,7 @@ Environment overrides:
   THRESHOLD_KB=80000
   ASSUME_YES=1
   MODE=install|detect-only|doctor|update-only
+  FORCE_GO_RESOLVER_UPDATE=1
   NO_CRON=1
   NO_RESTART=1
   REPO_BASE=https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main
@@ -79,6 +82,7 @@ while [ "$#" -gt 0 ]; do
         --dry-run|--check|--print-selection|--detect-only) MODE="detect-only"; DRY_RUN="1"; shift ;;
         --doctor) MODE="doctor"; shift ;;
         --update-only) MODE="update-only"; ASSUME_YES="1"; shift ;;
+        --force-go-resolver|--force-resolver) FORCE_GO_RESOLVER_UPDATE="1"; shift ;;
         --no-cron) NO_CRON="1"; shift ;;
         --no-restart) NO_RESTART="1"; shift ;;
         -h|--help|help) usage; exit 0 ;;
@@ -303,6 +307,7 @@ Selection reason: $SELECT_REASON
 Mode: $MODE
 No cron: $NO_CRON
 No restart: $NO_RESTART
+Force Go resolver update: $FORCE_GO_RESOLVER_UPDATE
 EOF
 }
 
@@ -355,6 +360,7 @@ safe_update_minimal_go() {
     download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go repair"
     args="--repair-only"
     [ "$NO_CRON" = "1" ] && args="$args --no-cron"
+    [ "$FORCE_GO_RESOLVER_UPDATE" = "1" ] && args="$args --force-go-resolver"
     echo "Running Minimal Go repair: $MINIMAL_GO_TMP $args"
     sh "$MINIMAL_GO_TMP" $args
 }
@@ -366,6 +372,7 @@ safe_update_go() {
     download_installer "$GO_FULL_URL" "$GO_FULL_TMP" "Full Go repair"
     args="--repair-only --no-restart"
     [ "$NO_CRON" = "1" ] && args="$args --no-cron"
+    [ "$FORCE_GO_RESOLVER_UPDATE" = "1" ] && args="$args --force-go-resolver"
     echo "Running Full Go repair: $GO_FULL_TMP $args"
     sh "$GO_FULL_TMP" $args
 }
