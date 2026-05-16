@@ -41,10 +41,13 @@ REPO_BRANCH="${REPO_BRANCH:-main}"
 RAW_BASE="https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}"
 RECOVER_URL="${RECOVER_URL:-${RAW_BASE}/scripts/vless-go-recover.sh}"
 ASSUME_YES="${ASSUME_YES:-0}"
+FORCE_GO_RESOLVER_UPDATE="${FORCE_GO_RESOLVER_UPDATE:-0}"
+NO_CRON="${NO_CRON:-0}"
+NO_RESTART="${NO_RESTART:-0}"
 
 usage() {
     cat <<'USAGE'
-Usage: xray_vless_failover_minimal_go.sh [--yes]
+Usage: xray_vless_failover_minimal_go.sh [--yes] [--force-go-resolver] [--no-cron] [--no-restart]
 
 Minimal Go edition:
   - direct vless:// links only
@@ -54,11 +57,23 @@ Minimal Go edition:
   - no Entware feed package
   - downloads only xray-failover-go from GitHub Release when missing
 
+Options:
+  --yes                  Do not ask interactive confirmation
+  --force-go-resolver    Re-download /opt/bin/xray-failover-go even if it already exists
+  --no-cron              Do not install/start cron and do not enable hourly recovery
+  --no-restart           Do not restart/start Minimal Go failover daemon at the end
+                         Note: initial config generation may still restart Xray via minimal-go-switch.
+
 Environment:
   GO_TAG=latest
   REPO_BRANCH=main
   ASSUME_YES=1
+  FORCE_GO_RESOLVER_UPDATE=1
+  NO_CRON=1
+  NO_RESTART=1
   SOCKS_PORT=10808
+  SOCKS_LISTEN=0.0.0.0
+  CHECK_URLS='http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204 http://www.gstatic.com/generate_204'
   CHECK_INTERVAL=15
   ENABLE_HOURLY_RECOVERY=1
   HOURLY_RECOVERY_SCHEDULE='7 * * * *'
@@ -68,6 +83,9 @@ USAGE
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -y|--yes) ASSUME_YES="1"; shift ;;
+        --force-go-resolver|--force-resolver) FORCE_GO_RESOLVER_UPDATE="1"; shift ;;
+        --no-cron) NO_CRON="1"; shift ;;
+        --no-restart) NO_RESTART="1"; shift ;;
         -h|--help|help) usage; exit 0 ;;
         *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -86,6 +104,7 @@ detect_entware_arch() { OPKG_BIN="$(opkg_bin)"; [ -n "$OPKG_BIN" ] || return 0; 
 asset_name_for_arch() { case "$1" in aarch64-3.10|aarch64*|arm64) echo xray-failover-go-linux-arm64 ;; mips|mipsel|mipsel-*|mipsel_*|mipselsf-*|mipselsf_*|mipsel-3.4|mipsel-3.4_kn|mipselsf-k3.4|mipselsf-k3.4_kn) echo xray-failover-go-linux-mipsle ;; *) echo "" ;; esac; }
 
 ensure_cron() {
+    [ "$NO_CRON" = "1" ] && { echo "No cron: skip cron setup."; return 0; }
     mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
     touch /opt/var/spool/cron/crontabs/root 2>/dev/null || true
     chmod 600 /opt/var/spool/cron/crontabs/root 2>/dev/null || true
@@ -111,13 +130,24 @@ install_packages() {
 }
 
 install_go_resolver() {
-    [ -x "$GO_RESOLVER" ] && return 0
+    if [ -x "$GO_RESOLVER" ] && [ "$FORCE_GO_RESOLVER_UPDATE" != "1" ]; then
+        echo "Go resolver already installed: $GO_RESOLVER"
+        return 0
+    fi
     ARCH="$(detect_entware_arch)"; [ -n "$ARCH" ] || ARCH="$(uname -m 2>/dev/null || echo unknown)"
     ASSET="$(asset_name_for_arch "$ARCH")"
     [ -n "$ASSET" ] || { echo "ERROR: unsupported architecture for Go resolver: $ARCH" >&2; exit 1; }
     URL="https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${GO_TAG}/${ASSET}"
+    tmp="$TMP_DIR/xray-failover-go.$$"
     echo "Downloading Go resolver: $URL"
-    curl -fL -o "$GO_RESOLVER" "$URL"
+    curl -fL -o "$tmp" "$URL"
+    magic="$(dd if="$tmp" bs=4 count=1 2>/dev/null | od -A n -t x1 | tr -d ' \n' || true)"
+    if [ "$magic" != "7f454c46" ]; then
+        rm -f "$tmp" 2>/dev/null || true
+        echo "ERROR: downloaded Go resolver is not an ELF binary: $URL" >&2
+        exit 1
+    fi
+    mv "$tmp" "$GO_RESOLVER"
     chmod +x "$GO_RESOLVER"
 }
 
@@ -201,6 +231,11 @@ wait_socks() { i=0; while [ "$i" -lt 10 ]; do netstat -lnt 2>/dev/null | grep -q
 switch_slot() { slot="$1"; source="$(source_for_slot "$slot")" || return 1; tmp="$TMP_DIR/minimal-go-$slot.$$.json"; old="$TMP_DIR/minimal-go-before-switch.$$.json"; generate_config "$slot" "$source" "$SOCKS_LISTEN" "$SOCKS_PORT" "$tmp" || return 1; test_config "$tmp" || return 1; cp "$XRAY_CONFIG" "$old" 2>/dev/null || true; cp "$tmp" "$XRAY_CONFIG"; chmod 600 "$XRAY_CONFIG" 2>/dev/null || true; "$XRAY_INIT" restart || "$XRAY_INIT" start || { [ -s "$old" ] && cp "$old" "$XRAY_CONFIG"; return 1; }; wait_socks || return 1; health_check "127.0.0.1" "$SOCKS_PORT" || return 1; echo "$slot" > "$ACTIVE_STORE"; write_history "switch target=$slot"; rm -f "$tmp" "$old"; }
 test_temp_slot() { slot="$1"; port="$2"; source="$(source_for_slot "$slot")" || return 1; tmp="$TMP_DIR/minimal-go-test-$slot.$$.json"; log="$TMP_DIR/minimal-go-test-$slot.$$.log"; bin="$(get_xray_bin)"; generate_config "$slot" "$source" "$TEMP_HOST" "$port" "$tmp" || return 1; test_config "$tmp" || return 1; "$bin" run -config "$tmp" >"$log" 2>&1 & pid="$!"; sleep 3; kill -0 "$pid" 2>/dev/null || { cat "$log" 2>/dev/null; return 1; }; health_check "$TEMP_HOST" "$port"; rc="$?"; kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; rm -f "$tmp" "$log"; return "$rc"; }
 COMMON
+    sed -i \
+      -e "s|^SOCKS_PORT=.*|SOCKS_PORT=\"$SOCKS_PORT\"|" \
+      -e "s|^SOCKS_LISTEN=.*|SOCKS_LISTEN=\"$SOCKS_LISTEN\"|" \
+      -e "s|^CHECK_URLS=.*|CHECK_URLS=\"$CHECK_URLS\"|" \
+      /opt/libexec/minimal-go-common.sh
     chmod 644 /opt/libexec/minimal-go-common.sh
 }
 
@@ -377,6 +412,7 @@ INIT
 }
 
 enable_hourly_recovery_default() {
+    [ "$NO_CRON" = "1" ] && { echo "No cron: skip hourly recovery setup."; return 0; }
     [ "$ENABLE_HOURLY_RECOVERY" = "1" ] || return 0
     [ -x "$RECOVER_CMD" ] || return 0
     "$RECOVER_CMD" --mode minimal enable-hourly "$HOURLY_RECOVERY_SCHEDULE" >/dev/null 2>&1 || echo "WARN: failed to enable hourly recovery. Run: vless-go-recover --mode minimal enable-hourly"
@@ -413,7 +449,11 @@ write_runtime_commands
 confirm "Generate primary config and start Xray/Minimal Go failover"
 "$SWITCH_CMD" primary
 configure_proxy0
-"$FAILOVER_INIT" restart || "$FAILOVER_INIT" start || true
+if [ "$NO_RESTART" = "1" ]; then
+    echo "No restart: skip Minimal Go failover daemon restart."
+else
+    "$FAILOVER_INIT" restart || "$FAILOVER_INIT" start || true
+fi
 enable_hourly_recovery_default
 
 echo ""
