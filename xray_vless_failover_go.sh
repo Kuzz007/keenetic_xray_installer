@@ -20,9 +20,9 @@ RECOVER_CMD="/opt/bin/vless-go-recover"
 XRAY_CORE_UPDATE_CMD="/opt/bin/vless-go-xray-core-update"
 MENU_CMD="/opt/bin/failover-go"
 LOCK_HELPER="/opt/libexec/vless-go-lock.sh"
-SOCKS_PORT="10808"
-SOCKS_LISTEN="0.0.0.0"
-PROXY_IFACE="Proxy0"
+SOCKS_PORT="${SOCKS_PORT:-10808}"
+SOCKS_LISTEN="${SOCKS_LISTEN:-0.0.0.0}"
+PROXY_IFACE="${PROXY_IFACE:-Proxy0}"
 PROXY_UPSTREAM_HOST="${PROXY_UPSTREAM_HOST:-}"
 TMP_DIR="/opt/tmp"
 SOURCE_STORE="$XRAY_DIR/vless-go.source"
@@ -31,7 +31,7 @@ BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 PRIMARY_SELECTOR="$XRAY_DIR/vless-go.primary.selector"
 BACKUP_SELECTOR="$XRAY_DIR/vless-go.backup.selector"
-GO_EXPERIMENTAL_TAG="${GO_EXPERIMENTAL_TAG:-0.1.2-go-experimental}"
+GO_EXPERIMENTAL_TAG="${GO_EXPERIMENTAL_TAG:-latest}"
 ENTWARE_ARCH="${ENTWARE_ARCH:-}"
 GO_ASSET_NAME="${GO_ASSET_NAME:-}"
 GO_BINARY_URL="${GO_BINARY_URL:-}"
@@ -46,9 +46,59 @@ INSTALL_DOCTOR="${INSTALL_DOCTOR:-1}"
 AUTO_RECOVER_PRIMARY="${AUTO_RECOVER_PRIMARY:-1}"
 ENABLE_HOURLY_RECOVERY="${ENABLE_HOURLY_RECOVERY:-1}"
 HOURLY_RECOVERY_SCHEDULE="${HOURLY_RECOVERY_SCHEDULE:-7 * * * *}"
+ASSUME_YES="${ASSUME_YES:-0}"
+NO_CRON="${NO_CRON:-0}"
+NO_RESTART="${NO_RESTART:-0}"
+FORCE_GO_RESOLVER_UPDATE="${FORCE_GO_RESOLVER_UPDATE:-0}"
+REPAIR_ONLY="${REPAIR_ONLY:-0}"
+
+usage() {
+    cat <<'USAGE'
+Usage: xray_vless_failover_go.sh [options]
+
+Full Go/Entware edition:
+  - subscription URL or direct vless:// source
+  - Go resolver/generator
+  - failover helpers, watchdog, doctor, menu and recovery helper
+
+Options:
+  --yes                  Do not ask interactive confirmations where possible
+  --repair-only          Refresh resolver/helpers/doctor/recover without rewriting sources/config
+  --force-go-resolver    Re-download /opt/bin/xray-failover-go even if it already exists
+  --no-cron              Do not install/start cron and do not enable hourly recovery
+  --no-restart           Do not restart/start watchdog/Xray in the final steps
+  -h, --help             Show help
+
+Environment:
+  GO_EXPERIMENTAL_TAG=latest
+  REPO_BRANCH=main
+  WATCHDOG_BRANCH=main
+  ASSUME_YES=1
+  REPAIR_ONLY=1
+  FORCE_GO_RESOLVER_UPDATE=1
+  NO_CRON=1
+  NO_RESTART=1
+  SOCKS_PORT=10808
+  SOCKS_LISTEN=0.0.0.0
+  PROXY_IFACE=Proxy0
+  PROXY_UPSTREAM_HOST=192.168.1.1
+USAGE
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -y|--yes) ASSUME_YES="1"; shift ;;
+        --repair-only|--update-only|--safe-update) REPAIR_ONLY="1"; ASSUME_YES="1"; shift ;;
+        --force-go-resolver|--force-resolver) FORCE_GO_RESOLVER_UPDATE="1"; shift ;;
+        --no-cron) NO_CRON="1"; shift ;;
+        --no-restart) NO_RESTART="1"; shift ;;
+        -h|--help|help) usage; exit 0 ;;
+        *) echo "ОШИБКА: неизвестный аргумент: $1" >&2; usage >&2; exit 1 ;;
+    esac
+done
 
 read_tty() { prompt="$1"; if [ -r /dev/tty ]; then printf "%s" "$prompt" >/dev/tty; IFS= read -r REPLY </dev/tty; else printf "%s" "$prompt" >&2; IFS= read -r REPLY; fi; }
-get_xray_bin() { if command -v xray >/dev/null 2>&1; then command -v xray; elif [ -x /opt/bin/xray ]; then echo "/opt/bin/xray"; else echo ""; fi; }
+get_xray_bin() { if command -v xray >/dev/null 2>&1; then command -v xray; elif [ -x /opt/sbin/xray ]; then echo "/opt/sbin/xray"; elif [ -x /opt/bin/xray ]; then echo "/opt/bin/xray"; else echo ""; fi; }
 copy_mode() { src="$1"; dst="$2"; mode="${3:-755}"; mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"; chmod "$mode" "$dst"; }
 
 install_script() {
@@ -67,6 +117,11 @@ install_script() {
     attempt=1
     while [ "$attempt" -le 3 ]; do
         if curl -fL --retry 2 --retry-delay 3 -o "$tmp" "$url"; then
+            if ! sh -n "$tmp" 2>/dev/null; then
+                echo "ОШИБКА: скачанный helper не прошёл shell syntax check: $url" >&2
+                rm -f "$tmp" 2>/dev/null || true
+                exit 1
+            fi
             copy_mode "$tmp" "$dst" "$mode"
             rm -f "$tmp" 2>/dev/null || true
             return 0
@@ -121,25 +176,26 @@ resolve_go_asset() {
 }
 
 ensure_cron() {
+    [ "$NO_CRON" = "1" ] && { echo "No cron: skip cron setup."; return 0; }
     mkdir -p /opt/var/spool/cron/crontabs /opt/var/log 2>/dev/null || true
     touch /opt/var/spool/cron/crontabs/root 2>/dev/null || true
     chmod 600 /opt/var/spool/cron/crontabs/root 2>/dev/null || true
-    if ! command -v crond >/dev/null 2>&1; then
+    if ! command -v crond >/dev/null 2>&1 && ! command -v cron >/dev/null 2>&1; then
         echo "Устанавливаю cron для опционального автообновления/recovery..."
         opkg install cron >/dev/null 2>&1 || opkg install cronie >/dev/null 2>&1 || opkg install busybox-cron >/dev/null 2>&1 || echo "ПРЕДУПРЕЖДЕНИЕ: cron установить не удалось. Для cron-команд может понадобиться ручная настройка cron."
     fi
-    if command -v crond >/dev/null 2>&1 && ! ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then
-        if [ -x /opt/etc/init.d/S10cron ]; then /opt/etc/init.d/S10cron start >/dev/null 2>&1 || true; elif [ -x /opt/etc/init.d/S10crond ]; then /opt/etc/init.d/S10crond start >/dev/null 2>&1 || true; else crond -c /opt/var/spool/cron/crontabs >/dev/null 2>&1 || crond >/dev/null 2>&1 || true; fi
+    if ! ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1; then
+        if [ -x /opt/etc/init.d/S10cron ]; then /opt/etc/init.d/S10cron start >/dev/null 2>&1 || true; elif [ -x /opt/etc/init.d/S10crond ]; then /opt/etc/init.d/S10crond start >/dev/null 2>&1 || true; elif command -v crond >/dev/null 2>&1; then crond -c /opt/var/spool/cron/crontabs >/dev/null 2>&1 || crond >/dev/null 2>&1 || true; elif command -v cron >/dev/null 2>&1; then cron >/dev/null 2>&1 || true; fi
     fi
 }
 
 ensure_packages() {
     echo "[1/12] Проверка пакетов Entware..."
     if ! command -v opkg >/dev/null 2>&1; then echo "ОШИБКА: opkg не найден. Для установки нужен Entware." >&2; exit 1; fi
-    need_update="0"; command -v curl >/dev/null 2>&1 || need_update="1"; command -v crond >/dev/null 2>&1 || need_update="1"; if ! command -v xray >/dev/null 2>&1 && [ ! -x /opt/bin/xray ]; then need_update="1"; fi
+    need_update="0"; command -v curl >/dev/null 2>&1 || need_update="1"; if [ "$NO_CRON" != "1" ] && ! command -v crond >/dev/null 2>&1 && ! command -v cron >/dev/null 2>&1; then need_update="1"; fi; if ! command -v xray >/dev/null 2>&1 && [ ! -x /opt/sbin/xray ] && [ ! -x /opt/bin/xray ]; then need_update="1"; fi
     [ "$need_update" = "0" ] || opkg update
     if ! command -v curl >/dev/null 2>&1; then opkg install curl ca-bundle; else opkg install ca-bundle >/dev/null 2>&1 || true; fi
-    if ! command -v xray >/dev/null 2>&1 && [ ! -x /opt/bin/xray ]; then opkg install xray-core || opkg install xray; fi
+    if ! command -v xray >/dev/null 2>&1 && [ ! -x /opt/sbin/xray ] && [ ! -x /opt/bin/xray ]; then opkg install xray-core || opkg install xray; fi
     ensure_cron
 }
 
@@ -149,7 +205,7 @@ install_go_resolver() {
     resolve_go_asset
     echo "Detected architecture: $ENTWARE_ARCH"
     echo "Go resolver asset: $GO_ASSET_NAME"
-    if [ -x "$GO_RESOLVER" ]; then echo "Найден существующий бинарник: $GO_RESOLVER"; return 0; fi
+    if [ -x "$GO_RESOLVER" ] && [ "$FORCE_GO_RESOLVER_UPDATE" != "1" ]; then echo "Найден существующий бинарник: $GO_RESOLVER"; return 0; fi
 
     tmp_bin="$TMP_DIR/$(basename "$GO_RESOLVER").$$"
     echo "Скачиваю Go binary: $GO_BINARY_URL"
@@ -157,7 +213,7 @@ install_go_resolver() {
         echo "ОШИБКА: не удалось скачать Go binary: $GO_BINARY_URL" >&2
         echo "Ожидаемый GitHub Release asset: $GO_ASSET_NAME" >&2
         echo "Release tag: $GO_EXPERIMENTAL_TAG" >&2
-        rm -f "$tmp_bin" "$GO_RESOLVER" 2>/dev/null || true
+        rm -f "$tmp_bin" 2>/dev/null || true
         exit 1
     fi
 
@@ -165,7 +221,7 @@ install_go_resolver() {
     if [ "$magic" != "7f454c46" ]; then
         echo "ОШИБКА: скачанный Go resolver не является ELF-бинарником." >&2
         echo "Проверьте URL и наличие release asset для архитектуры: $GO_ASSET_NAME" >&2
-        rm -f "$tmp_bin" "$GO_RESOLVER" 2>/dev/null || true
+        rm -f "$tmp_bin" 2>/dev/null || true
         exit 1
     fi
 
@@ -217,7 +273,7 @@ configure_proxy0() {
 }
 
 install_watchdog() { echo "[9/12] Установка watchdog и recovery support..."; if [ "$INSTALL_WATCHDOG" = "0" ]; then echo "Установка watchdog пропущена: INSTALL_WATCHDOG=0."; return 0; fi; mkdir -p "$TMP_DIR" "$XRAY_DIR"; tmp_watchdog_installer="$TMP_DIR/xray_vless_go_watchdog_install.$$"; trap 'rm -f "$tmp_watchdog_installer" 2>/dev/null || true' EXIT INT TERM; if ! curl -fL -o "$tmp_watchdog_installer" "$WATCHDOG_INSTALL_URL"; then echo "ОШИБКА: не удалось скачать installer watchdog: $WATCHDOG_INSTALL_URL" >&2; exit 1; fi; chmod +x "$tmp_watchdog_installer"; WATCHDOG_BRANCH="$WATCHDOG_BRANCH" sh "$tmp_watchdog_installer"; if [ "$AUTO_RECOVER_PRIMARY" = "1" ] && [ -f "$GO_WATCHDOG_CONF" ]; then sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=1/' "$GO_WATCHDOG_CONF"; fi; }
-start_watchdog() { echo "[10/12] Запуск watchdog..."; if [ "$START_WATCHDOG" = "1" ] && [ -x "$GO_WATCHDOG_INIT" ]; then "$GO_WATCHDOG_INIT" restart || "$GO_WATCHDOG_INIT" start || true; else echo "Watchdog не запущен. Запуск вручную: $GO_WATCHDOG_INIT start"; fi; }
+start_watchdog() { echo "[10/12] Запуск watchdog..."; if [ "$NO_RESTART" = "1" ]; then echo "No restart: skip watchdog restart/start."; return 0; fi; if [ "$START_WATCHDOG" = "1" ] && [ -x "$GO_WATCHDOG_INIT" ]; then "$GO_WATCHDOG_INIT" restart || "$GO_WATCHDOG_INIT" start || true; else echo "Watchdog не запущен. Запуск вручную: $GO_WATCHDOG_INIT start"; fi; }
 start_xray() {
     echo "[11/12] Проверка и запуск Xray..."
     xray_bin="$(get_xray_bin)"
@@ -225,15 +281,23 @@ start_xray() {
         echo "ОШИБКА: бинарник xray не найден." >&2
         exit 1
     fi
+    if [ ! -s "$XRAY_CONFIG" ]; then
+        echo "ОШИБКА: config не найден: $XRAY_CONFIG" >&2
+        exit 1
+    fi
     if ! "$xray_bin" run -test -config "$XRAY_CONFIG" >/dev/null 2>&1; then
         echo "ОШИБКА: config не прошёл проверку Xray:" >&2
         "$xray_bin" run -test -config "$XRAY_CONFIG" >&2 2>&1 || "$xray_bin" test -config "$XRAY_CONFIG" >&2 2>&1 || true
         exit 1
     fi
+    if [ "$NO_RESTART" = "1" ]; then
+        echo "No restart: Xray config validated; skip Xray restart/start."
+        return 0
+    fi
     "$INIT_SCRIPT" restart || "$INIT_SCRIPT" start
 }
 
-enable_hourly_recovery_default() { [ "$ENABLE_HOURLY_RECOVERY" = "1" ] || return 0; [ -x "$RECOVER_CMD" ] || return 0; "$RECOVER_CMD" --mode full enable-hourly "$HOURLY_RECOVERY_SCHEDULE" >/dev/null 2>&1 || echo "ПРЕДУПРЕЖДЕНИЕ: не удалось включить hourly recovery. Запуск вручную: xray-go recover enable-hourly"; }
+enable_hourly_recovery_default() { [ "$NO_CRON" = "1" ] && { echo "No cron: skip hourly recovery setup."; return 0; }; [ "$ENABLE_HOURLY_RECOVERY" = "1" ] || return 0; [ -x "$RECOVER_CMD" ] || return 0; "$RECOVER_CMD" --mode full enable-hourly "$HOURLY_RECOVERY_SCHEDULE" >/dev/null 2>&1 || echo "ПРЕДУПРЕЖДЕНИЕ: не удалось включить hourly recovery. Запуск вручную: xray-go recover enable-hourly"; }
 
 final_summary() {
     echo "[12/12] Итоговая проверка установки..."; echo; echo "Готово. Experimental Go edition установлена."; echo
@@ -245,15 +309,74 @@ final_summary() {
     echo "Если Proxy0 нужно привязать к конкретному IP роутера:"; echo "  PROXY_UPSTREAM_HOST=192.168.1.1 sh xray_vless_failover_go.sh"
 }
 
+read_sources_or_reuse() {
+    if [ -s "$PRIMARY_STORE" ] && [ "$ASSUME_YES" = "1" ]; then
+        INPUT_VALUE="$(sed -n '1p' "$PRIMARY_STORE")"
+        echo "Использую существующий основной источник: $PRIMARY_STORE"
+    else
+        read_tty "Введите основной VLESS link или subscription URL: "
+        INPUT_VALUE="$REPLY"
+        if [ -z "$INPUT_VALUE" ]; then echo "ОШИБКА: пустое значение основного источника." >&2; exit 1; fi
+        printf '%s\n' "$INPUT_VALUE" > "$SOURCE_STORE"
+        printf '%s\n' "$INPUT_VALUE" > "$PRIMARY_STORE"
+        printf '%s\n' first > "$PRIMARY_SELECTOR"
+    fi
+    printf '%s\n' primary > "$ACTIVE_STORE"
+    chmod 600 "$SOURCE_STORE" "$PRIMARY_STORE" "$ACTIVE_STORE" "$PRIMARY_SELECTOR" 2>/dev/null || true
+
+    if [ -s "$BACKUP_STORE" ] && [ "$ASSUME_YES" = "1" ]; then
+        echo "Использую существующий резервный источник: $BACKUP_STORE"
+        [ -s "$BACKUP_SELECTOR" ] || printf '%s\n' first > "$BACKUP_SELECTOR"
+        chmod 600 "$BACKUP_STORE" "$BACKUP_SELECTOR" 2>/dev/null || true
+        return 0
+    fi
+
+    read_tty "Введите резервный VLESS link или subscription URL (опционально, Enter чтобы пропустить): "
+    BACKUP_VALUE="$REPLY"
+    if [ -n "$BACKUP_VALUE" ]; then
+        printf '%s\n' "$BACKUP_VALUE" > "$BACKUP_STORE"
+        printf '%s\n' first > "$BACKUP_SELECTOR"
+        chmod 600 "$BACKUP_STORE" "$BACKUP_SELECTOR" 2>/dev/null || true
+        echo "Резервный источник сохранён: $BACKUP_STORE"
+    else
+        echo "Резервный источник пропущен. Добавить позже: vless-go-failover set-backup URL_OR_VLESS"
+    fi
+}
+
+repair_only() {
+    echo "Repair-only mode: helpers/resolver refresh; no source rewrite, no Xray config rewrite."
+    ensure_packages
+    install_go_resolver
+    install_helpers
+    install_updater
+    install_doctor
+    create_xray_init
+    install_watchdog
+    enable_hourly_recovery_default
+    echo "Repair-only complete."
+}
+
 main() {
     echo "Experimental Xray VLESS Go installer для Keenetic"; echo "Устанавливает Go resolver, Xray config, failover helpers, watchdog, doctor и меню управления."; echo
-    ensure_packages; install_go_resolver
+    if [ "$REPAIR_ONLY" = "1" ]; then
+        repair_only
+        return 0
+    fi
+    ensure_packages
+    install_go_resolver
     mkdir -p "$XRAY_DIR"
-    read_tty "Введите основной VLESS link или subscription URL: "; INPUT_VALUE="$REPLY"; if [ -z "$INPUT_VALUE" ]; then echo "ОШИБКА: пустое значение основного источника." >&2; exit 1; fi
-    printf '%s\n' "$INPUT_VALUE" > "$SOURCE_STORE"; printf '%s\n' "$INPUT_VALUE" > "$PRIMARY_STORE"; printf '%s\n' primary > "$ACTIVE_STORE"; printf '%s\n' first > "$PRIMARY_SELECTOR"; chmod 600 "$SOURCE_STORE" "$PRIMARY_STORE" "$ACTIVE_STORE" "$PRIMARY_SELECTOR" 2>/dev/null || true
-    read_tty "Введите резервный VLESS link или subscription URL (опционально, Enter чтобы пропустить): "; BACKUP_VALUE="$REPLY"
-    if [ -n "$BACKUP_VALUE" ]; then printf '%s\n' "$BACKUP_VALUE" > "$BACKUP_STORE"; printf '%s\n' first > "$BACKUP_SELECTOR"; chmod 600 "$BACKUP_STORE" "$BACKUP_SELECTOR" 2>/dev/null || true; echo "Резервный источник сохранён: $BACKUP_STORE"; else echo "Резервный источник пропущен. Добавить позже: vless-go-failover set-backup URL_OR_VLESS"; fi
-    resolve_initial_config; install_helpers; install_updater; install_doctor; create_xray_init; configure_proxy0; install_watchdog; start_watchdog; start_xray; enable_hourly_recovery_default; final_summary
+    read_sources_or_reuse
+    resolve_initial_config
+    install_helpers
+    install_updater
+    install_doctor
+    create_xray_init
+    configure_proxy0
+    install_watchdog
+    start_watchdog
+    start_xray
+    enable_hourly_recovery_default
+    final_summary
 }
 
 main "$@"
