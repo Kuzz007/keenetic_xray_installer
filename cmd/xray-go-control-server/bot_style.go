@@ -133,7 +133,7 @@ func importantStatusParts(status string) []string {
 	out := []string{}
 	for _, part := range strings.Split(status, ";") {
 		p := strings.TrimSpace(part)
-		if p == "" || strings.HasPrefix(p, "features:") || seen[p] {
+		if p == "" || strings.HasPrefix(p, "features:") || strings.HasPrefix(p, "capabilities:") || seen[p] {
 			continue
 		}
 		seen[p] = true

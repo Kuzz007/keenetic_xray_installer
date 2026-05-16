@@ -43,6 +43,7 @@ type PollResponse struct {
 	Command *Command `json:"command,omitempty"`
 }
 
+const agentVersion = "0.1.4-go-experimental"
 const slotStateFile = "/opt/var/run/xray-go-agent.last-slot"
 
 func main() {
@@ -54,7 +55,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
-	log.Printf("xray-go-agent started router_id=%s name=%s server=%s", cfg.RouterID, cfg.RouterName, cfg.ServerURL)
+	log.Printf("xray-go-agent started version=%s router_id=%s name=%s server=%s", agentVersion, cfg.RouterID, cfg.RouterName, cfg.ServerURL)
 	if err := notifyStartup(cfg); err != nil {
 		log.Printf("startup notification failed: %v", err)
 	}
@@ -130,8 +131,9 @@ func postResult(cfg Config, res Result) error {
 }
 
 func notifyStartup(cfg Config) error {
-	features := strings.Join(detectFeatures(), ",")
-	msg := fmt.Sprintf("Router started. Agent online. name=%s id=%s features=%s", cfg.RouterName, cfg.RouterID, features)
+	features := detectFeatures()
+	capabilities := detectCapabilities(features)
+	msg := fmt.Sprintf("Router started. Agent online. name=%s id=%s version=%s capabilities=%s features=%s", cfg.RouterName, cfg.RouterID, agentVersion, strings.Join(capabilities, ","), strings.Join(features, ","))
 	return postResult(cfg, Result{CommandID: "agent_start", RouterID: cfg.RouterID, OK: true, Output: msg})
 }
 
@@ -335,13 +337,16 @@ func rebootRouter() (bool, string) {
 func shortStatus() string {
 	cmd := statusCommand()
 	features := detectFeatures()
+	capabilities := detectCapabilities(features)
+	agentLine := "agent: go version=" + agentVersion
+	capabilityLine := "capabilities: " + strings.Join(capabilities, ",")
 	featureLine := "features: " + strings.Join(features, ",")
 	if len(cmd) == 0 {
-		return "status_error: no supported status command; " + featureLine
+		return "status_error: no supported status command; " + agentLine + "; " + capabilityLine + "; " + featureLine
 	}
 	ok, out := run(cmd, 25*time.Second)
 	if !ok {
-		return "status_error: " + out + "; " + featureLine
+		return "status_error: " + out + "; " + agentLine + "; " + capabilityLine + "; " + featureLine
 	}
 	lines := []string{}
 	for _, line := range strings.Split(out, "\n") {
@@ -350,7 +355,7 @@ func shortStatus() string {
 			lines = append(lines, line)
 		}
 	}
-	lines = append(lines, featureLine)
+	lines = append(lines, agentLine, capabilityLine, featureLine)
 	return strings.Join(lines, "; ")
 }
 
@@ -387,6 +392,45 @@ func detectFeatures() []string {
 		features = append(features, "status")
 	}
 	return features
+}
+
+func detectCapabilities(features []string) []string {
+	has := map[string]bool{}
+	for _, feature := range features {
+		has[feature] = true
+	}
+	capabilities := []string{"agent_start", "slot_change"}
+	if has["status"] {
+		capabilities = append(capabilities, "status", "source_status")
+	}
+	if has["switch"] {
+		capabilities = append(capabilities, "switch_primary", "switch_backup")
+	}
+	if has["source_update"] {
+		capabilities = append(capabilities, "set_primary_source", "set_backup_source")
+	}
+	if has["doctor"] {
+		capabilities = append(capabilities, "doctor")
+	}
+	if has["history"] {
+		capabilities = append(capabilities, "history")
+	}
+	if has["watchdog"] {
+		capabilities = append(capabilities, "watchdog_log", "recovery_log")
+	}
+	if has["recovery"] {
+		capabilities = append(capabilities, "recover_status", "recover_check", "recover_run", "recover_enable", "recover_disable")
+	}
+	if has["reboot"] {
+		capabilities = append(capabilities, "reboot")
+	}
+	if has["update_scripts"] {
+		capabilities = append(capabilities, "update_scripts")
+	}
+	if has["update_agent"] {
+		capabilities = append(capabilities, "update_agent")
+	}
+	return capabilities
 }
 
 func statusCommand() []string {
