@@ -17,6 +17,10 @@ usage() {
     echo "  /opt/etc/xray/vless-go.backup.selector"
 }
 
+cron_running() {
+    ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1
+}
+
 ensure_cron_files() {
     mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
     touch "$CRON_FILE" "$LOG_FILE"
@@ -24,7 +28,7 @@ ensure_cron_files() {
 }
 
 restart_cron() {
-    if command -v crond >/dev/null 2>&1 && ! ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then
+    if command -v crond >/dev/null 2>&1 && ! cron_running; then
         if [ -x /opt/etc/init.d/S10cron ]; then
             /opt/etc/init.d/S10cron start >/dev/null 2>&1 || true
         elif [ -x /opt/etc/init.d/S10crond ]; then
@@ -74,10 +78,10 @@ status_auto() {
         "$GO_FAILOVER_CMD" status || true
     fi
 
-    if ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then
-        echo "crond: running"
+    if cron_running; then
+        echo "cron: running"
     else
-        echo "crond: not running or not visible"
+        echo "cron: not running or not visible"
     fi
 }
 

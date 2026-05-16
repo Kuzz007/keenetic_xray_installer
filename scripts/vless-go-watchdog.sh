@@ -41,6 +41,10 @@ usage() {
     echo "Использование: vless-go-watchdog check | daemon | status | enable [CRON] | disable | run-primary | run-backup | probe-primary"
 }
 
+cron_running() {
+    ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1
+}
+
 log() {
     mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
     printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE"
@@ -416,7 +420,7 @@ status() {
     echo "  log: $LOG_FILE"
     echo "  detail log: $DETAIL_LOG_FILE"
     if grep "# $MARKER" "$CRON_FILE" >/dev/null 2>&1; then echo "  cron: включён"; grep "# $MARKER" "$CRON_FILE"; else echo "  cron: отключён"; fi
-    if ps 2>/dev/null | grep -i '[c]rond' >/dev/null 2>&1; then echo "  crond: запущен"; else echo "  crond: не запущен или не виден"; fi
+    if cron_running; then echo "  cron process: запущен"; else echo "  cron process: не запущен или не виден"; fi
 }
 
 case "${1:-check}" in
