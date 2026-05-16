@@ -179,9 +179,9 @@ func activeSlot() string {
 	}
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		for _, marker := range []string{"active slot:", "активный слот:"} {
-			if idx := strings.Index(line, marker); idx >= 0 {
-				return strings.TrimSpace(line[idx+len(marker):])
+		for _, marker := range []string{"active slot:", "active:", "активный слот:"} {
+			if strings.HasPrefix(line, marker) {
+				return strings.TrimSpace(strings.TrimPrefix(line, marker))
 			}
 		}
 	}
