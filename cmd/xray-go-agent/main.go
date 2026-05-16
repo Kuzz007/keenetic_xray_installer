@@ -372,7 +372,7 @@ func doctorCommand() []string {
 		return []string{"/opt/bin/xray-go", "doctor", "--support"}
 	}
 	if exists("/opt/bin/vless-go-doctor") {
-		return []string{"/opt/bin/vless-go-doctor", "--support"}
+		return []string{"/opt/bin/vless-go-doctor"}
 	}
 	if exists("/opt/bin/xray-doctor") {
 		return []string{"/opt/bin/xray-doctor", "--support"}
