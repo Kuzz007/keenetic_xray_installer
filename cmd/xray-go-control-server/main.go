@@ -56,13 +56,14 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock(); rt.Results = append(rt.Results, res); if len(rt.Results) > 20 { rt.Results = rt.Results[len(rt.Results)-20:] }; s.mu.Unlock()
 	_ = json.NewEncoder(w).Encode(map[string]string{"ok":"1"})
 	if s.cfg.BotToken != "" && s.cfg.AdminUserID != 0 {
-		if isStandaloneResult(res.CommandID) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } else if !s.editActiveRouterResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) }
+		if isCardPreferredResult(res.CommandID) { if !s.editActiveRouterResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } } else if isStandaloneResult(res.CommandID) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } else if !s.editActiveRouterResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) }
 		if summary, ok := s.recordDoctorAllResult(routerName, res); ok { s.sendMessage(s.cfg.AdminUserID, summary) }
 		if summary, ok := s.recordUpdateScriptsAllResult(routerName, res); ok { s.sendMessage(s.cfg.AdminUserID, summary) }
 	}
 }
 
-func isStandaloneResult(commandID string) bool { return strings.HasPrefix(commandID, "slot_change") || strings.HasPrefix(commandID, "agent_start") || strings.HasPrefix(commandID, "doctor_all") || strings.HasPrefix(commandID, "set_primary_source-") || strings.HasPrefix(commandID, "set_backup_source-") }
+func isStandaloneResult(commandID string) bool { return strings.HasPrefix(commandID, "slot_change") || strings.HasPrefix(commandID, "agent_start") || strings.HasPrefix(commandID, "doctor_all") }
+func isCardPreferredResult(commandID string) bool { return strings.HasPrefix(commandID, "set_primary_source-") || strings.HasPrefix(commandID, "set_backup_source-") }
 
 func (s *Server) authRouter(r *http.Request) *Router {
 	auth := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "); if auth == "" { return nil }
