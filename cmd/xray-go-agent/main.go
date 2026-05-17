@@ -45,6 +45,7 @@ type PollResponse struct {
 
 const agentVersion = "0.1.4-go-experimental"
 const slotStateFile = "/opt/var/run/xray-go-agent.last-slot"
+const resultLogPath = "/opt/var/log/xray-go-agent-result.log"
 
 func main() {
 	cfgPath := flag.String("config", "/opt/etc/xray/xray-go-agent.conf", "config path")
@@ -56,6 +57,7 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 	log.Printf("xray-go-agent started version=%s router_id=%s name=%s server=%s", agentVersion, cfg.RouterID, cfg.RouterName, cfg.ServerURL)
+	resultLog("agent start version=%s router_id=%s", agentVersion, cfg.RouterID)
 	if err := notifyStartup(cfg); err != nil {
 		log.Printf("startup notification failed: %v", err)
 	}
@@ -68,6 +70,7 @@ func main() {
 		}
 		if err := pollOnce(cfg); err != nil {
 			log.Printf("poll error: %v", err)
+			resultLog("poll error: %v", err)
 		}
 		if err := checkSlotChange(cfg); err != nil {
 			log.Printf("slot check failed: %v", err)
@@ -77,6 +80,17 @@ func main() {
 		}
 		time.Sleep(cfg.PollInterval)
 	}
+}
+
+func resultLog(format string, args ...interface{}) {
+	_ = os.MkdirAll(filepath.Dir(resultLogPath), 0755)
+	line := time.Now().Format("2006-01-02 15:04:05") + " " + fmt.Sprintf(format, args...) + "\n"
+	f, err := os.OpenFile(resultLogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.WriteString(line)
 }
 
 func pollOnce(cfg Config) error {
@@ -105,28 +119,41 @@ func pollOnce(cfg Config) error {
 	if pr.Command == nil || pr.Command.ID == "" {
 		return nil
 	}
+	resultLog("COMMAND start command_id=%s action=%s", pr.Command.ID, pr.Command.Action)
+	started := time.Now()
 	ok, out := runAllowed(*pr.Command)
-	res := Result{CommandID: pr.Command.ID, RouterID: cfg.RouterID, OK: ok, Output: redact(out, pr.Command.Source)}
+	redacted := redact(out, pr.Command.Source)
+	resultLog("COMMAND done command_id=%s action=%s ok=%v duration=%s output_len=%d", pr.Command.ID, pr.Command.Action, ok, time.Since(started).Round(time.Millisecond), len(redacted))
+	res := Result{CommandID: pr.Command.ID, RouterID: cfg.RouterID, OK: ok, Output: redacted}
 	return postResult(cfg, res)
 }
 
 func postResult(cfg Config, res Result) error {
 	payload, _ := json.Marshal(res)
+	resultLog("POST start command_id=%s ok=%v output_len=%d payload_len=%d", res.CommandID, res.OK, len(res.Output), len(payload))
 	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(cfg.ServerURL, "/")+"/agent/result", bytes.NewReader(payload))
 	if err != nil {
+		resultLog("POST build failed command_id=%s error=%s", res.CommandID, err.Error())
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.AgentToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		resultLog("POST failed command_id=%s error=%s", res.CommandID, err.Error())
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
+		body := strings.TrimSpace(string(b))
+		if len(body) > 300 {
+			body = body[:300]
+		}
+		resultLog("POST rejected command_id=%s status=%s body=%q", res.CommandID, resp.Status, body)
 		return fmt.Errorf("result status %s: %s", strings.TrimSpace(resp.Status), strings.TrimSpace(string(b)))
 	}
+	resultLog("POST ok command_id=%s status=%s", res.CommandID, resp.Status)
 	return nil
 }
 
