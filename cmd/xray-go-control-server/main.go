@@ -33,9 +33,10 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/agent/poll", s.handlePoll)
 	mux.HandleFunc("/agent/result", s.handleResult)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("OK\n")) })
+	mux.HandleFunc("/health", handleHealth)
+	mux.HandleFunc("/version", handleVersion)
 	go s.telegramLoop()
-	log.Printf("xray-go-control-server listen=%s routers=%d", cfg.Listen, len(cfg.Routers))
+	log.Printf("xray-go-control-server listen=%s routers=%d %s", cfg.Listen, len(cfg.Routers), versionLine())
 	log.Fatal(http.ListenAndServe(cfg.Listen, mux))
 }
 
