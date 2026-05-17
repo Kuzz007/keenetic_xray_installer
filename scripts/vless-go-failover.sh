@@ -121,6 +121,21 @@ save_source() {
     save_selector "$SLOT" "$SELECTOR"
 }
 
+apply_source_if_active() {
+    SLOT="$1"
+    SELECTOR="${2:-first}"
+    ACTIVE="$(sed -n '1p' "$ACTIVE_STORE" 2>/dev/null || true)"
+    if [ "$ACTIVE" != "$SLOT" ]; then
+        echo "Источник $SLOT сохранён, но не применён: активный слот ${ACTIVE:-unknown}."
+        echo "Чтобы применить позже: vless-go-failover switch $SLOT"
+        return 0
+    fi
+    SOURCE_VALUE="$(slot_source "$SLOT")" || { echo "ОШИБКА: источник $SLOT не настроен" >&2; exit 1; }
+    echo "Активный слот $SLOT изменён; применяю новый источник к Xray config..."
+    run_update "$SOURCE_VALUE" "$SLOT" "set-active-source" --selector "$SELECTOR"
+    echo "Источник $SLOT сохранён и применён."
+}
+
 parse_set_args() {
     SET_SOURCE=""
     SET_SELECTOR="first"
@@ -208,6 +223,7 @@ run_update() {
     case "$ACTION" in
         switch) history_log manual_switch from="$OLD_SLOT" to="$SLOT" selector="$SELECTOR" no_restart="$NO_RESTART" ;;
         update-active) history_log update_active_config slot="$SLOT" selector="$SELECTOR" no_restart="$NO_RESTART" ;;
+        set-active-source) history_log set_active_source slot="$SLOT" selector="$SELECTOR" no_restart="$NO_RESTART" ;;
         *) history_log "$ACTION" slot="$SLOT" selector="$SELECTOR" no_restart="$NO_RESTART" ;;
     esac
 
@@ -235,8 +251,8 @@ status() {
 
 case "${1:-status}" in
     status) status ;;
-    set-primary) shift; parse_set_args "$@"; save_source primary "$SET_SOURCE" "$SET_SELECTOR" ;;
-    set-backup) shift; parse_set_args "$@"; save_source backup "$SET_SOURCE" "$SET_SELECTOR" ;;
+    set-primary) shift; parse_set_args "$@"; save_source primary "$SET_SOURCE" "$SET_SELECTOR"; apply_source_if_active primary "$SET_SELECTOR" ;;
+    set-backup) shift; parse_set_args "$@"; save_source backup "$SET_SOURCE" "$SET_SELECTOR"; apply_source_if_active backup "$SET_SELECTOR" ;;
     set-selector) shift; [ "$#" -ge 2 ] || { echo "ОШИБКА: set-selector требует слот и selector" >&2; exit 1; }; save_selector "$1" "$2" ;;
     switch) shift; [ "$#" -ge 1 ] || { echo "ОШИБКА: switch требует primary или backup" >&2; exit 1; }; SLOT="$1"; shift; SOURCE_VALUE="$(slot_source "$SLOT")" || { history_log failed_switch to="$SLOT" reason=source_not_configured; echo "ОШИБКА: источник $SLOT не настроен" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "switch" "$@" ;;
     update-active) shift; if [ -s "$ACTIVE_STORE" ]; then SLOT="$(sed -n '1p' "$ACTIVE_STORE")"; SOURCE_VALUE="$(slot_source "$SLOT" 2>/dev/null || true)"; else SLOT="current"; SOURCE_VALUE=""; fi; [ -n "$SOURCE_VALUE" ] || SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE" 2>/dev/null || true)"; [ -n "$SOURCE_VALUE" ] || { history_log failed_update reason=no_active_source; echo "ОШИБКА: активный источник не найден" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "update-active" "$@" ;;
