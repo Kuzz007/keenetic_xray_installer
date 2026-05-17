@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "updated": "2026-05-18",
+  "lists": [
+    {
+      "id": "youtube",
+      "title": "YouTube",
+      "description": "YouTube, Google Video, ytimg and common Google video IP ranges",
+      "file": "youtube.txt"
+    },
+    {
+      "id": "telegram",
+      "title": "Telegram",
+      "description": "Telegram domains, CDN domains and known Telegram IP ranges",
+      "file": "telegram.txt"
+    },
+    {
+      "id": "discord",
+      "title": "Discord",
+      "description": "Discord domains, CDN domains and known Discord IP ranges",
+      "file": "discord.txt"
+    }
+  ]
+}
