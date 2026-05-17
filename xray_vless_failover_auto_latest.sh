@@ -37,7 +37,7 @@ usage() {
 Usage: xray_vless_failover_auto_latest.sh [options]
 
 Edition selection:
-  --auto                 Auto: existing installed edition wins, otherwise choose by /opt space
+  --auto                 Auto: low /opt space selects Minimal Go; update-only repairs installed edition
   --go                   Force Go/Entware latest edition
   --minimal-go           Force Minimal Go edition
   --minimal-next         Force legacy minimal-next edition
@@ -433,7 +433,14 @@ esac
 INSTALLED_EDITION="$(detect_installed_edition)"
 
 if [ "$EDITION" = "auto" ]; then
-    if [ "$INSTALLED_EDITION" != "none" ]; then
+    if [ "$MODE" = "install" ] && [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
+        SELECTED="minimal-go"
+        if [ "$INSTALLED_EDITION" != "none" ] && [ "$INSTALLED_EDITION" != "minimal-go" ]; then
+            SELECT_REASON="low /opt space overrides installed $INSTALLED_EDITION remnants"
+        else
+            SELECT_REASON="free /opt space is below threshold"
+        fi
+    elif [ "$INSTALLED_EDITION" != "none" ]; then
         SELECTED="$INSTALLED_EDITION"
         SELECT_REASON="existing installation detected"
     elif [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
