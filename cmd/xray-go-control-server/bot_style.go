@@ -87,6 +87,8 @@ func prettyResultMessage(routerName string, res Result) string {
 	out := normalizeResultOutput(res.Output)
 	if prettyJSON, ok := prettyDoctorJSON(out); ok {
 		out = prettyJSON
+	} else if prettySource, ok := prettySourceUpdateResult(res, out); ok {
+		out = prettySource
 	}
 	return fmt.Sprintf("%s %s: %s %s\n\n%s", statusIcon, routerName, statusText, res.CommandID, limit(out, 3500))
 }
@@ -107,6 +109,8 @@ func prettyResults(rt *Router) string {
 		out := normalizeResultOutput(r.Output)
 		if prettyJSON, ok := prettyDoctorJSON(out); ok {
 			out = prettyJSON
+		} else if prettySource, ok := prettySourceUpdateResult(r, out); ok {
+			out = prettySource
 		}
 		items = append(items, fmt.Sprintf("%s [%s] %s\n%s", icon, r.At, r.CommandID, limit(out, 900)))
 	}
@@ -145,6 +149,61 @@ func prettyDoctorJSON(s string) (string, bool) {
 		lines = append(lines, "active slot: "+d.ActiveSlot)
 	}
 	return strings.Join(lines, "\n"), true
+}
+
+func prettySourceUpdateResult(res Result, out string) (string, bool) {
+	if !strings.HasPrefix(res.CommandID, "set_primary_source-") && !strings.HasPrefix(res.CommandID, "set_backup_source-") {
+		return "", false
+	}
+	slot := "primary"
+	if strings.HasPrefix(res.CommandID, "set_backup_source-") {
+		slot = "backup"
+	}
+	selector := sourceResultValue(out, "selector")
+	if selector == "" {
+		selector = "first"
+	}
+	applied := strings.Contains(out, "applied new source") || strings.Contains(out, "saved and applied") || strings.Contains(out, "source updated:")
+	savedOnly := strings.Contains(out, "saved but not applied")
+	lines := []string{}
+	if res.OK {
+		if savedOnly && !applied {
+			lines = append(lines, "✅ Источник сохранён")
+			lines = append(lines, "⚠️ Не применён сейчас: изменён неактивный слот")
+		} else {
+			lines = append(lines, "✅ Источник применён")
+		}
+	} else {
+		lines = append(lines, "❌ Источник не применён")
+	}
+	lines = append(lines, "", "Slot: "+slot, "Selector: "+selector, "Значение скрыто.")
+	active := sourceResultValue(out, "active")
+	if active != "" {
+		lines = append(lines, "Active slot: "+active)
+	}
+	if !res.OK {
+		trimmed := strings.TrimSpace(out)
+		if trimmed != "" {
+			lines = append(lines, "", "Details:", limit(trimmed, 1200))
+		}
+	}
+	return strings.Join(lines, "\n"), true
+}
+
+func sourceResultValue(out, key string) string {
+	for _, line := range strings.Split(out, "\n") {
+		for _, part := range strings.Fields(line) {
+			if strings.HasPrefix(part, key+"=") {
+				return strings.Trim(strings.TrimPrefix(part, key+"="), " ,;\t")
+			}
+		}
+		prefix := key + ":"
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
 }
 
 func normalizeResultOutput(s string) string {
