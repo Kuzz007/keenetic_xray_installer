@@ -132,8 +132,17 @@ set_source() {
   if minimal_mode && have /opt/bin/minimal-go-update; then
     old="/opt/etc/xray/minimal-go-$slot.url"
     if [ -s "$old" ]; then cp "$old" "/opt/etc/xray/source-backups/$(date '+%Y%m%d-%H%M%S').minimal-$slot" 2>/dev/null || true; fi
-    /opt/bin/minimal-go-update "$slot" "$source" 2>&1
-    return $?
+    /opt/bin/minimal-go-update "$slot" "$source" 2>&1 || return $?
+    active="$(active_slot | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    if [ "$active" = "$slot" ]; then
+      echo "Active Minimal Go slot $slot changed; applying new source..."
+      /opt/bin/minimal-go-switch "$slot" 2>&1 || return $?
+      echo "Minimal Go source saved and applied: slot=$slot"
+    else
+      echo "Minimal Go source saved but not applied: slot=$slot active=${active:-unknown}"
+      echo "To apply later: minimal-go-switch $slot"
+    fi
+    return 0
   fi
   fc="$(failover_cmd 2>/dev/null || true)"
   [ -n "$fc" ] || { echo "not found: minimal-go-update, /opt/bin/vless-go-failover or /opt/bin/failover"; return 1; }
