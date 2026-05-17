@@ -79,6 +79,17 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 
 	rows = append(rows, []inlineButton{{Text: "📬 Results", CallbackData: "act:results:" + routerID}})
 
+	updateRow := []inlineButton{}
+	if f.has("update_scripts") {
+		updateRow = append(updateRow, inlineButton{Text: "🔄 Скрипты", CallbackData: "act:update_scripts:" + routerID})
+	}
+	if f.has("update_agent") {
+		updateRow = append(updateRow, inlineButton{Text: "🔁 Агент", CallbackData: "act:update_agent:" + routerID})
+	}
+	if len(updateRow) > 0 {
+		rows = append(rows, updateRow)
+	}
+
 	if f.has("reboot") {
 		rows = append(rows, []inlineButton{{Text: "🔄 Перезагрузить роутер", CallbackData: "act:reboot:" + routerID}})
 	}
