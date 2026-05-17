@@ -12,11 +12,13 @@ import (
 
 const autoLatestURL = "https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh"
 const autoLatestPath = "/opt/tmp/xray_vless_failover_auto_latest.sh"
+const updateScriptsLogPath = "/opt/var/log/xray-go-update-scripts.log"
 
 func updateScripts() (bool, string) {
 	if err := os.MkdirAll("/opt/tmp", 0755); err != nil {
 		return false, err.Error()
 	}
+	_ = os.MkdirAll("/opt/var/log", 0755)
 
 	client := &http.Client{Timeout: 60 * time.Second}
 	req, err := http.NewRequest(http.MethodGet, autoLatestURL, nil)
@@ -49,8 +51,47 @@ func updateScripts() (bool, string) {
 	cmd := exec.Command(autoLatestPath, "--update-only", "--no-restart")
 	out, err := cmd.CombinedOutput()
 	text := strings.TrimSpace("Updating router scripts via auto_latest repair path...\n" + string(out))
+	_ = os.WriteFile(updateScriptsLogPath, []byte(text+"\n"), 0644)
+	summary := updateScriptsSummary(text)
 	if err != nil {
-		return false, text + "\nERROR: " + err.Error()
+		return false, summary + "\nstatus: failed\nerror: " + err.Error()
 	}
-	return true, text
+	return true, summary
+}
+
+func updateScriptsSummary(output string) string {
+	edition := firstValueAfter(output, "Selected edition:")
+	if edition == "" {
+		edition = "unknown"
+	}
+	mode := firstValueAfter(output, "Mode:")
+	if mode == "" {
+		mode = "update-only"
+	}
+	minimalMenu := "no"
+	if exists("/opt/bin/minimal-go-menu") {
+		minimalMenu = "yes"
+	}
+	recovery := "unknown"
+	if exists("/opt/bin/vless-go-recover") {
+		recovery = "updated"
+	}
+	return strings.Join([]string{
+		"✅ Scripts update completed",
+		"edition: " + edition,
+		"mode: " + mode,
+		"recovery: " + recovery,
+		"minimal-go-menu: " + minimalMenu,
+		"log: " + updateScriptsLogPath,
+	}, "\n")
+}
+
+func firstValueAfter(output, prefix string) string {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
 }
