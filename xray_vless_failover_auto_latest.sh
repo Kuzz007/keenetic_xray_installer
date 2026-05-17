@@ -314,6 +314,56 @@ Force Go resolver update: $FORCE_GO_RESOLVER_UPDATE
 EOF
 }
 
+print_selection_notes() {
+    echo
+    echo "Selection notes:"
+    case "$SELECTED" in
+        minimal-go)
+            echo "  - Minimal Go is selected: direct vless:// only, low storage footprint."
+            if [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
+                echo "  - Low /opt space detected; Full Go may fail to install xray-core/failover-go."
+            fi
+            if [ "$INSTALLED_EDITION" != "none" ] && [ "$INSTALLED_EDITION" != "minimal-go" ]; then
+                echo "  - Existing $INSTALLED_EDITION remnants were detected, but Minimal Go is safer for this /opt size."
+            fi
+            echo "  - After install/check: minimal-go-status ; vless-go-recover --mode minimal status ; minimal-go-menu"
+            ;;
+        go)
+            echo "  - Go/Entware latest is selected: feed package, full menu helpers, subscriptions/failover tooling."
+            echo "  - After install/check: xray-go status ; xray-go doctor --json ; vless-go-recover --mode full status"
+            ;;
+        minimal-next)
+            echo "  - Minimal-next legacy-compatible edition is selected. Prefer Minimal Go for new low-space installs."
+            ;;
+        *)
+            echo "  - No supported edition selected."
+            ;;
+    esac
+    echo
+}
+
+print_post_install_checks() {
+    edition="$1"
+    echo
+    echo "Post-install checks:"
+    case "$edition" in
+        minimal-go)
+            echo "  minimal-go-status"
+            echo "  vless-go-recover --mode minimal status"
+            echo "  minimal-go-menu"
+            ;;
+        go)
+            echo "  xray-go status"
+            echo "  xray-go doctor --json"
+            echo "  vless-go-recover --mode full status"
+            ;;
+        *)
+            echo "  Run status/doctor commands for the selected edition."
+            ;;
+    esac
+    echo
+}
+
 run_recovery_status() {
     mode="$1"
     if [ -x /opt/bin/vless-go-recover ]; then
@@ -372,6 +422,7 @@ safe_update_minimal_go() {
     echo "Running Minimal Go repair: $MINIMAL_GO_TMP $args"
     sh "$MINIMAL_GO_TMP" $args
     install_minimal_go_menu || true
+    print_post_install_checks minimal-go
 }
 
 safe_update_go() {
@@ -384,6 +435,7 @@ safe_update_go() {
     [ "$FORCE_GO_RESOLVER_UPDATE" = "1" ] && args="$args --force-go-resolver"
     echo "Running Full Go repair: $GO_FULL_TMP $args"
     sh "$GO_FULL_TMP" $args
+    print_post_install_checks go
 }
 
 safe_update_minimal_next() {
@@ -459,6 +511,7 @@ FREE_MB="$(space_mb "$FREE_KB")"
 THRESHOLD_MB="$(space_mb "$THRESHOLD_KB")"
 
 print_detection
+print_selection_notes
 
 case "$MODE" in
     detect-only)
@@ -481,7 +534,6 @@ bootstrap_selected_dependencies "$SELECTED"
 case "$SELECTED" in
     minimal-go)
         cat <<'EOF'
-
 Minimal Go edition:
   - direct vless:// links only
   - primary/backup failover
@@ -494,11 +546,11 @@ EOF
         download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go"
         sh "$MINIMAL_GO_TMP"
         install_minimal_go_menu || true
+        print_post_install_checks minimal-go
         exit 0
         ;;
     minimal-next)
         cat <<'EOF'
-
 Minimal-next legacy-compatible edition:
   - direct vless:// links only
   - no subscriptions
@@ -513,7 +565,6 @@ EOF
 esac
 
 cat <<'EOF'
-
 Go/Entware latest edition:
   - installs failover-go from GitHub Release feed
   - auto-selects Entware architecture in feed bootstrap
