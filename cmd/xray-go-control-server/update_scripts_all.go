@@ -9,6 +9,7 @@ import (
 )
 
 const updateScriptsBatchTimeout = 15 * time.Minute
+const doctorBatchTimeout = 10 * time.Minute
 
 func (s *Server) routersKeyboardWithUpdateScripts() inlineKeyboard {
 	kb := s.routersKeyboard()
@@ -28,7 +29,7 @@ func (s *Server) routersKeyboardWithUpdateScripts() inlineKeyboard {
 }
 
 func (s *Server) enqueueDoctorAll() string {
-	return s.enqueueBulkActionWithCommandID("doctor", "doctor_all", "🩺 Диагностика поставлена в очередь", "Команда безопасная: выполняет doctor на каждом роутере и вернёт результат отдельным сообщением/в Results.")
+	return s.enqueueBulkActionWithCommandID("doctor", "doctor_all", "🩺 Диагностика поставлена в очередь", "Команда безопасная: выполняет doctor на каждом роутере. Если часть роутеров не ответит, через 10 минут придёт partial summary с NO RESULT.")
 }
 
 func (s *Server) enqueueUpdateScriptsAll() string {
@@ -72,6 +73,7 @@ func (s *Server) enqueueBulkActionWithCommandID(action, idPrefix, title, note st
 
 	if idPrefix == "doctor_all" {
 		rememberDoctorBatch(commandID, expected)
+		go s.sendDoctorBatchTimeoutSummary(commandID, doctorBatchTimeout)
 	}
 	if idPrefix == "update_scripts_all" {
 		rememberUpdateScriptsBatch(commandID, expected)
