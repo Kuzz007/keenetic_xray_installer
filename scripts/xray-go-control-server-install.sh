@@ -9,6 +9,45 @@ SERVICE="${SERVICE:-/etc/systemd/system/xray-go-control-server.service}"
 USER_NAME="${USER_NAME:-xraygo}"
 LISTEN_PORT="${LISTEN_PORT:-18090}"
 LISTEN_DEFAULT="${LISTEN_DEFAULT:-}"
+UPDATE_ONLY="${UPDATE_ONLY:-0}"
+FORCE_CONFIG="${FORCE_CONFIG:-0}"
+ASSUME_YES="${ASSUME_YES:-0}"
+
+usage() {
+  cat <<'USAGE'
+Usage: xray-go-control-server-install.sh [options]
+
+Options:
+  --update-only       Update binary/service and reuse existing config. Do not ask setup questions.
+  --force-config      Recreate config interactively even when it already exists.
+  --yes               Non-interactive update confirmation where possible.
+  -h, --help          Show help.
+
+Default behavior:
+  - If config exists, it is reused and not rewritten.
+  - If config is missing, the script asks initial setup questions.
+
+Environment overrides:
+  REPO=Kuzz007/keenetic_xray_installer
+  TAG=latest
+  BIN=/usr/local/bin/xray-go-control-server
+  CONF=/etc/xray-go-control-server.conf
+  SERVICE=/etc/systemd/system/xray-go-control-server.service
+  USER_NAME=xraygo
+  UPDATE_ONLY=1
+  FORCE_CONFIG=1
+USAGE
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --update-only|--repair-only|--no-config) UPDATE_ONLY="1"; shift ;;
+    --force-config|--reconfigure) FORCE_CONFIG="1"; shift ;;
+    -y|--yes) ASSUME_YES="1"; shift ;;
+    -h|--help|help) usage; exit 0 ;;
+    *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -147,9 +186,30 @@ BOT_TOKEN="${bot_token}"
 ADMIN_USER_ID="${admin_id}"
 ROUTERS="${routers}"
 EOF
+  if [ -f "$CONF" ]; then
+    cp "$CONF" "${CONF}.bak.$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
+  fi
   install -m 0660 "$tmp" "$CONF"
   rm -f "$tmp"
   echo "Created config: $CONF"
+}
+
+ensure_config() {
+  if [ "$FORCE_CONFIG" = "1" ]; then
+    echo "Force config mode: recreating $CONF"
+    write_config
+    return
+  fi
+  if [ -f "$CONF" ]; then
+    echo "Existing config found, reusing without prompts: $CONF"
+    return
+  fi
+  if [ "$UPDATE_ONLY" = "1" ]; then
+    echo "ERROR: --update-only requested but config is missing: $CONF" >&2
+    echo "Run without --update-only for initial setup." >&2
+    exit 1
+  fi
+  write_config
 }
 
 install_service() {
@@ -199,13 +259,16 @@ main() {
   fi
   need_cmd uname
   install_binary
-  write_config
+  ensure_config
   install_service
   echo
   echo "Done. Checks:"
   echo "  systemctl status xray-go-control-server --no-pager"
   echo "  curl -fsS http://127.0.0.1:${LISTEN_PORT}/health"
   echo
+  if [ "$UPDATE_ONLY" = "1" ] || [ "$FORCE_CONFIG" != "1" ]; then
+    echo "Config reuse: existing config was preserved unless --force-config was used."
+  fi
   echo "Telegram commands after router agent connects:"
   echo "  /routers"
   echo "  /status_home"
