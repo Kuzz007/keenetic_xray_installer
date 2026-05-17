@@ -22,6 +22,10 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.editMenuOnly(cb.ID, chatID, messageID, helpText(), mainMenuKeyboard())
 	case data == "routers":
 		s.editMenuOnly(cb.ID, chatID, messageID, s.routerList(), s.routersKeyboardWithUpdateScripts())
+	case data == "servers":
+		s.editMenuOnly(cb.ID, chatID, messageID, s.serverList(), s.serversKeyboard())
+	case data == "server_add_help":
+		s.editMenuOnly(cb.ID, chatID, messageID, serverAddHelpText(), s.serversKeyboard())
 	case data == "doctor_all":
 		text := s.enqueueDoctorAll()
 		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
@@ -33,6 +37,21 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
 	case data == "add_router_help":
 		s.startAddRouterWizard(chatID)
+	case strings.HasPrefix(data, "server_install:"):
+		serverID := strings.TrimPrefix(data, "server_install:")
+		s.setActiveMenu(serverID, chatID, messageID)
+		s.editMenuOnly(cb.ID, chatID, messageID, s.serverInstallText(serverID), serverKeyboard(serverID))
+	case strings.HasPrefix(data, "server:"):
+		serverID := strings.TrimPrefix(data, "server:")
+		s.setActiveMenu(serverID, chatID, messageID)
+		text, kb, ok := s.serverMenuView(serverID)
+		if !ok {
+			s.editMenuOnly(cb.ID, chatID, messageID, text, s.serversKeyboard())
+			return
+		}
+		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
+	case strings.HasPrefix(data, "serveract:"):
+		s.handleServerActionCallback(chatID, messageID, data)
 	case strings.HasPrefix(data, "install:"):
 		routerID := strings.TrimPrefix(data, "install:")
 		s.setActiveMenu(routerID, chatID, messageID)
