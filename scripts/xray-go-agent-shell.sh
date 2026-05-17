@@ -6,6 +6,7 @@ ONCE="0"
 AGENT_VERSION="0.1.4-shell-experimental"
 SLOT_STATE_FILE="${SLOT_STATE_FILE:-/opt/var/run/xray-go-agent-shell.last-slot}"
 UPDATE_SCRIPTS_LOG="/opt/var/log/xray-go-update-scripts.log"
+RESULT_LOG="/opt/var/log/xray-go-agent-result.log"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -22,6 +23,7 @@ POLL_INTERVAL="${POLL_INTERVAL:-5}"
 ROUTER_NAME="${ROUTER_NAME:-$ROUTER_ID}"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
+result_log() { mkdir -p /opt/var/log 2>/dev/null || true; echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$RESULT_LOG" 2>/dev/null || true; }
 have() { [ -x "$1" ]; }
 exists() { [ -e "$1" ]; }
 
@@ -316,9 +318,25 @@ post_result() {
   command_id="$1"
   ok="$2"
   output="$3"
+  output_len="$(printf '%s' "$output" | wc -c | tr -d ' ')"
   escaped_output="$(printf '%s' "$output" | json_escape)"
   payload='{"command_id":"'"$command_id"'","router_id":"'"$ROUTER_ID"'","ok":'"$ok"',"output":"'"$escaped_output"'"}'
-  curl -fsS -H "Content-Type: application/json" -H "Authorization: Bearer $AGENT_TOKEN" -d "$payload" "${SERVER_URL%/}/agent/result" >/dev/null
+  payload_len="$(printf '%s' "$payload" | wc -c | tr -d ' ')"
+  result_log "POST start command_id=$command_id ok=$ok output_len=$output_len payload_len=$payload_len"
+  tmp_post="/tmp/xray-go-agent-post.$$"
+  if curl -fsS -w '%{http_code}' -o "$tmp_post" -H "Content-Type: application/json" -H "Authorization: Bearer $AGENT_TOKEN" -d "$payload" "${SERVER_URL%/}/agent/result" >"$tmp_post.code" 2>"$tmp_post.err"; then
+    code="$(cat "$tmp_post.code" 2>/dev/null || true)"
+    result_log "POST ok command_id=$command_id status=${code:-unknown}"
+    rm -f "$tmp_post" "$tmp_post.code" "$tmp_post.err"
+    return 0
+  fi
+  rc="$?"
+  code="$(cat "$tmp_post.code" 2>/dev/null || true)"
+  err="$(cat "$tmp_post.err" 2>/dev/null | head -c 200 || true)"
+  body="$(cat "$tmp_post" 2>/dev/null | head -c 200 || true)"
+  result_log "POST failed command_id=$command_id rc=$rc status=${code:-unknown} err=$err body=$body"
+  rm -f "$tmp_post" "$tmp_post.code" "$tmp_post.err"
+  return "$rc"
 }
 
 notify_startup() {
@@ -346,21 +364,28 @@ poll_once() {
   st="$(short_status | json_escape)"
   rn="$(printf '%s' "$ROUTER_NAME" | json_escape)"
   payload='{"router_id":"'"$ROUTER_ID"'","name":"'"$rn"'","status":"'"$st"'"}'
-  resp="$(curl -fsS -H "Content-Type: application/json" -H "Authorization: Bearer $AGENT_TOKEN" -d "$payload" "${SERVER_URL%/}/agent/poll" 2>&1)" || { log "poll failed: $resp"; return 1; }
+  resp="$(curl -fsS -H "Content-Type: application/json" -H "Authorization: Bearer $AGENT_TOKEN" -d "$payload" "${SERVER_URL%/}/agent/poll" 2>&1)" || { log "poll failed: $resp"; result_log "poll failed: $resp"; return 1; }
   command_id="$(printf '%s' "$resp" | json_get id)"
   [ -n "$command_id" ] || return 0
   action="$(printf '%s' "$resp" | json_get action)"
   selector="$(printf '%s' "$resp" | json_get selector)"
   source="$(printf '%s' "$resp" | json_get source)"
+  result_log "COMMAND start command_id=$command_id action=$action"
   tmp="/tmp/xray-go-agent-shell.out.$$"
+  start_ts="$(date +%s 2>/dev/null || echo 0)"
   if run_action "$action" "$selector" "$source" >"$tmp" 2>&1; then ok=true; else ok=false; fi
+  end_ts="$(date +%s 2>/dev/null || echo 0)"
+  duration=$((end_ts - start_ts))
   out="$(cat "$tmp" 2>/dev/null || true)"
+  out_len="$(printf '%s' "$out" | wc -c | tr -d ' ')"
   rm -f "$tmp"
+  result_log "COMMAND done command_id=$command_id action=$action ok=$ok duration=${duration}s output_len=$out_len"
   post_result "$command_id" "$ok" "$out" || log "result post failed"
   check_slot_change
 }
 
 log "xray-go-agent-shell started version=$AGENT_VERSION router_id=$ROUTER_ID name=$ROUTER_NAME server=$SERVER_URL"
+result_log "agent start version=$AGENT_VERSION router_id=$ROUTER_ID"
 notify_startup
 check_slot_change
 while :; do
