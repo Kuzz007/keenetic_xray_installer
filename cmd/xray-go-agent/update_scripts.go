@@ -13,7 +13,6 @@ import (
 const autoLatestURL = "https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh"
 const autoLatestPath = "/opt/tmp/xray_vless_failover_auto_latest.sh"
 const routesCatalogURL = "https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/xray-keenetic-routes-catalog.sh"
-const routesCatalogPath = "/opt/bin/xray-keenetic-routes-catalog"
 const updateScriptsLogPath = "/opt/var/log/xray-go-update-scripts.log"
 
 func updateScripts() (bool, string) {
