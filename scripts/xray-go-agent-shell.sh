@@ -73,6 +73,7 @@ features() {
   if have /opt/bin/xray-go || have /opt/bin/vless-go-history || have /opt/bin/history || exists /opt/var/log/minimal-go-switch-history.log; then out="$out,history"; fi
   if have /opt/bin/vless-go-watchdog || have /opt/bin/watchdog || exists /opt/var/log/vless-go-watchdog.log || exists /opt/var/log/xray-minimal-go-failover.log; then out="$out,watchdog"; fi
   if have /opt/bin/xray-go || have /opt/bin/vless-go-recover; then out="$out,recovery"; fi
+  if exists "$RESULT_LOG" || [ -d /opt/var/log ]; then out="$out,agent_log"; fi
   if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
   out="$out,update_scripts,update_agent"
   out="${out#,}"
@@ -96,6 +97,7 @@ capabilities() {
   has_feature history && out="$out,history"
   has_feature watchdog && out="$out,watchdog_log,recovery_log"
   has_feature recovery && out="$out,recover_status,recover_check,recover_run,recover_enable,recover_disable"
+  has_feature agent_log && out="$out,agent_result_log"
   has_feature reboot && out="$out,reboot"
   has_feature update_scripts && out="$out,update_scripts"
   has_feature update_agent && out="$out,update_agent"
@@ -210,6 +212,17 @@ recovery_log() {
   return 1
 }
 
+agent_result_log() {
+  if exists "$RESULT_LOG"; then
+    echo "== Agent result log =="
+    echo "log: $RESULT_LOG"
+    tail -n 100 "$RESULT_LOG" 2>/dev/null || true
+    return 0
+  fi
+  echo "agent result log not found: $RESULT_LOG"
+  return 1
+}
+
 recover_cmd() {
   sub="$1"
   if have /opt/bin/xray-go; then
@@ -297,6 +310,7 @@ run_action() {
     history) history_cmd ;;
     watchdog_log) watchdog_log ;;
     recovery_log) recovery_log ;;
+    agent_result_log) agent_result_log ;;
     recover_status) recover_cmd status ;;
     recover_check) recover_cmd check ;;
     recover_run) recover_cmd run ;;
