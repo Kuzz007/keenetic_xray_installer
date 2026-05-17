@@ -7,6 +7,8 @@ AGENT_VERSION="0.1.4-shell-experimental"
 SLOT_STATE_FILE="${SLOT_STATE_FILE:-/opt/var/run/xray-go-agent-shell.last-slot}"
 UPDATE_SCRIPTS_LOG="/opt/var/log/xray-go-update-scripts.log"
 RESULT_LOG="/opt/var/log/xray-go-agent-result.log"
+ROUTES_CATALOG_URL="https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/xray-keenetic-routes-catalog.sh"
+ROUTES_CATALOG_PATH="/opt/bin/xray-keenetic-routes-catalog"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -76,6 +78,7 @@ features() {
   if exists "$RESULT_LOG" || [ -d /opt/var/log ]; then out="$out,agent_log"; fi
   if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
   out="$out,update_scripts,update_agent"
+  [ -x "$ROUTES_CATALOG_PATH" ] && out="$out,routes_catalog"
   out="${out#,}"
   [ -n "$out" ] || out="status"
   printf '%s' "$out"
@@ -101,6 +104,7 @@ capabilities() {
   has_feature reboot && out="$out,reboot"
   has_feature update_scripts && out="$out,update_scripts"
   has_feature update_agent && out="$out,update_agent"
+  has_feature routes_catalog && out="$out,routes_list,routes_preview,routes_apply,routes_remove"
   printf '%s' "$out"
 }
 
@@ -239,6 +243,27 @@ recover_cmd() {
   return 1
 }
 
+install_routes_catalog_helper() {
+  mkdir -p /opt/bin
+  tmp="${ROUTES_CATALOG_PATH}.tmp.$$"
+  echo "Installing routes catalog helper..."
+  if curl -fsSL -H 'Cache-Control: no-cache' -o "$tmp" "$ROUTES_CATALOG_URL"; then
+    if head -n 1 "$tmp" | grep -q '^#!/bin/sh'; then
+      chmod +x "$tmp"
+      mv "$tmp" "$ROUTES_CATALOG_PATH"
+      echo "Installed: $ROUTES_CATALOG_PATH"
+      return 0
+    fi
+    rm -f "$tmp"
+    echo "ERROR: downloaded routes catalog helper does not look like a shell script"
+    return 1
+  fi
+  rc="$?"
+  rm -f "$tmp"
+  echo "ERROR: failed to download routes catalog helper"
+  return "$rc"
+}
+
 value_after_prefix() {
   prefix="$1"
   file="$2"
@@ -255,11 +280,14 @@ update_scripts_summary() {
   [ -x /opt/bin/vless-go-recover ] && recovery="updated"
   menu="no"
   [ -x /opt/bin/minimal-go-menu ] && menu="yes"
+  routes_catalog="missing"
+  [ -x "$ROUTES_CATALOG_PATH" ] && routes_catalog="installed"
   echo "✅ Scripts update completed"
   echo "edition: $edition"
   echo "mode: $mode"
   echo "recovery: $recovery"
   echo "minimal-go-menu: $menu"
+  echo "routes-catalog: $routes_catalog"
   echo "log: $UPDATE_SCRIPTS_LOG"
 }
 
@@ -273,6 +301,9 @@ update_scripts_cmd() {
   chmod +x "$dst" >> "$tmp" 2>&1 || { cp "$tmp" "$UPDATE_SCRIPTS_LOG" 2>/dev/null || true; cat "$tmp"; rm -f "$tmp"; return 1; }
   "$dst" --update-only --no-restart >> "$tmp" 2>&1
   rc="$?"
+  echo >> "$tmp"
+  install_routes_catalog_helper >> "$tmp" 2>&1
+  routes_rc="$?"
   cp "$tmp" "$UPDATE_SCRIPTS_LOG" 2>/dev/null || true
   update_scripts_summary "$UPDATE_SCRIPTS_LOG"
   if [ "$rc" -ne 0 ]; then
@@ -280,6 +311,12 @@ update_scripts_cmd() {
     echo "error: update_scripts exited with code $rc"
     rm -f "$tmp"
     return "$rc"
+  fi
+  if [ "$routes_rc" -ne 0 ]; then
+    echo "status: failed"
+    echo "error: routes catalog helper install failed"
+    rm -f "$tmp"
+    return "$routes_rc"
   fi
   rm -f "$tmp"
   return 0
@@ -296,6 +333,19 @@ update_agent_cmd() {
   [ -x /opt/bin/xray-go-agent-shell ] && agent="shell"
   echo "Agent update scheduled in background. Current agent type: $agent"
   ( sleep 2; "$dst" --agent "$agent" --server-url "$SERVER_URL" --router-id "$ROUTER_ID" --router-name "$ROUTER_NAME" --agent-token "$AGENT_TOKEN" --poll-interval "$POLL_INTERVAL" >/opt/var/log/xray-go-agent-update.log 2>&1 ) &
+}
+
+routes_cmd() {
+  sub="$1"
+  list_id="$2"
+  [ -x "$ROUTES_CATALOG_PATH" ] || { echo "routes catalog helper not installed: $ROUTES_CATALOG_PATH"; return 1; }
+  case "$sub" in
+    list) "$ROUTES_CATALOG_PATH" list ;;
+    preview) [ -n "$list_id" ] || { echo "routes preview requires list id"; return 1; }; "$ROUTES_CATALOG_PATH" preview "$list_id" ;;
+    apply) [ -n "$list_id" ] || { echo "routes apply requires list id"; return 1; }; "$ROUTES_CATALOG_PATH" apply "$list_id" ;;
+    remove) [ -n "$list_id" ] || { echo "routes remove requires list id"; return 1; }; "$ROUTES_CATALOG_PATH" remove "$list_id" ;;
+    *) echo "unknown routes subcommand: $sub"; return 1 ;;
+  esac
 }
 
 run_action() {
@@ -320,6 +370,10 @@ run_action() {
     set_backup_source) set_source backup "$selector" "$source" ;;
     update_scripts) update_scripts_cmd ;;
     update_agent) update_agent_cmd ;;
+    routes_list) routes_cmd list "" ;;
+    routes_preview) routes_cmd preview "$selector" ;;
+    routes_apply) routes_cmd apply "$selector" ;;
+    routes_remove) routes_cmd remove "$selector" ;;
     reboot)
       echo "Router reboot scheduled by control bot. Agent will disconnect now."
       ( sleep 2; reboot ) >/dev/null 2>&1 &
