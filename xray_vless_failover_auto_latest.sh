@@ -15,11 +15,13 @@ MINIMAL_GO_URL="${MINIMAL_GO_URL:-$REPO_BASE/xray_vless_failover_minimal_go.sh}"
 MINIMAL_NEXT_URL="${MINIMAL_NEXT_URL:-$REPO_BASE/xray_vless_failover_minimal_next.sh}"
 RECOVER_URL="${RECOVER_URL:-$REPO_BASE/scripts/vless-go-recover.sh}"
 DOCTOR_URL="${DOCTOR_URL:-$REPO_BASE/scripts/vless-go-doctor.sh}"
+MINIMAL_GO_MENU_URL="${MINIMAL_GO_MENU_URL:-$REPO_BASE/scripts/minimal-go-menu.sh}"
 
 GO_TMP="/opt/tmp/install-entware-feed.latest.sh"
 GO_FULL_TMP="/opt/tmp/xray_vless_failover_go.sh"
 MINIMAL_GO_TMP="/opt/tmp/xray_vless_failover_minimal_go.sh"
 MINIMAL_NEXT_TMP="/opt/tmp/xray_vless_failover_minimal_next.sh"
+MINIMAL_GO_MENU_BIN="/opt/bin/minimal-go-menu"
 
 THRESHOLD_KB="${THRESHOLD_KB:-80000}"
 EDITION="${EDITION:-auto}"
@@ -65,6 +67,7 @@ Environment overrides:
   GO_FEED_URL=<url>
   GO_FULL_URL=<url>
   MINIMAL_GO_URL=<url>
+  MINIMAL_GO_MENU_URL=<url>
   MINIMAL_NEXT_URL=<url>
 
 Rollback safety:
@@ -331,6 +334,7 @@ run_doctor() {
     echo "  cron root file: $([ -f /opt/var/spool/cron/crontabs/root ] && echo yes || echo no)"
     echo "  minimal-go-status: $([ -x /opt/bin/minimal-go-status ] && echo yes || echo no)"
     echo "  minimal-go-switch: $([ -x /opt/bin/minimal-go-switch ] && echo yes || echo no)"
+    echo "  minimal-go-menu: $([ -x /opt/bin/minimal-go-menu ] && echo yes || echo no)"
     echo "  minimal failover init: $([ -x /opt/etc/init.d/S25xray-minimal-go-failover ] && /opt/etc/init.d/S25xray-minimal-go-failover status 2>/dev/null | sed -n '1p' || echo not installed)"
     echo "  xray-go: $([ -x /opt/bin/xray-go ] && echo yes || echo no)"
     echo "  vless-go-failover: $([ -x /opt/bin/vless-go-failover ] && echo yes || echo no)"
@@ -353,6 +357,10 @@ run_doctor() {
     esac
 }
 
+install_minimal_go_menu() {
+    download_helper "$MINIMAL_GO_MENU_URL" "$MINIMAL_GO_MENU_BIN" "Minimal Go menu"
+}
+
 safe_update_minimal_go() {
     echo "Safe update for Minimal Go edition..."
     echo "Repair-lite: delegated to Minimal Go installer --repair-only; no config rewrite, no source rewrite."
@@ -363,6 +371,7 @@ safe_update_minimal_go() {
     [ "$FORCE_GO_RESOLVER_UPDATE" = "1" ] && args="$args --force-go-resolver"
     echo "Running Minimal Go repair: $MINIMAL_GO_TMP $args"
     sh "$MINIMAL_GO_TMP" $args
+    install_minimal_go_menu || true
 }
 
 safe_update_go() {
@@ -476,7 +485,9 @@ Minimal Go edition:
 EOF
         confirm_install "Minimal Go"
         download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go"
-        exec "$MINIMAL_GO_TMP"
+        sh "$MINIMAL_GO_TMP"
+        install_minimal_go_menu || true
+        exit 0
         ;;
     minimal-next)
         cat <<'EOF'
