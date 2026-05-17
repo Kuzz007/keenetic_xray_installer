@@ -12,6 +12,8 @@ import (
 
 const autoLatestURL = "https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh"
 const autoLatestPath = "/opt/tmp/xray_vless_failover_auto_latest.sh"
+const routesCatalogURL = "https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/xray-keenetic-routes-catalog.sh"
+const routesCatalogPath = "/opt/bin/xray-keenetic-routes-catalog"
 const updateScriptsLogPath = "/opt/var/log/xray-go-update-scripts.log"
 
 func updateScripts() (bool, string) {
@@ -51,12 +53,58 @@ func updateScripts() (bool, string) {
 	cmd := exec.Command(autoLatestPath, "--update-only", "--no-restart")
 	out, err := cmd.CombinedOutput()
 	text := strings.TrimSpace("Updating router scripts via auto_latest repair path...\n" + string(out))
+
+	routesText, routesErr := installRoutesCatalogHelper(client)
+	if routesText != "" {
+		text = strings.TrimSpace(text + "\n\n" + routesText)
+	}
+
 	_ = os.WriteFile(updateScriptsLogPath, []byte(text+"\n"), 0644)
 	summary := updateScriptsSummary(text)
+	if routesErr != nil {
+		summary += "\nroutes-catalog: failed"
+	} else if exists(routesCatalogPath) {
+		summary += "\nroutes-catalog: installed"
+	}
 	if err != nil {
 		return false, summary + "\nstatus: failed\nerror: " + err.Error()
 	}
+	if routesErr != nil {
+		return false, summary + "\nstatus: failed\nerror: " + routesErr.Error()
+	}
 	return true, summary
+}
+
+func installRoutesCatalogHelper(client *http.Client) (string, error) {
+	if err := os.MkdirAll("/opt/bin", 0755); err != nil {
+		return "Installing routes catalog helper...\nERROR: " + err.Error(), err
+	}
+	req, err := http.NewRequest(http.MethodGet, routesCatalogURL, nil)
+	if err != nil {
+		return "Installing routes catalog helper...\nERROR: " + err.Error(), err
+	}
+	req.Header.Set("Cache-Control", "no-cache")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "Installing routes catalog helper...\nERROR: " + err.Error(), err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		err := fmt.Errorf("routes catalog helper download failed: HTTP %s", resp.Status)
+		return "Installing routes catalog helper...\nERROR: " + err.Error(), err
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+	if err != nil {
+		return "Installing routes catalog helper...\nERROR: " + err.Error(), err
+	}
+	if !strings.HasPrefix(string(body), "#!/bin/sh") {
+		err := fmt.Errorf("downloaded routes catalog helper does not look like a shell script")
+		return "Installing routes catalog helper...\nERROR: " + err.Error(), err
+	}
+	if err := os.WriteFile(routesCatalogPath, body, 0755); err != nil {
+		return "Installing routes catalog helper...\nERROR: " + err.Error(), err
+	}
+	return "Installing routes catalog helper...\nInstalled: " + routesCatalogPath, nil
 }
 
 func updateScriptsSummary(output string) string {
