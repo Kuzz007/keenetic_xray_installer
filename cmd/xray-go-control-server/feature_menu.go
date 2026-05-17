@@ -55,8 +55,15 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 		})
 	}
 
+	routeRow := []inlineButton{}
 	if f.has("source_update") {
-		rows = append(rows, []inlineButton{{Text: "🔗 Источники", CallbackData: "sources:" + routerID}})
+		routeRow = append(routeRow, inlineButton{Text: "🔗 Источники", CallbackData: "sources:" + routerID})
+	}
+	if f.has("routes_catalog") {
+		routeRow = append(routeRow, inlineButton{Text: "🧭 Маршруты", CallbackData: "routes:" + routerID})
+	}
+	if len(routeRow) > 0 {
+		rows = append(rows, routeRow)
 	}
 
 	if f.has("recovery") {
