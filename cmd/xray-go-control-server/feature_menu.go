@@ -73,6 +73,9 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 	if f.has("watchdog") {
 		logRow = append(logRow, inlineButton{Text: "👁 Logs", CallbackData: "act:watchdog:" + routerID})
 	}
+	if f.has("agent_log") {
+		logRow = append(logRow, inlineButton{Text: "🤖 Agent log", CallbackData: "act:agentlog:" + routerID})
+	}
 	if len(logRow) > 0 {
 		rows = append(rows, logRow)
 	}
