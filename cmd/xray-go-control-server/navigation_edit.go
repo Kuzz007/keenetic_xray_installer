@@ -33,6 +33,25 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
 	case data == "add_router_help":
 		s.startAddRouterWizard(chatID)
+	case strings.HasPrefix(data, "routes-preview:"):
+		parts := strings.SplitN(data, ":", 3)
+		if len(parts) == 3 {
+			s.enqueueRoutesPreview(chatID, messageID, parts[1], parts[2])
+			return
+		}
+		s.editMenuOnly(cb.ID, chatID, messageID, "Некорректная кнопка маршрутов", mainMenuKeyboard())
+	case strings.HasPrefix(data, "routes-list:"):
+		routerID := strings.TrimPrefix(data, "routes-list:")
+		s.enqueueRoutesList(chatID, messageID, routerID)
+	case strings.HasPrefix(data, "routes:"):
+		routerID := strings.TrimPrefix(data, "routes:")
+		s.setActiveMenu(routerID, chatID, messageID)
+		text, kb, ok := s.routesMenuView(routerID)
+		if !ok {
+			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboardWithUpdateScripts())
+			return
+		}
+		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
 	case strings.HasPrefix(data, "install:"):
 		routerID := strings.TrimPrefix(data, "install:")
 		s.setActiveMenu(routerID, chatID, messageID)
