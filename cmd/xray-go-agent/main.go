@@ -46,6 +46,7 @@ type PollResponse struct {
 const agentVersion = "0.1.4-go-experimental"
 const slotStateFile = "/opt/var/run/xray-go-agent.last-slot"
 const resultLogPath = "/opt/var/log/xray-go-agent-result.log"
+const routesCatalogPath = "/opt/bin/xray-keenetic-routes-catalog"
 
 func main() {
 	cfgPath := flag.String("config", "/opt/etc/xray/xray-go-agent.conf", "config path")
@@ -278,6 +279,14 @@ func runAllowed(c Command) (bool, string) {
 		return setSource("primary", c.Selector, c.Source)
 	case "set_backup_source":
 		return setSource("backup", c.Selector, c.Source)
+	case "routes_list":
+		return runRoutesCatalog("list", "")
+	case "routes_preview":
+		return runRoutesCatalog("preview", c.Selector)
+	case "routes_apply":
+		return runRoutesCatalog("apply", c.Selector)
+	case "routes_remove":
+		return runRoutesCatalog("remove", c.Selector)
 	case "reboot":
 		return rebootRouter()
 	default:
@@ -287,6 +296,32 @@ func runAllowed(c Command) (bool, string) {
 		return false, "unsupported action on this router: " + c.Action
 	}
 	return run(cmd, 180*time.Second)
+}
+
+func runRoutesCatalog(subcommand, listID string) (bool, string) {
+	if !exists(routesCatalogPath) {
+		return false, "routes catalog helper not installed: " + routesCatalogPath
+	}
+	cmd := []string{routesCatalogPath, subcommand}
+	if subcommand != "list" {
+		listID = normalizeRouteListID(listID)
+		if listID == "" {
+			return false, "routes " + subcommand + " requires list id"
+		}
+		cmd = append(cmd, listID)
+	}
+	return run(cmd, 180*time.Second)
+}
+
+func normalizeRouteListID(id string) string {
+	id = strings.TrimSpace(id)
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return ""
+	}
+	return id
 }
 
 func runDoctor() (bool, string) {
@@ -469,6 +504,9 @@ func detectFeatures() []string {
 	if exists("/bin/sh") {
 		features = append(features, "reboot", "update_scripts", "update_agent")
 	}
+	if exists(routesCatalogPath) {
+		features = append(features, "routes_catalog")
+	}
 	if len(features) == 0 {
 		features = append(features, "status")
 	}
@@ -490,6 +528,7 @@ func detectCapabilities(features []string) []string {
 	if has["reboot"] { capabilities = append(capabilities, "reboot") }
 	if has["update_scripts"] { capabilities = append(capabilities, "update_scripts") }
 	if has["update_agent"] { capabilities = append(capabilities, "update_agent") }
+	if has["routes_catalog"] { capabilities = append(capabilities, "routes_list", "routes_preview", "routes_apply", "routes_remove") }
 	return capabilities
 }
 
