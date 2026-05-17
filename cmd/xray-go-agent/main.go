@@ -268,6 +268,8 @@ func runAllowed(c Command) (bool, string) {
 		cmd = watchdogLogCommand()
 	case "recovery_log":
 		cmd = recoveryLogCommand()
+	case "agent_result_log":
+		cmd = agentResultLogCommand()
 	case "update_scripts":
 		return updateScripts()
 	case "update_agent":
@@ -461,6 +463,9 @@ func detectFeatures() []string {
 	if len(recoverCommand("status")) > 0 {
 		features = append(features, "recovery")
 	}
+	if exists(resultLogPath) || exists("/opt/var/log") {
+		features = append(features, "agent_log")
+	}
 	if exists("/bin/sh") {
 		features = append(features, "reboot", "update_scripts", "update_agent")
 	}
@@ -481,6 +486,7 @@ func detectCapabilities(features []string) []string {
 	if has["history"] { capabilities = append(capabilities, "history") }
 	if has["watchdog"] { capabilities = append(capabilities, "watchdog_log", "recovery_log") }
 	if has["recovery"] { capabilities = append(capabilities, "recover_status", "recover_check", "recover_run", "recover_enable", "recover_disable") }
+	if has["agent_log"] { capabilities = append(capabilities, "agent_result_log") }
 	if has["reboot"] { capabilities = append(capabilities, "reboot") }
 	if has["update_scripts"] { capabilities = append(capabilities, "update_scripts") }
 	if has["update_agent"] { capabilities = append(capabilities, "update_agent") }
@@ -543,6 +549,10 @@ func watchdogLogCommand() []string {
 
 func recoveryLogCommand() []string {
 	return []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/vless-go-recover.log 2>/dev/null || tail -n 100 /opt/var/log/xray-minimal-go-failover.log 2>/dev/null || true"}
+}
+
+func agentResultLogCommand() []string {
+	return []string{"/bin/sh", "-c", "echo '== Agent result log =='; echo 'log: /opt/var/log/xray-go-agent-result.log'; tail -n 100 /opt/var/log/xray-go-agent-result.log 2>/dev/null || echo 'agent result log not found: /opt/var/log/xray-go-agent-result.log'"}
 }
 
 func setSourceCommand(slot, selector, source string) []string {
