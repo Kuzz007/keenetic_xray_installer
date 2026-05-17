@@ -170,14 +170,6 @@ func checkSlotChange(cfg Config) error {
 	return postResult(cfg, Result{CommandID: "slot_change", RouterID: cfg.RouterID, OK: true, Output: msg})
 }
 
-func activeSlot() string {
-	slots := activeSlotCandidates()
-	if len(slots) == 0 {
-		return ""
-	}
-	return slots[0]
-}
-
 func activeSlotCandidates() []string {
 	seen := map[string]bool{}
 	out := []string{}
@@ -225,7 +217,7 @@ func parseActiveSlot(out string) string {
 func runAllowed(c Command) (bool, string) {
 	var cmd []string
 	switch c.Action {
-	case "status":
+	case "status", "source_status":
 		cmd = statusCommand()
 	case "doctor":
 		return runDoctor()
@@ -246,11 +238,9 @@ func runAllowed(c Command) (bool, string) {
 	case "history":
 		cmd = historyCommand()
 	case "watchdog_log":
-		cmd = []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/vless-go-watchdog.log 2>/dev/null || true"}
+		cmd = watchdogLogCommand()
 	case "recovery_log":
-		cmd = []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/vless-go-recover.log 2>/dev/null || true"}
-	case "source_status":
-		cmd = statusCommand()
+		cmd = recoveryLogCommand()
 	case "update_scripts":
 		return updateScripts()
 	case "update_agent":
@@ -271,6 +261,23 @@ func runAllowed(c Command) (bool, string) {
 }
 
 func runDoctor() (bool, string) {
+	if minimalMode() && !exists("/opt/bin/xray-go") {
+		parts := []string{"== Minimal Go status =="}
+		if ok, out := run([]string{"/opt/bin/minimal-go-status"}, 60*time.Second); ok || strings.TrimSpace(out) != "" {
+			parts = append(parts, out)
+		}
+		if exists("/opt/bin/vless-go-recover") {
+			ok, out := run([]string{"/opt/bin/vless-go-recover", "--mode", "minimal", "status"}, 60*time.Second)
+			_ = ok
+			parts = append(parts, "\n== Recovery ==", out)
+		}
+		if exists("/opt/etc/init.d/S24xray") || exists("/opt/etc/init.d/S25xray-minimal-go-failover") {
+			cmd := []string{"/bin/sh", "-c", "[ -x /opt/etc/init.d/S24xray ] && /opt/etc/init.d/S24xray status 2>&1 || true; [ -x /opt/etc/init.d/S25xray-minimal-go-failover ] && /opt/etc/init.d/S25xray-minimal-go-failover status 2>&1 || true"}
+			_, out := run(cmd, 60*time.Second)
+			parts = append(parts, "\n== Services ==", out)
+		}
+		return true, strings.Join(parts, "\n")
+	}
 	if exists("/opt/bin/xray-go") {
 		ok, out := run([]string{"/opt/bin/xray-go", "doctor", "--json"}, 180*time.Second)
 		trimmed := strings.TrimSpace(out)
@@ -291,9 +298,7 @@ func runDoctor() (bool, string) {
 }
 
 func isDoctorJSON(out string) bool {
-	var data struct {
-		Schema string `json:"schema"`
-	}
+	var data struct{ Schema string `json:"schema"` }
 	return json.Unmarshal([]byte(out), &data) == nil && data.Schema == "xray-go.doctor.v1"
 }
 
@@ -304,6 +309,27 @@ func setSource(slot, selector, source string) (bool, string) {
 	}
 	if slot != "primary" && slot != "backup" {
 		return false, "invalid slot"
+	}
+	if minimalMode() && exists("/opt/bin/minimal-go-update") {
+		_ = os.MkdirAll("/opt/etc/xray/source-backups", 0700)
+		oldPath := "/opt/etc/xray/minimal-go-" + slot + ".url"
+		if data, err := os.ReadFile(oldPath); err == nil && len(data) > 0 {
+			name := time.Now().Format("20060102-150405") + ".minimal-" + slot
+			_ = os.WriteFile(filepath.Join("/opt/etc/xray/source-backups", name), data, 0600)
+		}
+		ok, out := run([]string{"/opt/bin/minimal-go-update", slot, source}, 180*time.Second)
+		if !ok {
+			return false, redact(out, source)
+		}
+		active := strings.TrimSpace(readFirst("/opt/etc/xray/minimal-go-active"))
+		if active == slot && exists("/opt/bin/minimal-go-switch") {
+			ok2, out2 := run([]string{"/opt/bin/minimal-go-switch", slot}, 180*time.Second)
+			if !ok2 {
+				return false, redact(out+"\nActive Minimal Go slot changed; apply failed:\n"+out2, source)
+			}
+			return true, redact(out+"\nActive Minimal Go slot changed; applied new source.\n"+out2, source)
+		}
+		return true, redact(out+"\nMinimal Go source saved but not applied: active="+active, source)
 	}
 	cmd := setSourceCommand(slot, selector, source)
 	if len(cmd) == 0 {
@@ -353,8 +379,7 @@ func rebootRouter() (bool, string) {
 	if !exists("/bin/sh") {
 		return false, "not found: /bin/sh"
 	}
-	cmd := []string{"/bin/sh", "-c", "(sleep 2; reboot) >/dev/null 2>&1 &"}
-	ok, out := run(cmd, 5*time.Second)
+	ok, out := run([]string{"/bin/sh", "-c", "(sleep 2; reboot) >/dev/null 2>&1 &"}, 5*time.Second)
 	if !ok {
 		return false, out
 	}
@@ -388,32 +413,29 @@ func shortStatus() string {
 
 func detectFeatures() []string {
 	features := []string{}
-
 	if len(statusCommand()) > 0 {
 		features = append(features, "status")
 	}
 	if len(switchCommand("primary")) > 0 && len(switchCommand("backup")) > 0 {
 		features = append(features, "switch")
 	}
-	if len(setSourceCommand("primary", "first", "probe")) > 0 {
+	if len(setSourceCommand("primary", "first", "probe")) > 0 || (minimalMode() && exists("/opt/bin/minimal-go-update")) {
 		features = append(features, "source_update")
 	}
-	if len(doctorCommand()) > 0 {
+	if len(doctorCommand()) > 0 || minimalMode() {
 		features = append(features, "doctor")
 	}
 	if len(historyCommand()) > 0 {
 		features = append(features, "history")
 	}
-	if exists("/opt/bin/vless-go-watchdog") || exists("/opt/bin/watchdog") || exists("/opt/var/log/vless-go-watchdog.log") {
+	if exists("/opt/bin/vless-go-watchdog") || exists("/opt/bin/watchdog") || exists("/opt/var/log/vless-go-watchdog.log") || exists("/opt/var/log/xray-minimal-go-failover.log") {
 		features = append(features, "watchdog")
 	}
 	if len(recoverCommand("status")) > 0 {
 		features = append(features, "recovery")
 	}
 	if exists("/bin/sh") {
-		features = append(features, "reboot")
-		features = append(features, "update_scripts")
-		features = append(features, "update_agent")
+		features = append(features, "reboot", "update_scripts", "update_agent")
 	}
 	if len(features) == 0 {
 		features = append(features, "status")
@@ -423,144 +445,101 @@ func detectFeatures() []string {
 
 func detectCapabilities(features []string) []string {
 	has := map[string]bool{}
-	for _, feature := range features {
-		has[feature] = true
-	}
+	for _, feature := range features { has[feature] = true }
 	capabilities := []string{"agent_start", "slot_change"}
-	if has["status"] {
-		capabilities = append(capabilities, "status", "source_status")
-	}
-	if has["switch"] {
-		capabilities = append(capabilities, "switch_primary", "switch_backup")
-	}
-	if has["source_update"] {
-		capabilities = append(capabilities, "set_primary_source", "set_backup_source")
-	}
-	if has["doctor"] {
-		capabilities = append(capabilities, "doctor")
-	}
-	if has["history"] {
-		capabilities = append(capabilities, "history")
-	}
-	if has["watchdog"] {
-		capabilities = append(capabilities, "watchdog_log", "recovery_log")
-	}
-	if has["recovery"] {
-		capabilities = append(capabilities, "recover_status", "recover_check", "recover_run", "recover_enable", "recover_disable")
-	}
-	if has["reboot"] {
-		capabilities = append(capabilities, "reboot")
-	}
-	if has["update_scripts"] {
-		capabilities = append(capabilities, "update_scripts")
-	}
-	if has["update_agent"] {
-		capabilities = append(capabilities, "update_agent")
-	}
+	if has["status"] { capabilities = append(capabilities, "status", "source_status") }
+	if has["switch"] { capabilities = append(capabilities, "switch_primary", "switch_backup") }
+	if has["source_update"] { capabilities = append(capabilities, "set_primary_source", "set_backup_source") }
+	if has["doctor"] { capabilities = append(capabilities, "doctor") }
+	if has["history"] { capabilities = append(capabilities, "history") }
+	if has["watchdog"] { capabilities = append(capabilities, "watchdog_log", "recovery_log") }
+	if has["recovery"] { capabilities = append(capabilities, "recover_status", "recover_check", "recover_run", "recover_enable", "recover_disable") }
+	if has["reboot"] { capabilities = append(capabilities, "reboot") }
+	if has["update_scripts"] { capabilities = append(capabilities, "update_scripts") }
+	if has["update_agent"] { capabilities = append(capabilities, "update_agent") }
 	return capabilities
 }
 
+func minimalMode() bool {
+	return exists("/opt/etc/xray/minimal-go-active") || exists("/opt/bin/minimal-go-status") || exists("/opt/bin/minimal-go-switch") || exists("/opt/etc/init.d/S25xray-minimal-go-failover")
+}
+
 func statusCommand() []string {
-	if exists("/opt/bin/xray-go") {
-		return []string{"/opt/bin/xray-go", "status"}
-	}
-	if exists("/opt/bin/vless-go-failover") {
-		return []string{"/opt/bin/vless-go-failover", "status"}
-	}
-	if exists("/opt/bin/failover") {
-		return []string{"/opt/bin/failover", "status"}
-	}
+	if exists("/opt/bin/xray-go") { return []string{"/opt/bin/xray-go", "status"} }
+	if exists("/opt/bin/vless-go-failover") { return []string{"/opt/bin/vless-go-failover", "status"} }
+	if exists("/opt/bin/failover") { return []string{"/opt/bin/failover", "status"} }
+	if exists("/opt/bin/minimal-go-status") { return []string{"/opt/bin/minimal-go-status"} }
+	if minimalMode() && exists("/opt/bin/vless-go-recover") { return []string{"/opt/bin/vless-go-recover", "--mode", "minimal", "status"} }
 	return nil
 }
 
 func doctorCommand() []string {
-	if exists("/opt/bin/xray-go") {
-		return []string{"/opt/bin/xray-go", "doctor", "--support"}
-	}
-	if exists("/opt/bin/vless-go-doctor") {
-		return []string{"/opt/bin/vless-go-doctor"}
-	}
-	if exists("/opt/bin/xray-doctor") {
-		return []string{"/opt/bin/xray-doctor", "--support"}
-	}
+	if exists("/opt/bin/xray-go") { return []string{"/opt/bin/xray-go", "doctor", "--support"} }
+	if exists("/opt/bin/vless-go-doctor") { return []string{"/opt/bin/vless-go-doctor"} }
+	if exists("/opt/bin/xray-doctor") { return []string{"/opt/bin/xray-doctor", "--support"} }
+	if exists("/opt/bin/minimal-go-status") { return []string{"/opt/bin/minimal-go-status"} }
 	return nil
 }
 
 func switchCommand(slot string) []string {
-	if exists("/opt/bin/xray-go") {
-		return []string{"/opt/bin/xray-go", "switch", slot}
-	}
-	if exists("/opt/bin/vless-go-failover") {
-		return []string{"/opt/bin/vless-go-failover", "switch", slot}
-	}
-	if exists("/opt/bin/failover") {
-		return []string{"/opt/bin/failover", "switch", slot}
-	}
+	if exists("/opt/bin/xray-go") { return []string{"/opt/bin/xray-go", "switch", slot} }
+	if exists("/opt/bin/vless-go-failover") { return []string{"/opt/bin/vless-go-failover", "switch", slot} }
+	if exists("/opt/bin/failover") { return []string{"/opt/bin/failover", "switch", slot} }
+	if exists("/opt/bin/minimal-go-switch") { return []string{"/opt/bin/minimal-go-switch", slot} }
 	return nil
 }
 
 func recoverCommand(action string) []string {
 	if exists("/opt/bin/xray-go") {
-		switch action {
-		case "run":
-			return []string{"/opt/bin/xray-go", "recover"}
-		default:
-			return []string{"/opt/bin/xray-go", "recover", action}
-		}
+		if action == "run" { return []string{"/opt/bin/xray-go", "recover"} }
+		return []string{"/opt/bin/xray-go", "recover", action}
 	}
 	if exists("/opt/bin/vless-go-recover") {
-		switch action {
-		case "run":
-			return []string{"/opt/bin/vless-go-recover", "run"}
-		default:
-			return []string{"/opt/bin/vless-go-recover", action}
-		}
+		mode := "full"
+		if minimalMode() { mode = "minimal" }
+		return []string{"/opt/bin/vless-go-recover", "--mode", mode, action}
 	}
 	return nil
 }
 
 func historyCommand() []string {
-	if exists("/opt/bin/xray-go") {
-		return []string{"/opt/bin/xray-go", "history"}
-	}
-	if exists("/opt/bin/vless-go-history") {
-		return []string{"/opt/bin/vless-go-history"}
-	}
-	if exists("/opt/bin/history") {
-		return []string{"/opt/bin/history"}
-	}
+	if exists("/opt/bin/xray-go") { return []string{"/opt/bin/xray-go", "history"} }
+	if exists("/opt/bin/vless-go-history") { return []string{"/opt/bin/vless-go-history"} }
+	if exists("/opt/bin/history") { return []string{"/opt/bin/history"} }
+	if exists("/opt/var/log/minimal-go-switch-history.log") { return []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/minimal-go-switch-history.log 2>/dev/null || true"} }
 	return nil
+}
+
+func watchdogLogCommand() []string {
+	return []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/vless-go-watchdog.log 2>/dev/null || tail -n 100 /opt/var/log/xray-minimal-go-failover.log 2>/dev/null || true"}
+}
+
+func recoveryLogCommand() []string {
+	return []string{"/bin/sh", "-c", "tail -n 100 /opt/var/log/vless-go-recover.log 2>/dev/null || tail -n 100 /opt/var/log/xray-minimal-go-failover.log 2>/dev/null || true"}
 }
 
 func setSourceCommand(slot, selector, source string) []string {
-	if exists("/opt/bin/vless-go-failover") {
-		return []string{"/opt/bin/vless-go-failover", "set-" + slot, source, "--selector", selector}
-	}
-	if exists("/opt/bin/failover") {
-		return []string{"/opt/bin/failover", "set-" + slot, source, "--selector", selector}
-	}
+	if exists("/opt/bin/vless-go-failover") { return []string{"/opt/bin/vless-go-failover", "set-" + slot, source, "--selector", selector} }
+	if exists("/opt/bin/failover") { return []string{"/opt/bin/failover", "set-" + slot, source, "--selector", selector} }
 	return nil
 }
 
-func exists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+func exists(path string) bool { _, err := os.Stat(path); return err == nil }
+
+func readFirst(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil { return "" }
+	return strings.TrimSpace(strings.SplitN(string(data), "\n", 2)[0])
 }
 
 func redact(s, secret string) string {
-	if secret != "" {
-		s = strings.ReplaceAll(s, secret, "<hidden>")
-	}
+	if secret != "" { s = strings.ReplaceAll(s, secret, "<hidden>") }
 	for _, marker := range []string{"vless://", "vmess://", "trojan://", "ss://"} {
 		for {
 			i := strings.Index(s, marker)
-			if i < 0 {
-				break
-			}
+			if i < 0 { break }
 			j := i
-			for j < len(s) && !strings.ContainsAny(string(s[j]), " \n\r\t\"'") {
-				j++
-			}
+			for j < len(s) && !strings.ContainsAny(string(s[j]), " \n\r\t\"'") { j++ }
 			s = s[:i] + "<hidden-url>" + s[j:]
 		}
 	}
@@ -570,60 +549,32 @@ func redact(s, secret string) string {
 func loadConfig(path string) (Config, error) {
 	cfg := Config{PollInterval: 5 * time.Second}
 	data, err := os.ReadFile(path)
-	if err != nil {
-		return cfg, err
-	}
+	if err != nil { return cfg, err }
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
+		if line == "" || strings.HasPrefix(line, "#") { continue }
 		k, v, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
+		if !ok { continue }
 		v = strings.Trim(strings.TrimSpace(v), "\"")
 		switch strings.TrimSpace(k) {
-		case "SERVER_URL":
-			cfg.ServerURL = v
-		case "ROUTER_ID":
-			cfg.RouterID = v
-		case "ROUTER_NAME":
-			cfg.RouterName = v
-		case "AGENT_TOKEN":
-			cfg.AgentToken = v
-		case "POLL_INTERVAL":
-			if d, err := time.ParseDuration(v + "s"); err == nil {
-				cfg.PollInterval = d
-			}
+		case "SERVER_URL": cfg.ServerURL = v
+		case "ROUTER_ID": cfg.RouterID = v
+		case "ROUTER_NAME": cfg.RouterName = v
+		case "AGENT_TOKEN": cfg.AgentToken = v
+		case "POLL_INTERVAL": if d, err := time.ParseDuration(v + "s"); err == nil { cfg.PollInterval = d }
 		}
 	}
-	if cfg.ServerURL == "" || cfg.RouterID == "" || cfg.AgentToken == "" {
-		return cfg, fmt.Errorf("SERVER_URL, ROUTER_ID and AGENT_TOKEN are required")
-	}
-	if cfg.RouterName == "" {
-		cfg.RouterName = cfg.RouterID
-	}
+	if cfg.ServerURL == "" || cfg.RouterID == "" || cfg.AgentToken == "" { return cfg, fmt.Errorf("SERVER_URL, ROUTER_ID and AGENT_TOKEN are required") }
+	if cfg.RouterName == "" { cfg.RouterName = cfg.RouterID }
 	return cfg, nil
 }
 
 func normalizeSelector(selector string) string {
 	selector = strings.TrimSpace(selector)
-	if selector == "" {
-		return "first"
-	}
-	if selector == "first" || strings.HasPrefix(selector, "index:") {
-		return selector
-	}
+	if selector == "" { return "first" }
+	if selector == "first" || strings.HasPrefix(selector, "index:") { return selector }
 	allDigits := true
-	for _, r := range selector {
-		if r < '0' || r > '9' {
-			allDigits = false
-			break
-		}
-	}
-	if allDigits {
-		return "index:" + selector
-	}
+	for _, r := range selector { if r < '0' || r > '9' { allDigits = false; break } }
+	if allDigits { return "index:" + selector }
 	return selector
 }
