@@ -16,6 +16,7 @@ type doctorBatch struct {
 	Results   map[string]doctorBatchResult
 	CreatedAt time.Time
 	Sent      bool
+	TimedOut  bool
 }
 
 type doctorBatchResult struct {
@@ -64,6 +65,25 @@ func (s *Server) recordDoctorAllResult(routerName string, res Result) (string, b
 	}
 	b.Sent = true
 	return formatDoctorBatchSummary(b), true
+}
+
+func (s *Server) sendDoctorBatchTimeoutSummary(commandID string, timeout time.Duration) {
+	if commandID == "" || timeout <= 0 {
+		return
+	}
+	time.Sleep(timeout)
+	summary := ""
+	doctorBatchState.Lock()
+	b := doctorBatchState.batches[commandID]
+	if b != nil && !b.Sent && len(b.Results) < len(b.Expected) {
+		b.Sent = true
+		b.TimedOut = true
+		summary = formatDoctorBatchSummary(b)
+	}
+	doctorBatchState.Unlock()
+	if summary != "" && s.cfg.BotToken != "" && s.cfg.AdminUserID != 0 {
+		s.sendMessage(s.cfg.AdminUserID, summary)
+	}
 }
 
 func doctorResultStatus(res Result) string {
@@ -153,5 +173,9 @@ func formatDoctorBatchSummary(b *doctorBatch) string {
 		}
 		lines = append(lines, fmt.Sprintf("%s %s: %s", icon, name, status))
 	}
-	return fmt.Sprintf("🩺 Диагностика всех завершена\n\n✅ OK: %d\n⚠️ WARN: %d\n❌ FAIL: %d\n\n%s", okCount, warnCount, failCount, strings.Join(lines, "\n"))
+	title := "🩺 Диагностика всех завершена"
+	if b.TimedOut {
+		title = "🩺 Диагностика всех: partial summary по timeout"
+	}
+	return fmt.Sprintf("%s\n\n✅ OK: %d\n⚠️ WARN: %d\n❌ FAIL/NO RESULT: %d\n\n%s", title, okCount, warnCount, failCount, strings.Join(lines, "\n"))
 }
