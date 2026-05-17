@@ -31,23 +31,41 @@ MINIMAL_RECOVERY_LOG="/opt/var/log/xray-minimal-go-failover.log"
 LOG_FILE_OVERRIDE="${LOG_FILE:-}"
 CRON_FILE="/opt/var/spool/cron/crontabs/root"
 MARKER="vless-go-hourly-recover"
+SYSTEM_MARKER="vless-go-system-recover"
 DEFAULT_SCHEDULE="7 * * * *"
+SYSTEM_DEFAULT_SCHEDULE="*/5 * * * *"
+SYSTEM_STATE_FILE="/opt/var/run/vless-go-recover.system-state"
+SYSTEM_LOAD_MULTIPLIER="${SYSTEM_LOAD_MULTIPLIER:-2}"
+SYSTEM_CONSECUTIVE="${SYSTEM_CONSECUTIVE:-3}"
+SYSTEM_GRACE_AFTER_BOOT="${SYSTEM_GRACE_AFTER_BOOT:-600}"
+SYSTEM_REBOOT_COOLDOWN="${SYSTEM_REBOOT_COOLDOWN:-1800}"
+SYSTEM_REBOOT_ENABLED="${SYSTEM_REBOOT_ENABLED:-0}"
 RECOVER_MODE="${RECOVER_MODE:-auto}"
 QUIET="0"
 
 usage() {
     cat <<EOF
-Usage: vless-go-recover [--quiet] [--mode auto|full|minimal] check|run|proxy0|xray|watchdog|enable-hourly [CRON]|disable-hourly|status
+Usage: vless-go-recover [--quiet] [--mode auto|full|minimal] COMMAND
 
 Commands:
-  check          Silent health check only. Prints nothing when OK.
-  run            Recovery ladder: check -> Proxy0 refresh -> Xray restart -> daemon restart -> failover.
-  proxy0         Refresh Proxy0 down/up.
-  xray           Restart Xray init service.
-  watchdog       Restart Full watchdog or Minimal failover daemon.
-  enable-hourly  Install hourly cron recovery check. Default: '$DEFAULT_SCHEDULE'.
-  disable-hourly Remove hourly cron recovery check.
-  status         Show hourly recovery cron status.
+  check            Silent health check only. Prints nothing when OK.
+  run              Recovery ladder: check -> Proxy0 refresh -> Xray restart -> daemon restart -> failover.
+  system-check     System overload recovery: high load counter -> restart Xray/daemon -> optional reboot.
+  proxy0           Refresh Proxy0 down/up.
+  xray             Restart Xray init service.
+  watchdog         Restart Full watchdog or Minimal failover daemon.
+  enable-hourly    Install hourly network recovery. Default: '$DEFAULT_SCHEDULE'.
+  disable-hourly   Remove hourly network recovery.
+  enable-system    Install system overload recovery. Default: '$SYSTEM_DEFAULT_SCHEDULE'.
+  disable-system   Remove system overload recovery.
+  status           Show recovery status.
+
+System overload environment:
+  SYSTEM_LOAD_MULTIPLIER=$SYSTEM_LOAD_MULTIPLIER      Load threshold: load1 >= CPU cores * multiplier.
+  SYSTEM_CONSECUTIVE=$SYSTEM_CONSECUTIVE              Consecutive overloaded checks required before action.
+  SYSTEM_GRACE_AFTER_BOOT=$SYSTEM_GRACE_AFTER_BOOT    Seconds after boot before overload actions are allowed.
+  SYSTEM_REBOOT_COOLDOWN=$SYSTEM_REBOOT_COOLDOWN      Minimum seconds between automatic reboots.
+  SYSTEM_REBOOT_ENABLED=$SYSTEM_REBOOT_ENABLED        0 = log/restart only, 1 = allow reboot as final step.
 
 Notes:
   - Supports Full Go and Minimal Go. Mode is auto-detected by default.
@@ -55,7 +73,7 @@ Notes:
   - Environment variables SOCKS_HOST, SOCKS_PORT and CHECK_URLS override runtime defaults.
   - Healthy hourly checks are silent.
   - Recovery actions are logged to the mode-specific recovery log.
-  - Router reboot is intentionally not automatic.
+  - Router reboot is disabled by default for system overload recovery.
 EOF
 }
 
@@ -268,6 +286,113 @@ run_recovery() {
     return 1
 }
 
+now_epoch() {
+    date +%s 2>/dev/null || echo 0
+}
+
+uptime_seconds() {
+    awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0
+}
+
+cpu_cores() {
+    cores="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 1)"
+    case "$cores" in ''|0|*[!0-9]*) cores=1 ;; esac
+    echo "$cores"
+}
+
+load_one() {
+    awk '{print $1}' /proc/loadavg 2>/dev/null || echo 0
+}
+
+system_overloaded() {
+    load="$(load_one)"
+    cores="$(cpu_cores)"
+    awk -v load="$load" -v cores="$cores" -v mult="$SYSTEM_LOAD_MULTIPLIER" 'BEGIN { exit !(load >= cores * mult) }'
+}
+
+system_state_read() {
+    if [ -s "$SYSTEM_STATE_FILE" ]; then
+        sed -n '1p' "$SYSTEM_STATE_FILE"
+    else
+        echo "0 0"
+    fi
+}
+
+system_state_write() {
+    mkdir -p "$(dirname "$SYSTEM_STATE_FILE")" 2>/dev/null || true
+    printf '%s %s\n' "$1" "$2" > "$SYSTEM_STATE_FILE"
+}
+
+system_state_reset_count() {
+    last_reboot="$(system_state_read | awk '{print $2+0}')"
+    system_state_write 0 "$last_reboot"
+}
+
+log_top_processes() {
+    log "System overload process snapshot follows"
+    LOG_FILE="$(recovery_log_file)"
+    {
+        echo "--- ps snapshot ---"
+        ps 2>/dev/null | head -n 40 || true
+        echo "--- loadavg ---"
+        cat /proc/loadavg 2>/dev/null || true
+        echo "--- meminfo ---"
+        grep -E 'MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree' /proc/meminfo 2>/dev/null || true
+        echo "--- df /opt ---"
+        df -h /opt 2>/dev/null || true
+    } >> "$LOG_FILE" 2>/dev/null || true
+}
+
+run_system_check() {
+    up="$(uptime_seconds)"
+    if [ "$up" -lt "$SYSTEM_GRACE_AFTER_BOOT" ]; then
+        system_state_reset_count
+        [ "$QUIET" = "1" ] || echo "System check skipped: boot grace ${up}/${SYSTEM_GRACE_AFTER_BOOT}s"
+        return 0
+    fi
+
+    state="$(system_state_read)"
+    count="$(echo "$state" | awk '{print $1+0}')"
+    last_reboot="$(echo "$state" | awk '{print $2+0}')"
+
+    if ! system_overloaded; then
+        system_state_write 0 "$last_reboot"
+        [ "$QUIET" = "1" ] || echo "System check OK: load1=$(load_one), cores=$(cpu_cores), multiplier=$SYSTEM_LOAD_MULTIPLIER"
+        return 0
+    fi
+
+    count=$((count + 1))
+    system_state_write "$count" "$last_reboot"
+    log "System overload detected: load1=$(load_one), cores=$(cpu_cores), multiplier=$SYSTEM_LOAD_MULTIPLIER, count=$count/$SYSTEM_CONSECUTIVE, mode=$(detect_mode)"
+
+    if [ "$count" -lt "$SYSTEM_CONSECUTIVE" ]; then
+        return 1
+    fi
+
+    log_top_processes
+    restart_xray || true
+    restart_watchdog || true
+    history_log system_overload count="$count" mode="$(detect_mode)"
+
+    if [ "$SYSTEM_REBOOT_ENABLED" != "1" ]; then
+        log "System overload reboot skipped: SYSTEM_REBOOT_ENABLED=$SYSTEM_REBOOT_ENABLED"
+        return 1
+    fi
+
+    now="$(now_epoch)"
+    since=$((now - last_reboot))
+    if [ "$last_reboot" -gt 0 ] && [ "$since" -lt "$SYSTEM_REBOOT_COOLDOWN" ]; then
+        log "System overload reboot skipped: cooldown ${since}/${SYSTEM_REBOOT_COOLDOWN}s"
+        return 1
+    fi
+
+    system_state_write 0 "$now"
+    log "System overload reboot scheduled: load1=$(load_one), cores=$(cpu_cores), mode=$(detect_mode)"
+    history_log system_overload_reboot mode="$(detect_mode)"
+    ( sleep 2; reboot ) >/dev/null 2>&1 &
+    return 1
+}
+
 ensure_cron_files() {
     LOG_FILE="$(recovery_log_file)"
     mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
@@ -275,12 +400,17 @@ ensure_cron_files() {
     chmod 600 "$CRON_FILE" 2>/dev/null || true
 }
 
-remove_cron() {
+remove_cron_marker() {
+    marker="$1"
     ensure_cron_files
     TMP_FILE="$CRON_FILE.$$"
-    grep -v "# $MARKER" "$CRON_FILE" > "$TMP_FILE" 2>/dev/null || true
+    grep -v "# $marker" "$CRON_FILE" > "$TMP_FILE" 2>/dev/null || true
     mv "$TMP_FILE" "$CRON_FILE"
     chmod 600 "$CRON_FILE" 2>/dev/null || true
+}
+
+remove_cron() {
+    remove_cron_marker "$MARKER"
 }
 
 enable_hourly() {
@@ -299,6 +429,25 @@ disable_hourly() {
     echo "Hourly recovery disabled."
 }
 
+enable_system() {
+    SCHEDULE="${1:-$SYSTEM_DEFAULT_SCHEDULE}"
+    ensure_cron_files
+    remove_cron_marker "$SYSTEM_MARKER"
+    printf '%s SYSTEM_LOAD_MULTIPLIER=%s SYSTEM_CONSECUTIVE=%s SYSTEM_GRACE_AFTER_BOOT=%s SYSTEM_REBOOT_COOLDOWN=%s SYSTEM_REBOOT_ENABLED=%s %s --quiet --mode %s system-check # %s\n' \
+        "$SCHEDULE" "$SYSTEM_LOAD_MULTIPLIER" "$SYSTEM_CONSECUTIVE" "$SYSTEM_GRACE_AFTER_BOOT" "$SYSTEM_REBOOT_COOLDOWN" "$SYSTEM_REBOOT_ENABLED" "/opt/bin/vless-go-recover" "$(detect_mode)" "$SYSTEM_MARKER" >> "$CRON_FILE"
+    chmod 600 "$CRON_FILE" 2>/dev/null || true
+    echo "System overload recovery enabled: $SCHEDULE"
+    echo "Mode: $(detect_mode)"
+    echo "Reboot enabled: $SYSTEM_REBOOT_ENABLED"
+    echo "Threshold: load1 >= cores * $SYSTEM_LOAD_MULTIPLIER for $SYSTEM_CONSECUTIVE consecutive checks"
+    echo "Actions are logged to $(recovery_log_file)"
+}
+
+disable_system() {
+    remove_cron_marker "$SYSTEM_MARKER"
+    echo "System overload recovery disabled."
+}
+
 status() {
     ensure_cron_files
     echo "VLESS Go recovery status:"
@@ -310,11 +459,19 @@ status() {
     echo "  proxy iface: $PROXY_IFACE"
     echo "  daemon init: $(daemon_init)"
     echo "  log: $(recovery_log_file)"
+    echo "  system load: load1=$(load_one), cores=$(cpu_cores), threshold_multiplier=$SYSTEM_LOAD_MULTIPLIER"
+    echo "  system reboot enabled: $SYSTEM_REBOOT_ENABLED"
     if grep "# $MARKER" "$CRON_FILE" >/dev/null 2>&1; then
         echo "  hourly recovery: enabled"
         grep "# $MARKER" "$CRON_FILE"
     else
         echo "  hourly recovery: disabled"
+    fi
+    if grep "# $SYSTEM_MARKER" "$CRON_FILE" >/dev/null 2>&1; then
+        echo "  system recovery: enabled"
+        grep "# $SYSTEM_MARKER" "$CRON_FILE"
+    else
+        echo "  system recovery: disabled"
     fi
     if cron_running; then echo "  cron: running"; else echo "  cron: not running or not visible"; fi
 }
@@ -324,11 +481,14 @@ shift 2>/dev/null || true
 case "$CMD" in
     check) health_check ;;
     run|recover) run_recovery ;;
+    system-check|system|overload-check) run_system_check ;;
     proxy0|refresh-proxy0) refresh_proxy0 ;;
     xray|restart-xray) restart_xray ;;
     watchdog|restart-watchdog|daemon|restart-daemon) restart_watchdog ;;
     enable-hourly|enable) enable_hourly "${1:-}" ;;
     disable-hourly|disable) disable_hourly ;;
+    enable-system|enable-system-recovery) enable_system "${1:-}" ;;
+    disable-system|disable-system-recovery) disable_system ;;
     status) status ;;
     -h|--help|help) usage ;;
     *) echo "ERROR: unknown command: $CMD" >&2; usage >&2; exit 2 ;;
