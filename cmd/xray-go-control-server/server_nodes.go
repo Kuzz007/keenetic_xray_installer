@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 func isLinuxServerNode(rt *Router) bool {
@@ -53,9 +54,13 @@ MVP использует тот же control-server и outbound polling, но о
 	return fmt.Sprintf("🖥 Серверы\n\n🟢 online: %d  •  ⚫ offline: %d  •  всего: %d\n\n%s", online, len(ids)-online, len(ids), strings.Join(items, "\n\n"))
 }
 
-func prettyServerListItem(name string, lastSeen interface{}, status string) string {
-	// lastSeen is kept as interface only to avoid a second formatting function signature in older patches.
-	return ""
+func prettyServerListItem(name string, lastSeen time.Time, status string) string {
+	dot, state := onlineState(lastSeen)
+	lines := []string{fmt.Sprintf("%s %s — %s, heartbeat %s", dot, name, state, heartbeatAge(lastSeen))}
+	for _, part := range importantStatusParts(status) {
+		lines = append(lines, "   "+part)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (s *Server) serversKeyboard() inlineKeyboard {
@@ -176,7 +181,7 @@ func (s *Server) handleServerActionCallback(chatID int64, messageID int, data st
 		s.editOrSendMessageWithKeyboard(chatID, messageID, err.Error(), s.serversKeyboard())
 		return
 	}
-	s.editOrSendMessageWithKeyboard(chatID, messageID, prettyServerCard(s.cfg.Routers[serverID])+"\n\n⏳ Команда в очереди\n"+id, serverKeyboard(serverID))
+	s.editOrSendMessageWithKeyboard(chatID, messageID, s.routerMenuTextWithExtra(serverID, "⏳ Команда в очереди\n"+id), serverKeyboard(serverID))
 }
 
 func serverAddHelpText() string {
