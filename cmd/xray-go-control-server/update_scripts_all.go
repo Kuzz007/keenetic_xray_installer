@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const updateScriptsBatchTimeout = 15 * time.Minute
+
 func (s *Server) routersKeyboardWithUpdateScripts() inlineKeyboard {
 	kb := s.routersKeyboard()
 	rows := [][]inlineButton{
@@ -30,7 +32,7 @@ func (s *Server) enqueueDoctorAll() string {
 }
 
 func (s *Server) enqueueUpdateScriptsAll() string {
-	return s.enqueueBulkActionWithCommandID("update_scripts", "update_scripts_all", "🔄 Обновление скриптов поставлено в очередь", "Команда безопасная: auto_latest --update-only --no-restart. Итог будет отправлен отдельным сообщением.")
+	return s.enqueueBulkActionWithCommandID("update_scripts", "update_scripts_all", "🔄 Обновление скриптов поставлено в очередь", "Команда безопасная: auto_latest --update-only --no-restart. Итог будет отправлен отдельным сообщением. Если часть роутеров не ответит, через 15 минут придёт partial summary с NO RESULT.")
 }
 
 func (s *Server) enqueueUpdateAgentsAll() string {
@@ -73,6 +75,7 @@ func (s *Server) enqueueBulkActionWithCommandID(action, idPrefix, title, note st
 	}
 	if idPrefix == "update_scripts_all" {
 		rememberUpdateScriptsBatch(commandID, expected)
+		go s.sendUpdateScriptsBatchTimeoutSummary(commandID, updateScriptsBatchTimeout)
 	}
 	if len(queued) == 0 {
 		return "⚠️ Роутеры не найдены."
@@ -86,6 +89,7 @@ type updateScriptsBatch struct {
 	Results   map[string]updateScriptsBatchResult
 	CreatedAt time.Time
 	Sent      bool
+	TimedOut  bool
 }
 
 type updateScriptsBatchResult struct {
@@ -137,6 +141,25 @@ func (s *Server) recordUpdateScriptsAllResult(routerName string, res Result) (st
 	return formatUpdateScriptsBatchSummary(b), true
 }
 
+func (s *Server) sendUpdateScriptsBatchTimeoutSummary(commandID string, timeout time.Duration) {
+	if commandID == "" || timeout <= 0 {
+		return
+	}
+	time.Sleep(timeout)
+	summary := ""
+	updateScriptsBatchState.Lock()
+	b := updateScriptsBatchState.batches[commandID]
+	if b != nil && !b.Sent && len(b.Results) < len(b.Expected) {
+		b.Sent = true
+		b.TimedOut = true
+		summary = formatUpdateScriptsBatchSummary(b)
+	}
+	updateScriptsBatchState.Unlock()
+	if summary != "" && s.cfg.BotToken != "" && s.cfg.AdminUserID != 0 {
+		s.sendMessage(s.cfg.AdminUserID, summary)
+	}
+}
+
 func updateSummaryValue(output, key string) string {
 	prefix := key + ":"
 	for _, line := range strings.Split(output, "\n") {
@@ -182,5 +205,9 @@ func formatUpdateScriptsBatchSummary(b *updateScriptsBatch) string {
 		}
 		lines = append(lines, fmt.Sprintf("%s %s: %s", icon, name, status))
 	}
-	return fmt.Sprintf("🔄 Обновление скриптов завершено\n\n✅ OK: %d\n❌ FAIL/NO RESULT: %d\n\n%s\n\nЛоги на роутерах: /opt/var/log/xray-go-update-scripts.log", okCount, failCount, strings.Join(lines, "\n"))
+	title := "🔄 Обновление скриптов завершено"
+	if b.TimedOut {
+		title = "🔄 Обновление скриптов: partial summary по timeout"
+	}
+	return fmt.Sprintf("%s\n\n✅ OK: %d\n❌ FAIL/NO RESULT: %d\n\n%s\n\nЛоги на роутерах: /opt/var/log/xray-go-update-scripts.log", title, okCount, failCount, strings.Join(lines, "\n"))
 }
