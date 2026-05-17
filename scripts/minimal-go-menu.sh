@@ -9,7 +9,7 @@ FAILOVER_LOG="/opt/var/log/xray-minimal-go-failover.log"
 HISTORY_LOG="/opt/var/log/minimal-go-switch-history.log"
 
 have() { [ -x "$1" ]; }
-pause() { printf '\nPress Enter to continue... '; IFS= read -r _ans; }
+pause() { printf '\nНажмите Enter, чтобы продолжить... '; IFS= read -r _ans; }
 
 read_vless() {
   prompt="$1"
@@ -18,17 +18,25 @@ read_vless() {
     IFS= read -r url
     case "$url" in
       vless://*) printf '%s' "$url"; return 0 ;;
-      '') echo "Value is required." ;;
-      *) echo "Only direct vless:// links are supported in Minimal Go." ;;
+      '') echo "Значение обязательно." ;;
+      *) echo "Minimal Go поддерживает только прямые vless:// ссылки." ;;
     esac
   done
+}
+
+slot_ru() {
+  case "$1" in
+    primary) printf '%s' "основной" ;;
+    backup) printf '%s' "резервный" ;;
+    *) printf '%s' "$1" ;;
+  esac
 }
 
 run_status() {
   if have "$STATUS_CMD"; then
     "$STATUS_CMD"
   else
-    echo "minimal-go-status not found: $STATUS_CMD"
+    echo "Команда minimal-go-status не найдена: $STATUS_CMD"
     return 1
   fi
 }
@@ -38,27 +46,29 @@ run_switch() {
   if have "$SWITCH_CMD"; then
     "$SWITCH_CMD" "$slot"
   else
-    echo "minimal-go-switch not found: $SWITCH_CMD"
+    echo "Команда minimal-go-switch не найдена: $SWITCH_CMD"
     return 1
   fi
 }
 
 run_update() {
   slot="$1"
+  slot_name="$(slot_ru "$slot")"
   if ! have "$UPDATE_CMD"; then
-    echo "minimal-go-update not found: $UPDATE_CMD"
+    echo "Команда minimal-go-update не найдена: $UPDATE_CMD"
     return 1
   fi
-  url="$(read_vless "New $slot vless:// URL: ")"
+  url="$(read_vless "Новая VLESS-ссылка для слота $slot_name ($slot): ")"
   echo
   "$UPDATE_CMD" "$slot" "$url"
   active="$(cat /opt/etc/xray/minimal-go-active 2>/dev/null || true)"
   if [ "$active" = "$slot" ]; then
-    echo "Active slot is $slot; applying updated source..."
+    echo "Активный слот — $slot_name ($slot); применяю обновлённую ссылку..."
     run_switch "$slot"
   else
-    echo "Saved $slot source. Active slot is ${active:-unknown}; not applied."
-    echo "To apply later: minimal-go-switch $slot"
+    echo "Ссылка для слота $slot_name ($slot) сохранена, но не применена."
+    echo "Активный слот: ${active:-unknown}"
+    echo "Чтобы применить позже: minimal-go-switch $slot"
   fi
 }
 
@@ -66,7 +76,7 @@ run_recovery_status() {
   if have "$RECOVER_CMD"; then
     "$RECOVER_CMD" --mode minimal status
   else
-    echo "vless-go-recover not found: $RECOVER_CMD"
+    echo "Команда vless-go-recover не найдена: $RECOVER_CMD"
     return 1
   fi
 }
@@ -75,43 +85,43 @@ run_recovery() {
   if have "$RECOVER_CMD"; then
     "$RECOVER_CMD" --mode minimal run
   else
-    echo "vless-go-recover not found: $RECOVER_CMD"
+    echo "Команда vless-go-recover не найдена: $RECOVER_CMD"
     return 1
   fi
 }
 
 show_logs() {
-  echo "== Minimal Go failover log =="
+  echo "== Лог Minimal Go failover =="
   if [ -s "$FAILOVER_LOG" ]; then
     tail -n 80 "$FAILOVER_LOG"
   else
-    echo "Log not found or empty: $FAILOVER_LOG"
+    echo "Лог не найден или пустой: $FAILOVER_LOG"
   fi
   echo
-  echo "== Minimal Go history =="
+  echo "== История Minimal Go =="
   if [ -s "$HISTORY_LOG" ]; then
     tail -n 80 "$HISTORY_LOG"
   else
-    echo "History not found or empty: $HISTORY_LOG"
+    echo "История не найдена или пустая: $HISTORY_LOG"
   fi
 }
 
 while :; do
   clear 2>/dev/null || true
   cat <<'MENU'
-Minimal Go menu
+Меню Minimal Go
 
-1. Status
-2. Switch primary
-3. Switch backup
-4. Update primary VLESS
-5. Update backup VLESS
-6. Recovery status
-7. Recovery run
-8. Logs
-0. Exit
+1. Статус
+2. Переключить на основной слот
+3. Переключить на резервный слот
+4. Обновить VLESS основного слота
+5. Обновить VLESS резервного слота
+6. Статус восстановления
+7. Запустить восстановление
+8. Логи
+0. Выход
 MENU
-  printf '\nSelect: '
+  printf '\nВыберите пункт: '
   IFS= read -r choice
   echo
   case "$choice" in
@@ -123,7 +133,7 @@ MENU
     6) run_recovery_status; pause ;;
     7) run_recovery; pause ;;
     8) show_logs; pause ;;
-    0|q|Q|exit) exit 0 ;;
-    *) echo "Unknown selection: $choice"; pause ;;
+    0|q|Q|exit|выход) exit 0 ;;
+    *) echo "Неизвестный пункт: $choice"; pause ;;
   esac
 done
