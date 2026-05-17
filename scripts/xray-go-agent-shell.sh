@@ -5,6 +5,7 @@ CONF="/opt/etc/xray/xray-go-agent.conf"
 ONCE="0"
 AGENT_VERSION="0.1.4-shell-experimental"
 SLOT_STATE_FILE="${SLOT_STATE_FILE:-/opt/var/run/xray-go-agent-shell.last-slot}"
+UPDATE_SCRIPTS_LOG="/opt/var/log/xray-go-update-scripts.log"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -223,14 +224,50 @@ recover_cmd() {
   return 1
 }
 
+value_after_prefix() {
+  prefix="$1"
+  file="$2"
+  sed -n "s/^${prefix}[[:space:]]*//p" "$file" 2>/dev/null | sed -n '1p'
+}
+
+update_scripts_summary() {
+  log_file="$1"
+  edition="$(value_after_prefix 'Selected edition:' "$log_file")"
+  [ -n "$edition" ] || edition="unknown"
+  mode="$(value_after_prefix 'Mode:' "$log_file")"
+  [ -n "$mode" ] || mode="update-only"
+  recovery="unknown"
+  [ -x /opt/bin/vless-go-recover ] && recovery="updated"
+  menu="no"
+  [ -x /opt/bin/minimal-go-menu ] && menu="yes"
+  echo "✅ Scripts update completed"
+  echo "edition: $edition"
+  echo "mode: $mode"
+  echo "recovery: $recovery"
+  echo "minimal-go-menu: $menu"
+  echo "log: $UPDATE_SCRIPTS_LOG"
+}
+
 update_scripts_cmd() {
-  mkdir -p /opt/tmp
+  mkdir -p /opt/tmp /opt/var/log
   url="https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh"
   dst="/opt/tmp/xray_vless_failover_auto_latest.sh"
-  echo "Updating router scripts via auto_latest repair path..."
-  curl -fsSL -H 'Cache-Control: no-cache' -o "$dst" "$url" || return $?
-  chmod +x "$dst" || return $?
-  "$dst" --update-only --no-restart
+  tmp="/opt/tmp/xray-go-update-scripts.out.$$"
+  echo "Updating router scripts via auto_latest repair path..." > "$tmp"
+  curl -fsSL -H 'Cache-Control: no-cache' -o "$dst" "$url" >> "$tmp" 2>&1 || { cp "$tmp" "$UPDATE_SCRIPTS_LOG" 2>/dev/null || true; cat "$tmp"; rm -f "$tmp"; return 1; }
+  chmod +x "$dst" >> "$tmp" 2>&1 || { cp "$tmp" "$UPDATE_SCRIPTS_LOG" 2>/dev/null || true; cat "$tmp"; rm -f "$tmp"; return 1; }
+  "$dst" --update-only --no-restart >> "$tmp" 2>&1
+  rc="$?"
+  cp "$tmp" "$UPDATE_SCRIPTS_LOG" 2>/dev/null || true
+  update_scripts_summary "$UPDATE_SCRIPTS_LOG"
+  if [ "$rc" -ne 0 ]; then
+    echo "status: failed"
+    echo "error: update_scripts exited with code $rc"
+    rm -f "$tmp"
+    return "$rc"
+  fi
+  rm -f "$tmp"
+  return 0
 }
 
 update_agent_cmd() {
