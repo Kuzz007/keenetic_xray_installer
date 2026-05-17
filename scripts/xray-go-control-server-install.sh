@@ -108,6 +108,28 @@ listen_default() {
   fi
 }
 
+config_value() {
+  key="$1"
+  [ -f "$CONF" ] || return 0
+  sed -n "s/^${key}=//p" "$CONF" 2>/dev/null | sed -n '1p' | sed 's/^"//; s/"$//'
+}
+
+configured_listen() {
+  value="$(config_value LISTEN)"
+  [ -n "$value" ] || value="$(listen_default)"
+  printf '%s' "$value"
+}
+
+health_url() {
+  listen="$(configured_listen)"
+  case "$listen" in
+    :*) printf 'http://127.0.0.1%s/health' "$listen" ;;
+    0.0.0.0:*) printf 'http://127.0.0.1:%s/health' "${listen##*:}" ;;
+    \[::\]:*) printf 'http://127.0.0.1:%s/health' "${listen##*:}" ;;
+    *) printf 'http://%s/health' "$listen" ;;
+  esac
+}
+
 detect_arch_asset() {
   arch="$(uname -m 2>/dev/null || echo unknown)"
   case "$arch" in
@@ -264,7 +286,7 @@ main() {
   echo
   echo "Done. Checks:"
   echo "  systemctl status xray-go-control-server --no-pager"
-  echo "  curl -fsS http://127.0.0.1:${LISTEN_PORT}/health"
+  echo "  curl -fsS $(health_url)"
   echo
   if [ "$UPDATE_ONLY" = "1" ] || [ "$FORCE_CONFIG" != "1" ]; then
     echo "Config reuse: existing config was preserved unless --force-config was used."
