@@ -172,7 +172,11 @@ func (s *Server) handleSetSourceWizardStep(chatID int64, st wizardState, text st
 			s.sendMessage(chatID, err.Error())
 			return true
 		}
-		s.sendMessageWithKeyboard(chatID, "✅ Источник поставлен в очередь\n\nCommand: "+id+"\nSlot: "+st.Slot+"\nSelector: "+st.Selector+"\n\nЗначение скрыто.", routerKeyboard(st.RouterID))
+		extra := fmt.Sprintf("⏳ Источник поставлен в очередь\n%s\n\nSlot: %s\nSelector: %s\nЗначение скрыто.", id, st.Slot, st.Selector)
+		mid := s.sendMessageWithKeyboardID(chatID, s.routerMenuTextWithExtra(st.RouterID, extra), s.currentRouterKeyboard(st.RouterID))
+		if mid != 0 {
+			s.setActiveMenu(st.RouterID, chatID, mid)
+		}
 		return true
 	default:
 		wizardCancel(chatID)
