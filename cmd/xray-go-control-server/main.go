@@ -58,6 +58,7 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.BotToken != "" && s.cfg.AdminUserID != 0 {
 		if isStandaloneResult(res.CommandID) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } else if !s.editActiveRouterResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) }
 		if summary, ok := s.recordDoctorAllResult(routerName, res); ok { s.sendMessage(s.cfg.AdminUserID, summary) }
+		if summary, ok := s.recordUpdateScriptsAllResult(routerName, res); ok { s.sendMessage(s.cfg.AdminUserID, summary) }
 	}
 }
 
