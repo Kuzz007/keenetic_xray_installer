@@ -62,7 +62,7 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func isStandaloneResult(commandID string) bool { return strings.HasPrefix(commandID, "slot_change") || strings.HasPrefix(commandID, "agent_start") || strings.HasPrefix(commandID, "doctor_all") }
+func isStandaloneResult(commandID string) bool { return strings.HasPrefix(commandID, "slot_change") || strings.HasPrefix(commandID, "agent_start") || strings.HasPrefix(commandID, "doctor_all") || strings.HasPrefix(commandID, "set_primary_source-") || strings.HasPrefix(commandID, "set_backup_source-") }
 
 func (s *Server) authRouter(r *http.Request) *Router {
 	auth := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "); if auth == "" { return nil }
@@ -173,7 +173,7 @@ func helpText() string { return strings.TrimSpace(`❔ Помощь
 Основные команды:
 /menu — главное меню
 /routers — список роутеров
-/add_router <router_id> [имя] — добавить роутер
+/add_router <router_id> [имя]
 
 Быстрые команды:
 /status_<router>
