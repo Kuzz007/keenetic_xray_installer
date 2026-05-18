@@ -1,0 +1,12 @@
+github|ghcr.io
+github|github.com
+github|github.community
+github|github.dev
+github|github.io
+github|github.new
+github|githubapp.com
+github|githubassets.com
+github|githubcopilot.com
+github|githubpreview.dev
+github|githubstatus.com
+github|githubusercontent.com
