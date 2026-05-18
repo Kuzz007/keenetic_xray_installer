@@ -364,6 +364,11 @@ remove_list() {
   id="$1"
   need_ndmc
   valid_id "$id" || { echo "ERROR: invalid list id: $id" >&2; exit 1; }
+  custom="$(custom_path_for_id "$id")"
+  custom_present="no"
+  if [ -s "$custom" ]; then
+    custom_present="yes"
+  fi
   path="$(download_list "$id")"
   cidr_total="$(count_ipv4_or_cidr "$path")"
   FAILED_CMDS_FILE="/tmp/xray-routes-failed.$$"
@@ -394,11 +399,23 @@ remove_list() {
     failed=$((failed + 1))
   fi
 
+  custom_removed="no"
+  if [ "$failed" -eq 0 ] && [ "$save_status" = "ok" ] && [ "$custom_present" = "yes" ]; then
+    if rm -f "$custom"; then
+      custom_removed="yes"
+    else
+      failed=$((failed + 1))
+    fi
+  fi
+
   echo
   echo "Routes remove summary"
   echo "id: $id"
   echo "backup: $backup"
   echo "ipv4_cidr_policy_removed: $cidr_removed/$cidr_total"
+  if [ "$custom_present" = "yes" ]; then
+    echo "custom_list_removed: $custom_removed"
+  fi
   echo "failed_commands: $failed"
   echo "save: $save_status"
 
