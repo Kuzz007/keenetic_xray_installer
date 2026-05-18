@@ -1,0 +1,4 @@
+apple|apple.com
+apple|icloud.com
+apple|mzstatic.com
+apple|17.0.0.0/8
