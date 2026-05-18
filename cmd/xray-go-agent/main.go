@@ -285,6 +285,8 @@ func runAllowed(c Command) (bool, string) {
 		return runRoutesCatalog("preview", c.Selector)
 	case "routes_apply":
 		return runRoutesCatalog("apply", c.Selector)
+	case "routes_apply_custom":
+		return runRoutesCatalogWithInput("apply-custom", c.Selector, c.Source)
 	case "routes_remove":
 		return runRoutesCatalog("remove", c.Selector)
 	case "reboot":
@@ -311,6 +313,20 @@ func runRoutesCatalog(subcommand, listID string) (bool, string) {
 		cmd = append(cmd, listID)
 	}
 	return run(cmd, 180*time.Second)
+}
+
+func runRoutesCatalogWithInput(subcommand, listID, input string) (bool, string) {
+	if !exists(routesCatalogPath) {
+		return false, "routes catalog helper not installed: " + routesCatalogPath
+	}
+	listID = normalizeRouteListID(listID)
+	if listID == "" {
+		return false, "routes " + subcommand + " requires list id"
+	}
+	if strings.TrimSpace(input) == "" {
+		return false, "routes " + subcommand + " requires payload"
+	}
+	return runWithStdin([]string{routesCatalogPath, subcommand, listID}, input, 180*time.Second)
 }
 
 func normalizeRouteListID(id string) string {
@@ -439,6 +455,34 @@ func run(cmd []string, timeout time.Duration) (bool, string) {
 	return true, text
 }
 
+func runWithStdin(cmd []string, input string, timeout time.Duration) (bool, string) {
+	if len(cmd) == 0 {
+		return false, "empty command"
+	}
+	if _, err := os.Stat(cmd[0]); err != nil {
+		return false, "not found: " + cmd[0]
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	c := exec.CommandContext(ctx, cmd[0], cmd[1:]...)
+	c.Stdin = strings.NewReader(input)
+	var out bytes.Buffer
+	c.Stdout = &out
+	c.Stderr = &out
+	err := c.Run()
+	text := strings.TrimSpace(out.String())
+	if ctx.Err() == context.DeadlineExceeded {
+		return false, text + "\nTIMEOUT"
+	}
+	if err != nil {
+		return false, text + "\nERROR: " + err.Error()
+	}
+	if text == "" {
+		text = "OK"
+	}
+	return true, text
+}
+
 func rebootRouter() (bool, string) {
 	if !exists("/bin/sh") {
 		return false, "not found: /bin/sh"
@@ -528,7 +572,7 @@ func detectCapabilities(features []string) []string {
 	if has["reboot"] { capabilities = append(capabilities, "reboot") }
 	if has["update_scripts"] { capabilities = append(capabilities, "update_scripts") }
 	if has["update_agent"] { capabilities = append(capabilities, "update_agent") }
-	if has["routes_catalog"] { capabilities = append(capabilities, "routes_list", "routes_preview", "routes_apply", "routes_remove") }
+	if has["routes_catalog"] { capabilities = append(capabilities, "routes_list", "routes_preview", "routes_apply", "routes_apply_custom", "routes_remove") }
 	return capabilities
 }
 
