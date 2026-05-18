@@ -9,13 +9,7 @@ BACKUP_DIR="${BACKUP_DIR:-/opt/etc/xray/route-backups}"
 PROXY_IFACE="${PROXY_IFACE:-Proxy0}"
 POLICY_NAME="${POLICY_NAME:-Policy0}"
 INDEX_FILE="$CACHE_DIR/index.json"
-
-need_tool() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    echo "ERROR: required tool not found: $1" >&2
-    exit 1
-  fi
-}
+FAILED_CMDS_FILE=""
 
 need_fetch_tool() {
   if command -v curl >/dev/null 2>&1; then
@@ -116,11 +110,18 @@ is_ipv4_or_cidr() {
   esac
 }
 
+count_ipv4_or_cidr() {
+  path="$1"
+  awk -F'|' '{print $2}' "$path" | while read -r item; do
+    is_ipv4_or_cidr "$item" && echo yes || true
+  done | wc -l | tr -d ' '
+}
+
 preview_list() {
   id="$1"
   path="$(download_list "$id")"
   total="$(wc -l < "$path" | tr -d ' ')"
-  cidr="$(awk -F'|' '{print $2}' "$path" | while read -r item; do is_ipv4_or_cidr "$item" && echo yes || true; done | wc -l | tr -d ' ')"
+  cidr="$(count_ipv4_or_cidr "$path")"
   fqdn=$((total - cidr))
   echo "Route list preview"
   echo "id: $id"
@@ -137,6 +138,21 @@ quiet_ndmc() {
   ndmc -c "$1" >/dev/null 2>&1 || true
 }
 
+try_ndmc() {
+  cmd="$1"
+  out="$(ndmc -c "$cmd" 2>&1)" && return 0
+  rc="$?"
+  if [ -n "$FAILED_CMDS_FILE" ]; then
+    {
+      echo "+ ndmc -c $cmd"
+      echo "$out"
+      echo "rc=$rc"
+      echo
+    } >> "$FAILED_CMDS_FILE"
+  fi
+  return "$rc"
+}
+
 run_ndmc() {
   echo "+ ndmc -c $1"
   ndmc -c "$1"
@@ -146,7 +162,7 @@ backup_config() {
   mkdir -p "$BACKUP_DIR"
   backup="$BACKUP_DIR/running-config-before-route-list-$(date +%Y%m%d-%H%M%S 2>/dev/null || echo now).txt"
   ndmc -c "show running-config" > "$backup"
-  echo "Backup running-config: $backup"
+  echo "$backup"
 }
 
 cidr_to_mask() {
@@ -188,22 +204,67 @@ apply_list() {
   id="$1"
   need_ndmc
   path="$(download_list "$id")"
-  backup_config
+  total="$(wc -l < "$path" | tr -d ' ')"
+  cidr_total="$(count_ipv4_or_cidr "$path")"
+  fqdn_total=$((total - cidr_total))
+  FAILED_CMDS_FILE="/tmp/xray-routes-failed.$$"
+  : > "$FAILED_CMDS_FILE"
+
+  backup="$(backup_config)"
   remove_list_nosave "$id"
-  echo "Applying route list: $id"
-  quiet_ndmc "object-group fqdn $id"
-  quiet_ndmc "object-group fqdn $id description xray-route-list-$id"
-  awk -F'|' '{print $2}' "$path" | while read -r item; do
+
+  fqdn_ok=0
+  cidr_ok=0
+  failed=0
+
+  try_ndmc "object-group fqdn $id" || failed=$((failed + 1))
+  try_ndmc "object-group fqdn $id description xray-route-list-$id" || failed=$((failed + 1))
+
+  while IFS='|' read -r _ item; do
     [ -n "$item" ] || continue
     if is_ipv4_or_cidr "$item"; then
-      route_parts="$(ip_route_parts "$item")" || continue
-      quiet_ndmc "ip policy $POLICY_NAME route $route_parts $PROXY_IFACE auto"
+      route_parts="$(ip_route_parts "$item")" || { failed=$((failed + 1)); continue; }
+      if try_ndmc "ip policy $POLICY_NAME route $route_parts $PROXY_IFACE auto"; then
+        cidr_ok=$((cidr_ok + 1))
+      else
+        failed=$((failed + 1))
+      fi
     else
-      quiet_ndmc "object-group fqdn $id include $item"
+      if try_ndmc "object-group fqdn $id include $item"; then
+        fqdn_ok=$((fqdn_ok + 1))
+      else
+        failed=$((failed + 1))
+      fi
     fi
-  done
-  quiet_ndmc "dns-proxy route object-group $id $PROXY_IFACE auto"
-  run_ndmc "system configuration save"
+  done < "$path"
+
+  try_ndmc "dns-proxy route object-group $id $PROXY_IFACE auto" || failed=$((failed + 1))
+
+  save_status="failed"
+  if run_ndmc "system configuration save"; then
+    save_status="ok"
+  else
+    failed=$((failed + 1))
+  fi
+
+  echo
+  echo "Routes apply summary"
+  echo "id: $id"
+  echo "backup: $backup"
+  echo "fqdn_added: $fqdn_ok/$fqdn_total"
+  echo "ipv4_cidr_added: $cidr_ok/$cidr_total"
+  echo "failed_commands: $failed"
+  echo "save: $save_status"
+
+  if [ "$failed" -gt 0 ]; then
+    echo
+    echo "Failed ndmc commands:"
+    sed -n '1,80p' "$FAILED_CMDS_FILE"
+    rm -f "$FAILED_CMDS_FILE"
+    return 1
+  fi
+
+  rm -f "$FAILED_CMDS_FILE"
   echo "Applied: $id"
 }
 
@@ -211,9 +272,17 @@ remove_list() {
   id="$1"
   need_ndmc
   valid_id "$id" || { echo "ERROR: invalid list id: $id" >&2; exit 1; }
-  backup_config
+  backup="$(backup_config)"
   remove_list_nosave "$id"
-  run_ndmc "system configuration save"
+  save_status="failed"
+  if run_ndmc "system configuration save"; then
+    save_status="ok"
+  fi
+  echo
+  echo "Routes remove summary"
+  echo "id: $id"
+  echo "backup: $backup"
+  echo "save: $save_status"
   echo "Removed managed route list: $id"
 }
 
