@@ -13,6 +13,7 @@ type routeListItem struct {
 func routesKeyboard(routerID string) inlineKeyboard {
 	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
 		{{Text: "📥 Получить списки", CallbackData: "routes-list:" + routerID}},
+		{{Text: "➕ Добавить свой список", CallbackData: "routes-custom:" + routerID}},
 		{{Text: "⬅️ Назад", CallbackData: "router:" + routerID}, {Text: "🏠 Главное меню", CallbackData: "menu"}},
 	}}
 }
@@ -29,6 +30,7 @@ func routeListKeyboard(routerID string, items []routeListItem) inlineKeyboard {
 		}
 		rows = append(rows, []inlineButton{{Text: "▶️ " + title, CallbackData: "routes-preview:" + routerID + ":" + item.ID}})
 	}
+	rows = append(rows, []inlineButton{{Text: "➕ Добавить свой список", CallbackData: "routes-custom:" + routerID}})
 	rows = append(rows, []inlineButton{{Text: "🔄 Обновить списки", CallbackData: "routes-list:" + routerID}})
 	rows = append(rows, []inlineButton{{Text: "⬅️ Маршруты", CallbackData: "routes:" + routerID}, {Text: "🏠 Главное меню", CallbackData: "menu"}})
 	return inlineKeyboard{InlineKeyboard: rows}
@@ -51,8 +53,8 @@ func (s *Server) routesMenuView(routerID string) (string, inlineKeyboard, bool) 
 		"📡 " + name,
 		"ID: " + routerID,
 		"",
-		"Нажмите 📥 Получить списки — роутер скачает актуальный routes/index.json из репозитория.",
-		"Новые списки появятся здесь без обновления бота.",
+		"📥 Получить списки — роутер скачает актуальный routes/index.json из репозитория.",
+		"➕ Добавить свой список — создать локальный список на этом роутере из Telegram.",
 		"",
 		"Apply/remove доступны только после preview выбранного списка.",
 	}, "\n")
