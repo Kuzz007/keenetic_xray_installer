@@ -193,6 +193,20 @@ ip_route_parts() {
   esac
 }
 
+remove_policy_route() {
+  route_parts="$1"
+  # Different KeeneticOS builds accept different no-route forms.
+  # Try the most specific forms first; treat at least one success as removed.
+  ok=1
+  try_ndmc "ip policy $POLICY_NAME no route $route_parts $PROXY_IFACE auto" && ok=0
+  try_ndmc "ip policy $POLICY_NAME no route $route_parts $PROXY_IFACE" && ok=0
+  try_ndmc "ip policy $POLICY_NAME no route $route_parts" && ok=0
+  try_ndmc "no ip policy $POLICY_NAME route $route_parts $PROXY_IFACE auto" && ok=0
+  try_ndmc "no ip policy $POLICY_NAME route $route_parts $PROXY_IFACE" && ok=0
+  try_ndmc "no ip policy $POLICY_NAME route $route_parts" && ok=0
+  return "$ok"
+}
+
 remove_list_nosave() {
   id="$1"
   quiet_ndmc "dns-proxy no route object-group $id $PROXY_IFACE auto"
@@ -279,17 +293,53 @@ remove_list() {
   id="$1"
   need_ndmc
   valid_id "$id" || { echo "ERROR: invalid list id: $id" >&2; exit 1; }
+  path="$(download_list "$id")"
+  cidr_total="$(count_ipv4_or_cidr "$path")"
+  FAILED_CMDS_FILE="/tmp/xray-routes-failed.$$"
+  : > "$FAILED_CMDS_FILE"
+
   backup="$(backup_config)"
+
+  cidr_removed=0
+  failed=0
+  while IFS='|' read -r _ item; do
+    [ -n "$item" ] || continue
+    if is_ipv4_or_cidr "$item"; then
+      route_parts="$(ip_route_parts "$item")" || { failed=$((failed + 1)); continue; }
+      if remove_policy_route "$route_parts"; then
+        cidr_removed=$((cidr_removed + 1))
+      else
+        failed=$((failed + 1))
+      fi
+    fi
+  done < "$path"
+
   remove_list_nosave "$id"
+
   save_status="failed"
   if run_ndmc "system configuration save"; then
     save_status="ok"
+  else
+    failed=$((failed + 1))
   fi
+
   echo
   echo "Routes remove summary"
   echo "id: $id"
   echo "backup: $backup"
+  echo "ipv4_cidr_policy_removed: $cidr_removed/$cidr_total"
+  echo "failed_commands: $failed"
   echo "save: $save_status"
+
+  if [ "$failed" -gt 0 ]; then
+    echo
+    echo "Failed ndmc commands:"
+    sed -n '1,80p' "$FAILED_CMDS_FILE"
+    rm -f "$FAILED_CMDS_FILE"
+    return 1
+  fi
+
+  rm -f "$FAILED_CMDS_FILE"
   echo "Removed managed route list: $id"
 }
 
