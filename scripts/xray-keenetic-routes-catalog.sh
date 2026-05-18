@@ -214,7 +214,8 @@ apply_list() {
   remove_list_nosave "$id"
 
   fqdn_ok=0
-  cidr_ok=0
+  web_cidr_ok=0
+  cidr_policy_ok=0
   failed=0
 
   try_ndmc "object-group fqdn $id" || failed=$((failed + 1))
@@ -223,9 +224,14 @@ apply_list() {
   while IFS='|' read -r _ item; do
     [ -n "$item" ] || continue
     if is_ipv4_or_cidr "$item"; then
+      if try_ndmc "object-group fqdn $id include $item"; then
+        web_cidr_ok=$((web_cidr_ok + 1))
+      else
+        failed=$((failed + 1))
+      fi
       route_parts="$(ip_route_parts "$item")" || { failed=$((failed + 1)); continue; }
       if try_ndmc "ip policy $POLICY_NAME route $route_parts $PROXY_IFACE auto"; then
-        cidr_ok=$((cidr_ok + 1))
+        cidr_policy_ok=$((cidr_policy_ok + 1))
       else
         failed=$((failed + 1))
       fi
@@ -252,7 +258,8 @@ apply_list() {
   echo "id: $id"
   echo "backup: $backup"
   echo "fqdn_added: $fqdn_ok/$fqdn_total"
-  echo "ipv4_cidr_added: $cidr_ok/$cidr_total"
+  echo "web_visible_cidr_added: $web_cidr_ok/$cidr_total"
+  echo "ipv4_cidr_policy_added: $cidr_policy_ok/$cidr_total"
   echo "failed_commands: $failed"
   echo "save: $save_status"
 
