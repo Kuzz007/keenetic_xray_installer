@@ -33,6 +33,9 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
 	case data == "add_router_help":
 		s.startAddRouterWizard(chatID)
+	case strings.HasPrefix(data, "routes-custom:"):
+		routerID := strings.TrimPrefix(data, "routes-custom:")
+		s.startCustomRoutesWizard(chatID, routerID)
 	case strings.HasPrefix(data, "routes-remove:"):
 		parts := strings.SplitN(data, ":", 3)
 		if len(parts) == 3 {
