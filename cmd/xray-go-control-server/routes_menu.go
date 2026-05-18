@@ -54,7 +54,7 @@ func (s *Server) routesMenuView(routerID string) (string, inlineKeyboard, bool) 
 		"Нажмите 📥 Получить списки — роутер скачает актуальный routes/index.json из репозитория.",
 		"Новые списки появятся здесь без обновления бота.",
 		"",
-		"Apply доступен только после preview выбранного списка.",
+		"Apply/remove доступны только после preview выбранного списка.",
 	}, "\n")
 	return text, routesKeyboard(routerID), true
 }
@@ -109,7 +109,34 @@ func (s *Server) enqueueRoutesApply(chatID int64, messageID int, routerID, listI
 		return
 	}
 	text := fmt.Sprintf("🧭 Apply route-list\n\nRouter: %s\nList: %s\n\n⏳ Применение поставлено в очередь\n%s\n\nБудет создан backup running-config перед изменениями.", routerID, listID, id)
-	s.editOrSendMessageWithKeyboard(chatID, messageID, text, inlineKeyboard{InlineKeyboard: [][]inlineButton{{{Text: "⬅️ К спискам", CallbackData: "routes-list:" + routerID}, {Text: "🏠 Главное меню", CallbackData: "menu"}}}})
+	s.editOrSendMessageWithKeyboard(chatID, messageID, text, routesAfterActionKeyboard(routerID, listID))
+}
+
+func (s *Server) enqueueRoutesRemove(chatID int64, messageID int, routerID, listID string) {
+	listID = normalizeRouteCallbackID(listID)
+	if listID == "" {
+		s.editOrSendMessageWithKeyboard(chatID, messageID, "⚠️ Некорректный route list id", routesKeyboard(routerID))
+		return
+	}
+	if messageID > 0 {
+		s.setActiveMenu(routerID, chatID, messageID)
+	}
+	id, err := s.enqueue(routerID, Command{Action: "routes_remove", Selector: listID})
+	if err != nil {
+		s.editOrSendMessageWithKeyboard(chatID, messageID, err.Error(), routesKeyboard(routerID))
+		return
+	}
+	text := fmt.Sprintf("🧭 Remove route-list\n\nRouter: %s\nList: %s\n\n⏳ Удаление поставлено в очередь\n%s\n\nБудет создан backup running-config перед изменениями.", routerID, listID, id)
+	s.editOrSendMessageWithKeyboard(chatID, messageID, text, routesAfterActionKeyboard(routerID, listID))
+}
+
+func routesAfterActionKeyboard(routerID, listID string) inlineKeyboard {
+	rows := [][]inlineButton{}
+	if listID != "" {
+		rows = append(rows, []inlineButton{{Text: "👁 Preview " + listID, CallbackData: "routes-preview:" + routerID + ":" + listID}})
+	}
+	rows = append(rows, []inlineButton{{Text: "⬅️ К спискам", CallbackData: "routes-list:" + routerID}, {Text: "🏠 Главное меню", CallbackData: "menu"}})
+	return inlineKeyboard{InlineKeyboard: rows}
 }
 
 func normalizeRouteCallbackID(id string) string {
@@ -157,6 +184,22 @@ func parseRoutePreviewListID(output string) string {
 	return ""
 }
 
+func parseRouteResultListID(output string) string {
+	for _, raw := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "id:") {
+			return normalizeRouteCallbackID(strings.TrimSpace(strings.TrimPrefix(line, "id:")))
+		}
+		if strings.HasPrefix(line, "Applied:") {
+			return normalizeRouteCallbackID(strings.TrimSpace(strings.TrimPrefix(line, "Applied:")))
+		}
+		if strings.HasPrefix(line, "Removed managed route list:") {
+			return normalizeRouteCallbackID(strings.TrimSpace(strings.TrimPrefix(line, "Removed managed route list:")))
+		}
+	}
+	return ""
+}
+
 func isRoutesListResult(commandID string) bool {
 	return strings.HasPrefix(commandID, "routes_list-")
 }
@@ -167,6 +210,10 @@ func isRoutesPreviewResult(commandID string) bool {
 
 func isRoutesApplyResult(commandID string) bool {
 	return strings.HasPrefix(commandID, "routes_apply-")
+}
+
+func isRoutesRemoveResult(commandID string) bool {
+	return strings.HasPrefix(commandID, "routes_remove-")
 }
 
 func (s *Server) editActiveRoutesResult(routerID string, res Result) bool {
@@ -190,14 +237,20 @@ func (s *Server) editActiveRoutesResult(routerID string, res Result) bool {
 		rows := [][]inlineButton{}
 		if res.OK && listID != "" {
 			rows = append(rows, []inlineButton{{Text: "✅ Применить " + listID, CallbackData: "routes-apply:" + routerID + ":" + listID}})
+			rows = append(rows, []inlineButton{{Text: "🧹 Удалить " + listID, CallbackData: "routes-remove:" + routerID + ":" + listID}})
 		}
 		rows = append(rows, []inlineButton{{Text: "⬅️ К спискам", CallbackData: "routes-list:" + routerID}, {Text: "🏠 Главное меню", CallbackData: "menu"}})
 		return s.editMessageWithKeyboard(active.ChatID, active.MessageID, text, inlineKeyboard{InlineKeyboard: rows})
 	}
 	if isRoutesApplyResult(res.CommandID) {
+		listID := parseRouteResultListID(res.Output)
 		text := "✅ Apply route-list\n\n" + prettyResultMessage("", res)
-		kb := inlineKeyboard{InlineKeyboard: [][]inlineButton{{{Text: "⬅️ К спискам", CallbackData: "routes-list:" + routerID}, {Text: "🏠 Главное меню", CallbackData: "menu"}}}}
-		return s.editMessageWithKeyboard(active.ChatID, active.MessageID, text, kb)
+		return s.editMessageWithKeyboard(active.ChatID, active.MessageID, text, routesAfterActionKeyboard(routerID, listID))
+	}
+	if isRoutesRemoveResult(res.CommandID) {
+		listID := parseRouteResultListID(res.Output)
+		text := "🧹 Remove route-list\n\n" + prettyResultMessage("", res)
+		return s.editMessageWithKeyboard(active.ChatID, active.MessageID, text, routesAfterActionKeyboard(routerID, listID))
 	}
 	return false
 }
