@@ -146,9 +146,13 @@ is_ipv4_or_cidr() {
 
 is_safe_custom_value() {
   value="$1"
+  [ -n "$value" ] || return 1
+  # Avoid shell-parser-sensitive patterns in case statements here. Keep the
+  # accepted grammar intentionally narrow: domains plus IPv4/CIDR-like values.
+  printf '%s' "$value" | grep -Eq '^[A-Za-z0-9._/-]+$' || return 1
   case "$value" in
-    ""|*" "*|*"\t"*|*"|"*|*";"*|*"&"*|*"`"*|*"$"*|*"("*|*")"*|*"<"*|*">"*) return 1 ;;
-    http://*|https://*|*://*|*/*)
+    http://*|https://*|*://*) return 1 ;;
+    */*)
       is_ipv4_or_cidr "$value" && return 0
       return 1 ;;
     *) return 0 ;;
