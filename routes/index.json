@@ -3,10 +3,76 @@
   "updated": "2026-05-18",
   "lists": [
     {
-      "id": "youtube",
-      "title": "YouTube",
-      "description": "YouTube, Google Video, ytimg and common Google video IP ranges",
-      "file": "youtube.txt"
+      "id": "akamai",
+      "title": "Akamai",
+      "description": "Akamai CDN IP ranges",
+      "file": "akamai.txt"
+    },
+    {
+      "id": "amazon",
+      "title": "Amazon",
+      "description": "Amazon and CloudFront IP ranges",
+      "file": "amazon.txt"
+    },
+    {
+      "id": "cloudflare",
+      "title": "Cloudflare",
+      "description": "Cloudflare IP ranges",
+      "file": "cloudflare.txt"
+    },
+    {
+      "id": "digitalocean",
+      "title": "DigitalOcean",
+      "description": "DigitalOcean IP ranges",
+      "file": "digitalocean.txt"
+    },
+    {
+      "id": "discord",
+      "title": "Discord",
+      "description": "Discord domains, CDN domains and known Discord IP ranges",
+      "file": "discord.txt"
+    },
+    {
+      "id": "fastly",
+      "title": "Fastly",
+      "description": "Fastly CDN IP ranges",
+      "file": "fastly.txt"
+    },
+    {
+      "id": "filmix",
+      "title": "Filmix",
+      "description": "Filmix domains",
+      "file": "filmix.txt"
+    },
+    {
+      "id": "gemini",
+      "title": "Gemini",
+      "description": "Google Gemini and AI Studio domains",
+      "file": "gemini.txt"
+    },
+    {
+      "id": "github",
+      "title": "GitHub",
+      "description": "GitHub domains",
+      "file": "github.txt"
+    },
+    {
+      "id": "meta",
+      "title": "Meta",
+      "description": "Meta, Facebook, Instagram, WhatsApp domains and IP ranges",
+      "file": "meta.txt"
+    },
+    {
+      "id": "ovh",
+      "title": "OVH",
+      "description": "OVH IP ranges",
+      "file": "ovh.txt"
+    },
+    {
+      "id": "teams",
+      "title": "Microsoft Teams",
+      "description": "Microsoft Teams domains and IP ranges",
+      "file": "teams.txt"
     },
     {
       "id": "telegram",
@@ -15,10 +81,22 @@
       "file": "telegram.txt"
     },
     {
-      "id": "discord",
-      "title": "Discord",
-      "description": "Discord domains, CDN domains and known Discord IP ranges",
-      "file": "discord.txt"
+      "id": "tidal",
+      "title": "TIDAL",
+      "description": "TIDAL domains and CDN IP ranges",
+      "file": "tidal.txt"
+    },
+    {
+      "id": "tiktok",
+      "title": "TikTok",
+      "description": "TikTok domains and IP ranges",
+      "file": "tiktok.txt"
+    },
+    {
+      "id": "youtube",
+      "title": "YouTube",
+      "description": "YouTube, Google Video, ytimg and common Google video IP ranges",
+      "file": "youtube.txt"
     }
   ]
 }
