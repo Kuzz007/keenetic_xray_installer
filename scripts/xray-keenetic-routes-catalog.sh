@@ -5,6 +5,7 @@ REPO="${REPO:-Kuzz007/keenetic_xray_installer}"
 REF="${REF:-main}"
 BASE_URL="${BASE_URL:-https://raw.githubusercontent.com/${REPO}/${REF}/routes}"
 CACHE_DIR="${CACHE_DIR:-/opt/var/cache/xray-routes}"
+CUSTOM_DIR="${CUSTOM_DIR:-$CACHE_DIR/custom}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/etc/xray/route-backups}"
 PROXY_IFACE="${PROXY_IFACE:-Proxy0}"
 POLICY_NAME="${POLICY_NAME:-Policy0}"
@@ -42,6 +43,16 @@ valid_id() {
   esac
 }
 
+trim_line() {
+  sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+custom_path_for_id() {
+  id="$1"
+  valid_id "$id" || { echo "ERROR: invalid list id: $id" >&2; exit 1; }
+  echo "$CUSTOM_DIR/$id.txt"
+}
+
 index_fetch() {
   mkdir -p "$CACHE_DIR"
   tmp="$INDEX_FILE.tmp.$$"
@@ -57,6 +68,16 @@ index_require() {
   fi
 }
 
+list_custom_catalog() {
+  [ -d "$CUSTOM_DIR" ] || return 0
+  for f in "$CUSTOM_DIR"/*.txt; do
+    [ -s "$f" ] || continue
+    id="$(basename "$f" .txt)"
+    valid_id "$id" || continue
+    echo "  $id | Custom: $id"
+  done
+}
+
 list_catalog() {
   index_fetch >/dev/null
   echo "Routes catalog:"
@@ -64,21 +85,34 @@ list_catalog() {
     /"id"[[:space:]]*:/ { id=$0; gsub(/^.*"id"[[:space:]]*:[[:space:]]*"/, "", id); gsub(/".*$/, "", id) }
     /"title"[[:space:]]*:/ { title=$0; gsub(/^.*"title"[[:space:]]*:[[:space:]]*"/, "", title); gsub(/".*$/, "", title); if (id != "") { printf "  %s | %s\n", id, title; id="" } }
   ' "$INDEX_FILE"
+  list_custom_catalog
 }
 
 file_for_id() {
   id="$1"
   valid_id "$id" || { echo "ERROR: invalid list id: $id" >&2; exit 1; }
+  custom="$(custom_path_for_id "$id")"
+  if [ -s "$custom" ]; then
+    echo "custom/$id.txt"
+    return 0
+  fi
   index_require
   awk -v want="$id" '
     /"id"[[:space:]]*:/ { id=$0; gsub(/^.*"id"[[:space:]]*:[[:space:]]*"/, "", id); gsub(/".*$/, "", id) }
     /"file"[[:space:]]*:/ { file=$0; gsub(/^.*"file"[[:space:]]*:[[:space:]]*"/, "", file); gsub(/".*$/, "", file); if (id == want) { print file; found=1; exit } }
     END { if (!found) exit 1 }
-  ' "$INDEX_FILE" || { echo "ERROR: list id not found in index: $id" >&2; exit 1; }
+  ' "$INDEX_FILE" || { echo "ERROR: list id not found in index or custom store: $id" >&2; exit 1; }
 }
 
 download_list() {
   id="$1"
+  valid_id "$id" || { echo "ERROR: invalid list id: $id" >&2; exit 1; }
+  custom="$(custom_path_for_id "$id")"
+  if [ -s "$custom" ]; then
+    validate_list_file "$id" "$custom"
+    echo "$custom"
+    return 0
+  fi
   file="$(file_for_id "$id")"
   case "$file" in
     *../*|/*|*\\*) echo "ERROR: unsafe file path in index: $file" >&2; exit 1 ;;
@@ -110,6 +144,17 @@ is_ipv4_or_cidr() {
   esac
 }
 
+is_safe_custom_value() {
+  value="$1"
+  case "$value" in
+    ""|*" "*|*"\t"*|*"|"*|*";"*|*"&"*|*"`"*|*"$"*|*"("*|*")"*|*"<"*|*">"*) return 1 ;;
+    http://*|https://*|*://*|*/*)
+      is_ipv4_or_cidr "$value" && return 0
+      return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
 count_ipv4_or_cidr() {
   path="$1"
   awk -F'|' '{print $2}' "$path" | while read -r item; do
@@ -125,7 +170,7 @@ preview_list() {
   fqdn=$((total - cidr))
   echo "Route list preview"
   echo "id: $id"
-  echo "source: $BASE_URL/$(file_for_id "$id")"
+  echo "source: $(file_for_id "$id")"
   echo "entries: $total"
   echo "fqdn: $fqdn"
   echo "ipv4_cidr: $cidr"
@@ -195,8 +240,6 @@ ip_route_parts() {
 
 remove_policy_route() {
   route_parts="$1"
-  # Different KeeneticOS builds accept different no-route forms.
-  # Try the most specific forms first; treat at least one success as removed.
   ok=1
   try_ndmc "ip policy $POLICY_NAME no route $route_parts $PROXY_IFACE auto" && ok=0
   try_ndmc "ip policy $POLICY_NAME no route $route_parts $PROXY_IFACE" && ok=0
@@ -212,6 +255,30 @@ remove_list_nosave() {
   quiet_ndmc "dns-proxy no route object-group $id $PROXY_IFACE auto"
   quiet_ndmc "no dns-proxy route object-group $id $PROXY_IFACE auto"
   quiet_ndmc "no object-group fqdn $id"
+}
+
+apply_custom_list() {
+  id="$1"
+  valid_id "$id" || { echo "ERROR: invalid list id: $id" >&2; exit 1; }
+  mkdir -p "$CUSTOM_DIR"
+  out="$(custom_path_for_id "$id")"
+  tmp="$out.tmp.$$"
+  count=0
+  : > "$tmp"
+  while IFS= read -r raw; do
+    value="$(printf '%s' "$raw" | trim_line)"
+    [ -n "$value" ] || continue
+    case "$value" in \#*) continue ;; esac
+    is_safe_custom_value "$value" || { rm -f "$tmp"; echo "ERROR: unsafe custom route value: $value" >&2; exit 1; }
+    count=$((count + 1))
+    [ "$count" -le 300 ] || { rm -f "$tmp"; echo "ERROR: too many custom route values, max=300" >&2; exit 1; }
+    printf '%s|%s\n' "$id" "$value" >> "$tmp"
+  done
+  [ "$count" -gt 0 ] || { rm -f "$tmp"; echo "ERROR: custom route list is empty" >&2; exit 1; }
+  validate_list_file "$id" "$tmp"
+  mv "$tmp" "$out"
+  echo "Custom route list saved: $out"
+  apply_list "$id"
 }
 
 apply_list() {
@@ -348,16 +415,18 @@ usage() {
 Usage: $0 <command> [list_id]
 
 Commands:
-  fetch-index          Download routes/index.json from repo
-  list                 Show lists from repo catalog
-  preview <list_id>    Download and preview one list
-  apply <list_id>      Apply one list to Keenetic
-  remove <list_id>     Remove one managed list from Keenetic
+  fetch-index             Download routes/index.json from repo
+  list                    Show lists from repo catalog and local custom store
+  preview <list_id>       Download/resolve and preview one list
+  apply <list_id>         Apply one repo or local custom list to Keenetic
+  apply-custom <list_id>  Read raw domains/CIDR from stdin, save local custom list and apply it
+  remove <list_id>        Remove one managed list from Keenetic
 
 Environment:
   REPO=$REPO
   REF=$REF
   BASE_URL=$BASE_URL
+  CUSTOM_DIR=$CUSTOM_DIR
   PROXY_IFACE=$PROXY_IFACE
   POLICY_NAME=$POLICY_NAME
 EOF
@@ -369,6 +438,7 @@ case "$cmd" in
   list) list_catalog ;;
   preview) [ "${2:-}" ] || { usage; exit 1; }; preview_list "$2" ;;
   apply) [ "${2:-}" ] || { usage; exit 1; }; apply_list "$2" ;;
+  apply-custom) [ "${2:-}" ] || { usage; exit 1; }; apply_custom_list "$2" ;;
   remove) [ "${2:-}" ] || { usage; exit 1; }; remove_list "$2" ;;
   -h|--help|help) usage ;;
   *) usage; exit 1 ;;
