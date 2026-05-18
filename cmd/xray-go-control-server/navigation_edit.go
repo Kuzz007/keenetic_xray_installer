@@ -33,6 +33,13 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
 	case data == "add_router_help":
 		s.startAddRouterWizard(chatID)
+	case strings.HasPrefix(data, "routes-apply:"):
+		parts := strings.SplitN(data, ":", 3)
+		if len(parts) == 3 {
+			s.enqueueRoutesApply(chatID, messageID, parts[1], parts[2])
+			return
+		}
+		s.editMenuOnly(cb.ID, chatID, messageID, "Некорректная кнопка применения маршрутов", mainMenuKeyboard())
 	case strings.HasPrefix(data, "routes-preview:"):
 		parts := strings.SplitN(data, ":", 3)
 		if len(parts) == 3 {

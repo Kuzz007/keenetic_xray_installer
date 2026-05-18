@@ -54,7 +54,7 @@ func (s *Server) routesMenuView(routerID string) (string, inlineKeyboard, bool) 
 		"Нажмите 📥 Получить списки — роутер скачает актуальный routes/index.json из репозитория.",
 		"Новые списки появятся здесь без обновления бота.",
 		"",
-		"Пока включён безопасный MVP: list + preview. Apply-кнопки не показываются.",
+		"Apply доступен только после preview выбранного списка.",
 	}, "\n")
 	return text, routesKeyboard(routerID), true
 }
@@ -94,6 +94,24 @@ func (s *Server) enqueueRoutesPreview(chatID int64, messageID int, routerID, lis
 	s.editOrSendMessageWithKeyboard(chatID, messageID, text, inlineKeyboard{InlineKeyboard: [][]inlineButton{{{Text: "⬅️ Маршруты", CallbackData: "routes:" + routerID}, {Text: "🏠 Главное меню", CallbackData: "menu"}}}})
 }
 
+func (s *Server) enqueueRoutesApply(chatID int64, messageID int, routerID, listID string) {
+	listID = normalizeRouteCallbackID(listID)
+	if listID == "" {
+		s.editOrSendMessageWithKeyboard(chatID, messageID, "⚠️ Некорректный route list id", routesKeyboard(routerID))
+		return
+	}
+	if messageID > 0 {
+		s.setActiveMenu(routerID, chatID, messageID)
+	}
+	id, err := s.enqueue(routerID, Command{Action: "routes_apply", Selector: listID})
+	if err != nil {
+		s.editOrSendMessageWithKeyboard(chatID, messageID, err.Error(), routesKeyboard(routerID))
+		return
+	}
+	text := fmt.Sprintf("🧭 Apply route-list\n\nRouter: %s\nList: %s\n\n⏳ Применение поставлено в очередь\n%s\n\nБудет создан backup running-config перед изменениями.", routerID, listID, id)
+	s.editOrSendMessageWithKeyboard(chatID, messageID, text, inlineKeyboard{InlineKeyboard: [][]inlineButton{{{Text: "⬅️ К спискам", CallbackData: "routes-list:" + routerID}, {Text: "🏠 Главное меню", CallbackData: "menu"}}}})
+}
+
 func normalizeRouteCallbackID(id string) string {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -129,12 +147,26 @@ func parseRoutesCatalogOutput(output string) []routeListItem {
 	return items
 }
 
+func parseRoutePreviewListID(output string) string {
+	for _, raw := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "id:") {
+			return normalizeRouteCallbackID(strings.TrimSpace(strings.TrimPrefix(line, "id:")))
+		}
+	}
+	return ""
+}
+
 func isRoutesListResult(commandID string) bool {
 	return strings.HasPrefix(commandID, "routes_list-")
 }
 
 func isRoutesPreviewResult(commandID string) bool {
 	return strings.HasPrefix(commandID, "routes_preview-")
+}
+
+func isRoutesApplyResult(commandID string) bool {
+	return strings.HasPrefix(commandID, "routes_apply-")
 }
 
 func (s *Server) editActiveRoutesResult(routerID string, res Result) bool {
@@ -153,7 +185,17 @@ func (s *Server) editActiveRoutesResult(routerID string, res Result) bool {
 		return s.editMessageWithKeyboard(active.ChatID, active.MessageID, text, routeListKeyboard(routerID, items))
 	}
 	if isRoutesPreviewResult(res.CommandID) {
+		listID := parseRoutePreviewListID(res.Output)
 		text := "👁 Preview route-list\n\n" + prettyResultMessage("", res)
+		rows := [][]inlineButton{}
+		if res.OK && listID != "" {
+			rows = append(rows, []inlineButton{{Text: "✅ Применить " + listID, CallbackData: "routes-apply:" + routerID + ":" + listID}})
+		}
+		rows = append(rows, []inlineButton{{Text: "⬅️ К спискам", CallbackData: "routes-list:" + routerID}, {Text: "🏠 Главное меню", CallbackData: "menu"}})
+		return s.editMessageWithKeyboard(active.ChatID, active.MessageID, text, inlineKeyboard{InlineKeyboard: rows})
+	}
+	if isRoutesApplyResult(res.CommandID) {
+		text := "✅ Apply route-list\n\n" + prettyResultMessage("", res)
 		kb := inlineKeyboard{InlineKeyboard: [][]inlineButton{{{Text: "⬅️ К спискам", CallbackData: "routes-list:" + routerID}, {Text: "🏠 Главное меню", CallbackData: "menu"}}}}
 		return s.editMessageWithKeyboard(active.ChatID, active.MessageID, text, kb)
 	}
