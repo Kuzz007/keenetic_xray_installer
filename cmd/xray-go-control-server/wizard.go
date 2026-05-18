@@ -13,6 +13,7 @@ type wizardState struct {
 	Name     string
 	Slot     string
 	Selector string
+	Values   string
 }
 
 var wizardMu sync.Mutex
@@ -62,6 +63,20 @@ func (s *Server) startSetSourceWizard(chatID int64, routerID, slot string) {
 	s.sendMessage(chatID, "🔗 Замена источника\n\n📡 Роутер: "+routerID+"\nСлот: "+slot+"\n\nВведите selector.\n\nПримеры:\n• first\n• index:0\n• index:1\n\nМожно ввести просто 0 или 1 — бот преобразует в index:0 / index:1.\n\nДля отмены: /cancel")
 }
 
+func (s *Server) startCustomRoutesWizard(chatID int64, routerID string) {
+	s.mu.Lock()
+	_, ok := s.cfg.Routers[routerID]
+	s.mu.Unlock()
+	if !ok {
+		s.sendMessage(chatID, "⚠️ Роутер не найден: "+routerID)
+		return
+	}
+	wizardMu.Lock()
+	wizardByChat[chatID] = wizardState{Flow: "custom_routes", Step: "id", RouterID: routerID}
+	wizardMu.Unlock()
+	s.sendMessage(chatID, "➕ Свой список маршрутов\n\n📡 Роутер: "+routerID+"\n\nВведите ID списка.\n\nПримеры:\n• mykino\n• work_sites\n• family-video\n\nРазрешены только латиница, цифры, _ и -.\n\nДля отмены: /cancel")
+}
+
 func (s *Server) handleWizardText(chatID int64, text string) bool {
 	wizardMu.Lock()
 	st, ok := wizardByChat[chatID]
@@ -80,6 +95,8 @@ func (s *Server) handleWizardText(chatID int64, text string) bool {
 		return s.handleAddRouterWizardStep(chatID, st, text)
 	case "set_source":
 		return s.handleSetSourceWizardStep(chatID, st, text)
+	case "custom_routes":
+		return s.handleCustomRoutesWizardStep(chatID, st, text)
 	default:
 		wizardCancel(chatID)
 		s.sendMessage(chatID, "⚠️ Диалог сброшен: неизвестный flow.")
@@ -183,6 +200,87 @@ func (s *Server) handleSetSourceWizardStep(chatID int64, st wizardState, text st
 		s.sendMessage(chatID, "⚠️ Диалог сброшен.")
 		return true
 	}
+}
+
+func (s *Server) handleCustomRoutesWizardStep(chatID int64, st wizardState, text string) bool {
+	switch st.Step {
+	case "id":
+		id := normalizeRouteCallbackID(text)
+		if id == "" {
+			s.sendMessage(chatID, "⚠️ Некорректный ID списка.\n\nРазрешены только латиница, цифры, _ и -.\nПример: mykino\n\nДля отмены: /cancel")
+			return true
+		}
+		st.Selector = id
+		st.Step = "values"
+		wizardMu.Lock()
+		wizardByChat[chatID] = st
+		wizardMu.Unlock()
+		s.sendMessage(chatID, "🧾 Значения списка\n\nID: "+id+"\n\nОтправьте домены/IP/CIDR, каждый с новой строки.\n\nПример:\nexample.com\ncdn.example.com\n1.2.3.0/24\n\nНе используйте https:// и пути.\nМаксимум: 300 строк.\n\nДля отмены: /cancel")
+		return true
+	case "values":
+		values, count, err := normalizeCustomRouteValues(text)
+		if err != nil {
+			s.sendMessage(chatID, "⚠️ "+err.Error()+"\n\nОтправьте список заново или /cancel")
+			return true
+		}
+		id, err := s.enqueue(st.RouterID, Command{Action: "routes_apply_custom", Selector: st.Selector, Source: values})
+		wizardCancel(chatID)
+		if err != nil {
+			s.sendMessage(chatID, err.Error())
+			return true
+		}
+		extra := fmt.Sprintf("⏳ Свой список маршрутов поставлен в очередь\n%s\n\nList: %s\nEntries: %d\nPayload скрыт.\n\nБудет создан backup running-config перед изменениями.", id, st.Selector, count)
+		mid := s.sendMessageWithKeyboardID(chatID, s.routerMenuTextWithExtra(st.RouterID, extra), s.currentRouterKeyboard(st.RouterID))
+		if mid != 0 {
+			s.setActiveMenu(st.RouterID, chatID, mid)
+		}
+		return true
+	default:
+		wizardCancel(chatID)
+		s.sendMessage(chatID, "⚠️ Диалог сброшен.")
+		return true
+	}
+}
+
+func normalizeCustomRouteValues(text string) (string, int, error) {
+	lines := []string{}
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.ContainsAny(line, " \t|;&`$()<>\"'") {
+			return "", 0, fmt.Errorf("недопустимые символы в строке: %s", line)
+		}
+		if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") || strings.Contains(line, "://") {
+			return "", 0, fmt.Errorf("URL не поддерживается, укажите домен без протокола: %s", line)
+		}
+		if strings.Contains(line, "/") && !looksLikeIPv4CIDR(line) {
+			return "", 0, fmt.Errorf("пути не поддерживаются, либо укажите IPv4/CIDR: %s", line)
+		}
+		lines = append(lines, line)
+		if len(lines) > 300 {
+			return "", 0, fmt.Errorf("слишком много строк, максимум 300")
+		}
+	}
+	if len(lines) == 0 {
+		return "", 0, fmt.Errorf("список пустой")
+	}
+	return strings.Join(lines, "\n") + "\n", len(lines), nil
+}
+
+func looksLikeIPv4CIDR(value string) bool {
+	parts := strings.Split(value, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return false
+	}
+	for _, r := range parts[0] + parts[1] {
+		if (r >= '0' && r <= '9') || r == '.' {
+			continue
+		}
+		return false
+	}
+	return strings.Count(parts[0], ".") == 3
 }
 
 func addRouterDoneMessage(routerID, name, token, serverURL string) string {
