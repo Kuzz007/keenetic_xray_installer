@@ -1,0 +1,10 @@
+teams|teams.cloud.microsoft
+teams|teams.microsoft.com
+teams|lync.com
+teams|cloud.microsoft
+teams|static.microsoft
+teams|usercontent.microsoft
+teams|teams.live.com
+teams|live.com
+teams|52.112.0.0/14
+teams|52.122.0.0/15
