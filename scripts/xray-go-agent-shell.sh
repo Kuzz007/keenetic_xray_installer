@@ -145,16 +145,16 @@ status_cmd() {
 active_slot() {
   if [ -s /opt/etc/xray/minimal-go-active ]; then sed -n '1p' /opt/etc/xray/minimal-go-active; return 0; fi
   if [ -s /opt/etc/xray/vless-go.active ]; then sed -n '1p' /opt/etc/xray/vless-go.active; return 0; fi
-  status_cmd 2>/dev/null | sed -n 's/.*active slot:[[:space:]]*//p; s/.*active:[[:space:]]*//p; s/.*активный слот:[[:space:]]*//p' | head -n 1
+  return 0
 }
 
 short_status() {
-  st="$(status_cmd 2>&1)"
   feat="${FEATURES_CACHE:-$(features)}"
-  caps="${CAPABILITIES_CACHE:-$(capabilities_from_features "$feat") }"
-  caps="$(printf '%s' "$caps" | sed 's/[[:space:]]*$//')"
-  printf '%s\n' "$st" | grep -E 'active:|active slot:|активный слот:|health: OK|hourly recovery:|cron: running|crond: running|daemon: запущен|основной профиль:|резервный профиль:' | tr '\n' '; '
-  printf 'agent: shell version=%s; capabilities: %s; features: %s' "$AGENT_VERSION" "$caps" "$feat"
+  caps="${CAPABILITIES_CACHE:-}"
+  [ -n "$caps" ] || caps="$(capabilities_from_features "$feat")"
+  slot="$(active_slot | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  [ -n "$slot" ] && printf 'active slot: %s; ' "$slot"
+  printf 'agent: shell version=%s; heartbeat: lightweight; capabilities: %s; features: %s' "$AGENT_VERSION" "$caps" "$feat"
 }
 
 set_source() {
@@ -351,7 +351,7 @@ update_agent_cmd() {
   mkdir -p /opt/tmp
   url="https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/xray-go-agent-auto-install.sh"
   dst="/opt/tmp/xray-go-agent-auto-install.sh"
-  curl -fsSL -H 'Cache-Control: no-cache' -o "$dst" "$url" || return $?
+  curl -fsSL -H 'Cache-Control: no-cache' -o "$dst" || return $?
   chmod +x "$dst" || return $?
   agent="auto"
   [ -x /opt/bin/xray-go-agent ] && agent="go"
