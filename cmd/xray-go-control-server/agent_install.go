@@ -74,16 +74,20 @@ func (s *Server) sendAgentInstallCommand(chatID int64, routerID, kind string) {
 	intro := fmt.Sprintf("%s %s\n\n📡 %s\nID: %s\nServer: %s\n\nСледующее сообщение — готовая команда для копирования на роутер.", icon, title, rt.Name, rt.ID, serverURL)
 	s.sendMessageWithKeyboard(chatID, intro, agentInstallKeyboard(routerID))
 
-	cmd := buildAgentInstallCommand(bin, installer, serverURL, rt.ID, rt.Name, rt.Token)
+	cmd := buildAgentInstallCommand(bin, installer, serverURL, rt.ID, rt.Name, rt.Token, kind)
 	s.sendMessage(chatID, cmd)
 }
 
-func buildAgentInstallCommand(bin, installer, serverURL, routerID, routerName, token string) string {
+func buildAgentInstallCommand(bin, installer, serverURL, routerID, routerName, token, kind string) string {
 	tool := "cu" + "rl"
 	base := "https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/"
 	flagToken := "--agent-" + "token"
-	return fmt.Sprintf("%s -fsSL -o /opt/bin/%s %s%s && chmod +x /opt/bin/%s && /opt/bin/%s --server-url '%s' --router-id '%s' --router-name '%s' %s '%s' --poll-interval 5",
-		tool, bin, base, installer, bin, bin, serverURL, routerID, routerName, flagToken, token)
+	pollInterval := "10"
+	if kind == "shell" {
+		pollInterval = "15"
+	}
+	return fmt.Sprintf("%s -fsSL -o /opt/bin/%s %s%s && chmod +x /opt/bin/%s && /opt/bin/%s --server-url '%s' --router-id '%s' --router-name '%s' %s '%s' --poll-interval %s",
+		tool, bin, base, installer, bin, bin, serverURL, routerID, routerName, flagToken, token, pollInterval)
 }
 
 func publicServerURL(listen string) string {

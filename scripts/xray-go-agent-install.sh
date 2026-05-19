@@ -23,7 +23,7 @@ Options:
   --router-id ID         Router ID from control bot, latin only
   --router-name NAME     Router display name
   --agent-token TOKEN    Agent token from control bot
-  --poll-interval SEC    Poll interval seconds, default 5
+  --poll-interval SEC    Poll interval seconds, default 10
   -h, --help             Show this help
 
 If required options are omitted, the installer asks interactively.
@@ -126,7 +126,7 @@ write_config() {
   old_server="https://control.example.com"
   old_id="home"
   old_name="Дом"
-  old_interval="5"
+  old_interval="10"
   old_token="${AGENT_TOKEN:-}"
   if [ -f "$CONF" ]; then
     . "$CONF" || true
