@@ -9,6 +9,8 @@ UPDATE_SCRIPTS_LOG="/opt/var/log/xray-go-update-scripts.log"
 RESULT_LOG="/opt/var/log/xray-go-agent-result.log"
 ROUTES_CATALOG_URL="https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/xray-keenetic-routes-catalog.sh"
 ROUTES_CATALOG_PATH="/opt/bin/xray-keenetic-routes-catalog"
+FEATURES_CACHE=""
+CAPABILITIES_CACHE=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -84,28 +86,50 @@ features() {
   printf '%s' "$out"
 }
 
-has_feature() {
-  case ",$(features)," in
-    *,"$1",*) return 0 ;;
+has_feature_in() {
+  feature_list="$1"
+  feature="$2"
+  case ",$feature_list," in
+    *,"$feature",*) return 0 ;;
     *) return 1 ;;
   esac
 }
 
-capabilities() {
+has_feature() {
+  feature_list="${FEATURES_CACHE:-}"
+  [ -n "$feature_list" ] || feature_list="$(features)"
+  has_feature_in "$feature_list" "$1"
+}
+
+capabilities_from_features() {
+  feature_list="$1"
   out="agent_start,slot_change"
-  has_feature status && out="$out,status,source_status"
-  has_feature switch && out="$out,switch_primary,switch_backup"
-  has_feature source_update && out="$out,set_primary_source,set_backup_source"
-  has_feature doctor && out="$out,doctor"
-  has_feature history && out="$out,history"
-  has_feature watchdog && out="$out,watchdog_log,recovery_log"
-  has_feature recovery && out="$out,recover_status,recover_check,recover_run,recover_enable,recover_disable"
-  has_feature agent_log && out="$out,agent_result_log"
-  has_feature reboot && out="$out,reboot"
-  has_feature update_scripts && out="$out,update_scripts"
-  has_feature update_agent && out="$out,update_agent"
-  has_feature routes_catalog && out="$out,routes_list,routes_preview,routes_apply,routes_apply_custom,routes_remove"
+  has_feature_in "$feature_list" status && out="$out,status,source_status"
+  has_feature_in "$feature_list" switch && out="$out,switch_primary,switch_backup"
+  has_feature_in "$feature_list" source_update && out="$out,set_primary_source,set_backup_source"
+  has_feature_in "$feature_list" doctor && out="$out,doctor"
+  has_feature_in "$feature_list" history && out="$out,history"
+  has_feature_in "$feature_list" watchdog && out="$out,watchdog_log,recovery_log"
+  has_feature_in "$feature_list" recovery && out="$out,recover_status,recover_check,recover_run,recover_enable,recover_disable"
+  has_feature_in "$feature_list" agent_log && out="$out,agent_result_log"
+  has_feature_in "$feature_list" reboot && out="$out,reboot"
+  has_feature_in "$feature_list" update_scripts && out="$out,update_scripts"
+  has_feature_in "$feature_list" update_agent && out="$out,update_agent"
+  has_feature_in "$feature_list" routes_catalog && out="$out,routes_list,routes_preview,routes_apply,routes_apply_custom,routes_remove"
   printf '%s' "$out"
+}
+
+capabilities() {
+  if [ -n "${CAPABILITIES_CACHE:-}" ]; then
+    printf '%s' "$CAPABILITIES_CACHE"
+    return 0
+  fi
+  capabilities_from_features "$(features)"
+}
+
+refresh_feature_cache() {
+  FEATURES_CACHE="$(features)"
+  CAPABILITIES_CACHE="$(capabilities_from_features "$FEATURES_CACHE")"
 }
 
 status_cmd() {
@@ -126,8 +150,9 @@ active_slot() {
 
 short_status() {
   st="$(status_cmd 2>&1)"
-  feat="$(features)"
-  caps="$(capabilities)"
+  feat="${FEATURES_CACHE:-$(features)}"
+  caps="${CAPABILITIES_CACHE:-$(capabilities_from_features "$feat") }"
+  caps="$(printf '%s' "$caps" | sed 's/[[:space:]]*$//')"
   printf '%s\n' "$st" | grep -E 'active:|active slot:|активный слот:|health: OK|hourly recovery:|cron: running|crond: running|daemon: запущен|основной профиль:|резервный профиль:' | tr '\n' '; '
   printf 'agent: shell version=%s; capabilities: %s; features: %s' "$AGENT_VERSION" "$caps" "$feat"
 }
@@ -374,7 +399,7 @@ run_action() {
     recover_disable) recover_cmd disable-hourly ;;
     set_primary_source) set_source primary "$selector" "$source" ;;
     set_backup_source) set_source backup "$selector" "$source" ;;
-    update_scripts) update_scripts_cmd ;;
+    update_scripts) update_scripts_cmd; rc="$?"; refresh_feature_cache; return "$rc" ;;
     update_agent) update_agent_cmd ;;
     routes_list) routes_cmd list "" ;;
     routes_preview) routes_cmd preview "$selector" ;;
@@ -415,7 +440,7 @@ post_result() {
 }
 
 notify_startup() {
-  msg="Router started. Agent online. name=$ROUTER_NAME id=$ROUTER_ID version=$AGENT_VERSION capabilities=$(capabilities) features=$(features)"
+  msg="Router started. Agent online. name=$ROUTER_NAME id=$ROUTER_ID version=$AGENT_VERSION capabilities=${CAPABILITIES_CACHE:-$(capabilities)} features=${FEATURES_CACHE:-$(features)}"
   post_result "agent_start" true "$msg" || log "startup notification failed"
 }
 
@@ -459,6 +484,7 @@ poll_once() {
   check_slot_change
 }
 
+refresh_feature_cache
 log "xray-go-agent-shell started version=$AGENT_VERSION router_id=$ROUTER_ID name=$ROUTER_NAME server=$SERVER_URL"
 result_log "agent start version=$AGENT_VERSION router_id=$ROUTER_ID"
 notify_startup
