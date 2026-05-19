@@ -47,6 +47,7 @@ const agentVersion = "0.1.4-go-experimental"
 const slotStateFile = "/opt/var/run/xray-go-agent.last-slot"
 const resultLogPath = "/opt/var/log/xray-go-agent-result.log"
 const routesCatalogPath = "/opt/bin/xray-keenetic-routes-catalog"
+const slotCheckInterval = 60 * time.Second
 
 func main() {
 	cfgPath := flag.String("config", "/opt/etc/xray/xray-go-agent.conf", "config path")
@@ -62,24 +63,28 @@ func main() {
 	if err := notifyStartup(cfg); err != nil {
 		log.Printf("startup notification failed: %v", err)
 	}
-	if err := checkSlotChange(cfg); err != nil {
-		log.Printf("slot check failed: %v", err)
-	}
+	lastSlotCheck := time.Time{}
+	maybeCheckSlotChange(cfg, &lastSlotCheck)
 	for {
-		if err := checkSlotChange(cfg); err != nil {
-			log.Printf("slot check failed: %v", err)
-		}
 		if err := pollOnce(cfg); err != nil {
 			log.Printf("poll error: %v", err)
 			resultLog("poll error: %v", err)
 		}
-		if err := checkSlotChange(cfg); err != nil {
-			log.Printf("slot check failed: %v", err)
-		}
+		maybeCheckSlotChange(cfg, &lastSlotCheck)
 		if *once {
 			return
 		}
 		time.Sleep(cfg.PollInterval)
+	}
+}
+
+func maybeCheckSlotChange(cfg Config, last *time.Time) {
+	if !last.IsZero() && time.Since(*last) < slotCheckInterval {
+		return
+	}
+	*last = time.Now()
+	if err := checkSlotChange(cfg); err != nil {
+		log.Printf("slot check failed: %v", err)
 	}
 }
 
@@ -646,7 +651,7 @@ func setSourceCommand(slot, selector, source string) []string {
 
 func exists(path string) bool { _, err := os.Stat(path); return err == nil }
 
-func readFirst(path string) string {
+func readFirst(path string) {
 	data, err := os.ReadFile(path)
 	if err != nil { return "" }
 	return strings.TrimSpace(strings.SplitN(string(data), "\n", 2)[0])
