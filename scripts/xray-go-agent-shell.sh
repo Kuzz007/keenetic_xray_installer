@@ -351,7 +351,7 @@ update_agent_cmd() {
   mkdir -p /opt/tmp
   url="https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/xray-go-agent-auto-install.sh"
   dst="/opt/tmp/xray-go-agent-auto-install.sh"
-  curl -fsSL -H 'Cache-Control: no-cache' -o "$dst" || return $?
+  curl -fsSL -H 'Cache-Control: no-cache' -o "$dst" "$url" || return $?
   chmod +x "$dst" || return $?
   agent="auto"
   [ -x /opt/bin/xray-go-agent ] && agent="go"
