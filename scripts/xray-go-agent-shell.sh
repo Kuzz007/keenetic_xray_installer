@@ -104,7 +104,7 @@ capabilities() {
   has_feature reboot && out="$out,reboot"
   has_feature update_scripts && out="$out,update_scripts"
   has_feature update_agent && out="$out,update_agent"
-  has_feature routes_catalog && out="$out,routes_list,routes_preview,routes_apply,routes_remove"
+  has_feature routes_catalog && out="$out,routes_list,routes_preview,routes_apply,routes_apply_custom,routes_remove"
   printf '%s' "$out"
 }
 
@@ -338,11 +338,17 @@ update_agent_cmd() {
 routes_cmd() {
   sub="$1"
   list_id="$2"
+  payload="${3:-}"
   [ -x "$ROUTES_CATALOG_PATH" ] || { echo "routes catalog helper not installed: $ROUTES_CATALOG_PATH"; return 1; }
   case "$sub" in
     list) "$ROUTES_CATALOG_PATH" list ;;
     preview) [ -n "$list_id" ] || { echo "routes preview requires list id"; return 1; }; "$ROUTES_CATALOG_PATH" preview "$list_id" ;;
     apply) [ -n "$list_id" ] || { echo "routes apply requires list id"; return 1; }; "$ROUTES_CATALOG_PATH" apply "$list_id" ;;
+    apply-custom)
+      [ -n "$list_id" ] || { echo "routes apply-custom requires list id"; return 1; }
+      [ -n "$payload" ] || { echo "routes apply-custom requires payload"; return 1; }
+      printf '%b' "$payload" | "$ROUTES_CATALOG_PATH" apply-custom "$list_id"
+      ;;
     remove) [ -n "$list_id" ] || { echo "routes remove requires list id"; return 1; }; "$ROUTES_CATALOG_PATH" remove "$list_id" ;;
     *) echo "unknown routes subcommand: $sub"; return 1 ;;
   esac
@@ -373,6 +379,7 @@ run_action() {
     routes_list) routes_cmd list "" ;;
     routes_preview) routes_cmd preview "$selector" ;;
     routes_apply) routes_cmd apply "$selector" ;;
+    routes_apply_custom) routes_cmd apply-custom "$selector" "$source" ;;
     routes_remove) routes_cmd remove "$selector" ;;
     reboot)
       echo "Router reboot scheduled by control bot. Agent will disconnect now."
