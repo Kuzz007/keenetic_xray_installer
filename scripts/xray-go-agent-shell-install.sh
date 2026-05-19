@@ -23,7 +23,7 @@ Options:
   --router-id ID
   --router-name NAME
   --agent-token TOKEN
-  --poll-interval SEC
+  --poll-interval SEC    Poll interval seconds, default 15
   -h, --help
 EOF
 }
@@ -82,7 +82,7 @@ write_config() {
   old_id="home"
   old_name="Дом"
   old_token=""
-  old_interval="5"
+  old_interval="15"
   if [ -f "$CONF" ]; then
     . "$CONF" || true
     old_server="${SERVER_URL:-$old_server}"
