@@ -8,6 +8,7 @@ import (
 )
 
 const ungroupedRouterGroup = "Без группы"
+const ungroupedRouterGroupCallback = "_"
 
 func normalizeRouterGroup(group string) string {
 	return strings.TrimSpace(group)
@@ -26,13 +27,20 @@ func routerGroupKey(group string) string {
 }
 
 func encodeRouterGroupCallback(group string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(routerGroupKey(group)))
+	group = routerGroupKey(group)
+	if group == "" {
+		return ungroupedRouterGroupCallback
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(group))
 }
 
 func decodeRouterGroupCallback(data string) (string, bool) {
 	encoded := strings.TrimPrefix(data, "router-group:")
 	if encoded == data || encoded == "" {
 		return "", false
+	}
+	if encoded == ungroupedRouterGroupCallback {
+		return "", true
 	}
 	b, err := base64.RawURLEncoding.DecodeString(encoded)
 	if err != nil {
