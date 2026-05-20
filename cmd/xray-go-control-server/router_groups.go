@@ -9,6 +9,7 @@ import (
 
 const ungroupedRouterGroup = "Без группы"
 const ungroupedRouterGroupCallback = "_"
+const maxRouterGroupNameBytes = 16
 
 func normalizeRouterGroup(group string) string { return strings.TrimSpace(group) }
 func routerGroupKey(group string) string { return normalizeRouterGroup(group) }
@@ -16,7 +17,7 @@ func routerGroupLabel(group string) string { group = normalizeRouterGroup(group)
 
 func validRouterGroupName(group string) bool {
 	group = normalizeRouterGroup(group)
-	if group == "" || group == ungroupedRouterGroup || len([]rune(group)) > 40 { return false }
+	if group == "" || group == ungroupedRouterGroup || len([]byte(group)) > maxRouterGroupNameBytes { return false }
 	return !strings.ContainsAny(group, ",=|\n\r\t")
 }
 
