@@ -21,16 +21,31 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 	case data == "help":
 		s.editMenuOnly(cb.ID, chatID, messageID, helpText(), mainMenuKeyboard())
 	case data == "routers":
-		s.editMenuOnly(cb.ID, chatID, messageID, s.routerList(), s.routersKeyboardWithUpdateScripts())
+		s.editMenuOnly(cb.ID, chatID, messageID, s.routerGroupsList(), s.routersKeyboardWithUpdateScripts())
+	case strings.HasPrefix(data, "router-group:"):
+		group, ok := decodeRouterGroupCallback(data)
+		if !ok {
+			s.editMenuOnly(cb.ID, chatID, messageID, "Некорректная группа роутеров", s.routersKeyboardWithUpdateScripts())
+			return
+		}
+		text, kb := s.routerGroupView(group)
+		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
+	case strings.HasPrefix(data, "add-router-group:"):
+		group, ok := decodeAddRouterGroupCallback(data)
+		if !ok {
+			s.editMenuOnly(cb.ID, chatID, messageID, "Некорректная группа роутеров", s.routersKeyboardWithUpdateScripts())
+			return
+		}
+		s.startAddRouterWizardForGroup(chatID, group)
 	case data == "doctor_all":
 		text := s.enqueueDoctorAll()
-		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
+		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerGroupsList(), s.routersKeyboardWithUpdateScripts())
 	case data == "update_scripts_all":
 		text := s.enqueueUpdateScriptsAll()
-		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
+		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerGroupsList(), s.routersKeyboardWithUpdateScripts())
 	case data == "update_agents_all":
 		text := s.enqueueUpdateAgentsAll()
-		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
+		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerGroupsList(), s.routersKeyboardWithUpdateScripts())
 	case data == "add_router_help":
 		s.startAddRouterWizard(chatID)
 	case strings.HasPrefix(data, "routes-custom:"):
@@ -167,4 +182,12 @@ func (s *Server) agentInstallMenuView(routerID string) (string, inlineKeyboard, 
 	}
 	msg := strings.TrimSpace("📦 Установка агента\n\n📡 " + rt.Name + "\nID: " + rt.ID + "\n\nРекомендуемый вариант: ⚙️ Auto install.\n\nОн сам определит архитектуру роутера и выберет агент:\n• ARM64 / aarch64 → Go-agent\n• MIPS / MT7621 / старые Keenetic → Legacy shell-agent\n\n🧩 Legacy shell-agent оставлен как ручной вариант для диагностики и старых MIPS.")
 	return msg, agentInstallKeyboard(routerID), true
+}
+
+func decodeAddRouterGroupCallback(data string) (string, bool) {
+	encoded := strings.TrimPrefix(data, "add-router-group:")
+	if encoded == data || encoded == "" {
+		return "", false
+	}
+	return decodeRouterGroupCallback("router-group:" + encoded)
 }
