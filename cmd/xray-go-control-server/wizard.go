@@ -11,6 +11,7 @@ type wizardState struct {
 	Step     string
 	RouterID string
 	Name     string
+	Group    string
 	Slot     string
 	Selector string
 	Values   string
@@ -26,10 +27,19 @@ func wizardCancel(chatID int64) {
 }
 
 func (s *Server) startAddRouterWizard(chatID int64) {
+	s.startAddRouterWizardForGroup(chatID, "")
+}
+
+func (s *Server) startAddRouterWizardForGroup(chatID int64, group string) {
+	group = routerGroupKey(group)
 	wizardMu.Lock()
-	wizardByChat[chatID] = wizardState{Flow: "add_router", Step: "router_id"}
+	wizardByChat[chatID] = wizardState{Flow: "add_router", Step: "router_id", Group: group}
 	wizardMu.Unlock()
-	s.sendMessage(chatID, "➕ Добавление роутера\n\nВведите ID роутера латиницей.\n\nПримеры: home, dacha, office\n\nДля отмены: /cancel")
+	msg := "➕ Добавление роутера\n\nВведите ID роутера латиницей.\n\nПримеры: home, dacha, office\n\nДля отмены: /cancel"
+	if group != "" {
+		msg = "➕ Добавление роутера\n\nГруппа: " + routerGroupLabel(group) + "\n\nВведите ID роутера латиницей.\n\nПримеры: home, dacha, office\n\nДля отмены: /cancel"
+	}
+	s.sendMessage(chatID, msg)
 }
 
 func sourceKeyboard(routerID string) inlineKeyboard {
@@ -123,7 +133,11 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 		wizardMu.Lock()
 		wizardByChat[chatID] = st
 		wizardMu.Unlock()
-		s.sendMessage(chatID, "🏷 Имя роутера\n\nВведите display name.\n\nПримеры: Дом, Дача, Офис\n\nДля отмены: /cancel")
+		msg := "🏷 Имя роутера\n\nВведите display name.\n\nПримеры: Дом, Дача, Офис\n\nДля отмены: /cancel"
+		if st.Group != "" {
+			msg = "🏷 Имя роутера\n\nГруппа: " + routerGroupLabel(st.Group) + "\n\nВведите display name.\n\nПримеры: Дом, Дача, Офис\n\nДля отмены: /cancel"
+		}
+		s.sendMessage(chatID, msg)
 		return true
 	case "name":
 		name := strings.TrimSpace(text)
@@ -143,7 +157,7 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 			s.sendMessage(chatID, "⚠️ Роутер уже существует: "+st.RouterID)
 			return true
 		}
-		s.cfg.Routers[st.RouterID] = &Router{ID: st.RouterID, Name: name, Token: token}
+		s.cfg.Routers[st.RouterID] = &Router{ID: st.RouterID, Name: name, Token: token, Group: routerGroupKey(st.Group)}
 		err = s.persistConfigLocked()
 		if err != nil {
 			delete(s.cfg.Routers, st.RouterID)
