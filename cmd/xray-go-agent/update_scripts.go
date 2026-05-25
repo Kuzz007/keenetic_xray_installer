@@ -48,10 +48,13 @@ func updateScripts() (bool, string) {
 	if err := os.WriteFile(autoLatestPath, body, 0755); err != nil {
 		return false, err.Error()
 	}
+	if err := checkShellSyntax(autoLatestPath); err != nil {
+		return false, "downloaded auto_latest script failed syntax check: " + err.Error()
+	}
 
 	cmd := exec.Command(autoLatestPath, "--update-only", "--no-restart")
 	out, err := cmd.CombinedOutput()
-	text := strings.TrimSpace("Updating router scripts via auto_latest repair path...\n" + string(out))
+	text := strings.TrimSpace("Updating router scripts via auto_latest safe-wrapper repair path...\n" + string(out))
 
 	routesText, routesErr := installRoutesCatalogHelper(client)
 	if routesText != "" {
@@ -100,10 +103,33 @@ func installRoutesCatalogHelper(client *http.Client) (string, error) {
 		err := fmt.Errorf("downloaded routes catalog helper does not look like a shell script")
 		return "Installing routes catalog helper...\nERROR: " + err.Error(), err
 	}
-	if err := os.WriteFile(routesCatalogPath, body, 0755); err != nil {
+	tmp := routesCatalogPath + ".tmp"
+	if err := os.WriteFile(tmp, body, 0755); err != nil {
+		return "Installing routes catalog helper...\nERROR: " + err.Error(), err
+	}
+	if err := checkShellSyntax(tmp); err != nil {
+		_ = os.Remove(tmp)
+		err = fmt.Errorf("downloaded routes catalog helper failed syntax check: %w", err)
+		return "Installing routes catalog helper...\nERROR: " + err.Error(), err
+	}
+	if err := os.Rename(tmp, routesCatalogPath); err != nil {
+		_ = os.Remove(tmp)
 		return "Installing routes catalog helper...\nERROR: " + err.Error(), err
 	}
 	return "Installing routes catalog helper...\nInstalled: " + routesCatalogPath, nil
+}
+
+func checkShellSyntax(path string) error {
+	cmd := exec.Command("/bin/sh", "-n", path)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("%s", msg)
+	}
+	return nil
 }
 
 func updateScriptsSummary(output string) string {
@@ -125,6 +151,7 @@ func updateScriptsSummary(output string) string {
 	}
 	return strings.Join([]string{
 		"✅ Scripts update completed",
+		"installer: safe-wrapper",
 		"edition: " + edition,
 		"mode: " + mode,
 		"recovery: " + recovery,
