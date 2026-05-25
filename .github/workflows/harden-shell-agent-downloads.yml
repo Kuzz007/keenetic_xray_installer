@@ -1,0 +1,135 @@
+name: Harden shell-agent downloads
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  patch-shell-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch shell agent
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/xray-go-agent-shell.sh')
+          text = path.read_text()
+          original = text
+
+          helper_anchor = 'have() { [ -x "$1" ]; }\nexists() { [ -e "$1" ]; }\n'
+          helper = '''have() { [ -x "$1" ]; }
+          exists() { [ -e "$1" ]; }
+          shell_syntax_check() {
+            file="$1"
+            /bin/sh -n "$file" >/dev/null 2>&1 || {
+              echo "ERROR: shell syntax check failed: $file"
+              /bin/sh -n "$file"
+              return 1
+            }
+          }
+          '''.replace('          ', '')
+          if 'shell_syntax_check()' not in text:
+            if helper_anchor not in text:
+              raise SystemExit('helper anchor not found')
+            text = text.replace(helper_anchor, helper, 1)
+
+          old = '''if head -n 1 "$tmp" | grep -q '^#!/bin/sh'; then
+                chmod +x "$tmp"
+                mv "$tmp" "$ROUTES_CATALOG_PATH"
+                echo "Installed: $ROUTES_CATALOG_PATH"
+                return 0
+              fi'''.replace('              ', '')
+          new = '''if head -n 1 "$tmp" | grep -q '^#!/bin/sh'; then
+                shell_syntax_check "$tmp" || {
+                  rm -f "$tmp"
+                  return 1
+                }
+                chmod +x "$tmp"
+                mv "$tmp" "$ROUTES_CATALOG_PATH"
+                echo "Installed: $ROUTES_CATALOG_PATH"
+                return 0
+              fi'''.replace('              ', '')
+          if new not in text:
+            if old not in text:
+              raise SystemExit('routes helper install block not found')
+            text = text.replace(old, new, 1)
+
+          old = '''curl -fsSL -H 'Cache-Control: no-cache' -o "$dst" "$url" >> "$tmp" 2>&1 || { cp "$tmp" "$UPDATE_SCRIPTS_LOG" 2>/dev/null || true; cat "$tmp"; rm -f "$tmp"; return 1; }
+            chmod +x "$dst" >> "$tmp" 2>&1 || { cp "$tmp" "$UPDATE_SCRIPTS_LOG" 2>/dev/null || true; cat "$tmp"; rm -f "$tmp"; return 1; }
+            "$dst" --update-only --no-restart >> "$tmp" 2>&1'''.replace('            ', '')
+          new = '''curl -fsSL -H 'Cache-Control: no-cache' -o "$dst" "$url" >> "$tmp" 2>&1 || { cp "$tmp" "$UPDATE_SCRIPTS_LOG" 2>/dev/null || true; cat "$tmp"; rm -f "$tmp"; return 1; }
+            shell_syntax_check "$dst" >> "$tmp" 2>&1 || { cp "$tmp" "$UPDATE_SCRIPTS_LOG" 2>/dev/null || true; cat "$tmp"; rm -f "$tmp"; return 1; }
+            chmod +x "$dst" >> "$tmp" 2>&1 || { cp "$tmp" "$UPDATE_SCRIPTS_LOG" 2>/dev/null || true; cat "$tmp"; rm -f "$tmp"; return 1; }
+            "$dst" --update-only --no-restart >> "$tmp" 2>&1'''.replace('            ', '')
+          if new not in text:
+            if old not in text:
+              raise SystemExit('update_scripts download block not found')
+            text = text.replace(old, new, 1)
+
+          old = '''curl -fsSL -H 'Cache-Control: no-cache' -o "$dst" "$url" || return $?
+            chmod +x "$dst" || return $?'''.replace('            ', '')
+          new = '''curl -fsSL -H 'Cache-Control: no-cache' -o "$dst" "$url" || return $?
+            head -n 1 "$dst" | grep -q '^#!/bin/sh' || {
+              echo "ERROR: downloaded agent installer does not look like a shell script"
+              rm -f "$dst"
+              return 1
+            }
+            shell_syntax_check "$dst" || {
+              rm -f "$dst"
+              return 1
+            }
+            chmod +x "$dst" || return $?'''.replace('            ', '')
+          if new not in text:
+            if old not in text:
+              raise SystemExit('update_agent download block not found')
+            text = text.replace(old, new, 1)
+
+          old = '''echo "✅ Scripts update completed"
+            echo "edition: $edition"'''.replace('            ', '')
+          new = '''echo "✅ Scripts update completed"
+            echo "installer: safe-wrapper"
+            echo "edition: $edition"'''.replace('            ', '')
+          if new not in text:
+            if old not in text:
+              raise SystemExit('summary block not found')
+            text = text.replace(old, new, 1)
+
+          if text == original:
+            print('No changes needed; shell-agent already hardened.')
+          else:
+            path.write_text(text)
+            print('Patched scripts/xray-go-agent-shell.sh')
+          PY
+
+      - name: Validate shell syntax
+        run: sh -n scripts/xray-go-agent-shell.sh
+
+      - name: Create pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet; then
+            echo "No changes to propose."
+            exit 0
+          fi
+          branch="harden-shell-agent-downloads-action"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add scripts/xray-go-agent-shell.sh
+          git commit -m "Harden shell-agent script downloads"
+          git push --force-with-lease origin "$branch"
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "Harden shell-agent script downloads" \
+            --body "Adds shell syntax checks before shell-agent downloaded scripts are executed or installed. Also marks update_scripts summary as installer: safe-wrapper."
