@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -38,8 +39,14 @@ func updateAgent() (bool, string) {
 	if err != nil {
 		return false, err.Error()
 	}
+	if !strings.HasPrefix(string(body), "#!/bin/sh") {
+		return false, "downloaded agent installer does not look like a shell script"
+	}
 	if err := os.WriteFile(agentInstallerPath, body, 0755); err != nil {
 		return false, err.Error()
+	}
+	if err := checkShellSyntax(agentInstallerPath); err != nil {
+		return false, "downloaded agent installer failed syntax check: " + err.Error()
 	}
 
 	logFile, err := os.OpenFile("/opt/var/log/xray-go-agent-update.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -54,5 +61,5 @@ func updateAgent() (bool, string) {
 		_ = logFile.Close()
 		return false, err.Error()
 	}
-	return true, "Agent update scheduled in background. Existing config will be reused.\nLog: /opt/var/log/xray-go-agent-update.log\nA fresh agent_start should arrive after restart."
+	return true, "Agent update scheduled in background. Installer syntax check passed. Existing config will be reused.\nLog: /opt/var/log/xray-go-agent-update.log\nA fresh agent_start should arrive after restart."
 }
