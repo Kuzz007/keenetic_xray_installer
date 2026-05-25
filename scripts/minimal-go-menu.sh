@@ -1,7 +1,7 @@
 #!/bin/sh
 set -u
 
-MENU_VERSION="${MINIMAL_GO_MENU_VERSION:-2026.05.25-menu-version}"
+RELEASE_VERSION="${MINIMAL_GO_RELEASE_VERSION:-0.1.3-go-experimental}"
 STATUS_CMD="/opt/bin/minimal-go-status"
 SWITCH_CMD="/opt/bin/minimal-go-switch"
 UPDATE_CMD="/opt/bin/minimal-go-update"
@@ -111,7 +111,7 @@ while :; do
   clear 2>/dev/null || true
   cat <<MENU
 Меню Minimal Go
-Version: $MENU_VERSION
+Release: $RELEASE_VERSION
 
 1. Статус
 2. Переключить на основной слот

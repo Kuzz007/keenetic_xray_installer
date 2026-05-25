@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-MENU_VERSION="${FAILOVER_GO_MENU_VERSION:-2026.05.25-menu-version}"
+RELEASE_VERSION="${FAILOVER_GO_RELEASE_VERSION:-0.1.3-go-experimental}"
 XRAY_DIR="/opt/etc/xray"
 ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
@@ -63,7 +63,7 @@ show_header() {
     clear 2>/dev/null || true
     echo "========================================"
     echo " VLESS Go / Xray failover"
-    echo " Menu version: $MENU_VERSION"
+    echo " Release: $RELEASE_VERSION"
     echo "========================================"
     echo
 }
