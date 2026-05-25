@@ -1,6 +1,7 @@
 #!/bin/sh
 set -e
 
+MENU_VERSION="${FAILOVER_GO_MENU_VERSION:-2026.05.25-menu-version}"
 XRAY_DIR="/opt/etc/xray"
 ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
@@ -40,21 +41,12 @@ require_cmd() {
     return 0
 }
 
-show_header() {
-    clear 2>/dev/null || true
-    echo "========================================"
-    echo " VLESS Go / Xray failover"
-    echo "========================================"
-    echo
-}
-
 active_slot() { [ -s "$ACTIVE_STORE" ] && sed -n '1p' "$ACTIVE_STORE" || echo "primary"; }
 slot_configured() { case "$1" in primary) [ -s "$PRIMARY_STORE" ] ;; backup) [ -s "$BACKUP_STORE" ] ;; *) return 1 ;; esac; }
 slot_file() { case "$1" in primary) echo "$PRIMARY_STORE" ;; backup) echo "$BACKUP_STORE" ;; *) return 1 ;; esac; }
 slot_source() { FILE="$(slot_file "$1")" || return 1; sed -n '1p' "$FILE" 2>/dev/null || true; }
 selector_file() { case "$1" in primary|backup) echo "$XRAY_DIR/vless-go.$1.selector" ;; *) return 1 ;; esac; }
 read_selector() { FILE="$(selector_file "$1")" || return 1; VALUE="$(sed -n '1p' "$FILE" 2>/dev/null || true)"; echo "${VALUE:-first}"; }
-
 slot_ru() { case "$1" in primary) echo "основной" ;; backup) echo "резервный" ;; *) echo "$1" ;; esac; }
 
 normalize_selector() {
@@ -65,6 +57,15 @@ normalize_selector() {
         [1-9]*) echo "index:$VALUE" ;;
         *) return 1 ;;
     esac
+}
+
+show_header() {
+    clear 2>/dev/null || true
+    echo "========================================"
+    echo " VLESS Go / Xray failover"
+    echo " Menu version: $MENU_VERSION"
+    echo "========================================"
+    echo
 }
 
 show_profile_list() {
@@ -87,12 +88,9 @@ prompt_selector() {
     SOURCE_VALUE="$2"
     CURRENT="$(read_selector "$SLOT" 2>/dev/null || echo first)"
     SLOT_NAME="$(slot_ru "$SLOT")"
-
     show_profile_list "$SOURCE_VALUE"
     echo "Текущий selector для $SLOT_NAME профиля: $CURRENT" >&2
-    echo "Selector выбирает VLESS-профиль внутри подписки." >&2
     echo "Поддерживается: first, index:N или просто N. Пример: 7 = index:7." >&2
-    echo "Selector по имени не используется для автообновлений, так как имена в подписках нестабильны." >&2
     echo >&2
     read_tty "Введите selector для $SLOT_NAME профиля [по умолчанию: $CURRENT]: "
     VALUE="$REPLY"
@@ -113,13 +111,7 @@ show_status() {
     pause
 }
 
-run_doctor() {
-    show_header
-    echo "[Диагностика doctor]"
-    require_cmd "$GO_DOCTOR_CMD" && "$GO_DOCTOR_CMD" || true
-    echo
-    pause
-}
+run_doctor() { show_header; echo "[Диагностика doctor]"; require_cmd "$GO_DOCTOR_CMD" && "$GO_DOCTOR_CMD" || true; echo; pause; }
 
 switch_slot() {
     SLOT="$1"
@@ -140,10 +132,8 @@ replace_source() {
     read_tty "Введите новый $SLOT_NAME VLESS link или subscription URL: "
     VALUE="$REPLY"
     [ -n "$VALUE" ] || { echo "Отменено: пустое значение."; pause; return 0; }
-
     SELECTOR="$(prompt_selector "$SLOT" "$VALUE")" || { pause; return 1; }
     require_cmd "$GO_FAILOVER_CMD" && "$GO_FAILOVER_CMD" "set-$SLOT" "$VALUE" --selector "$SELECTOR"
-
     echo
     read_tty "Переключиться на $SLOT_NAME профиль сейчас? [y/N]: "
     case "$REPLY" in y|Y|yes|YES|д|Д|да|ДА) "$GO_FAILOVER_CMD" switch "$SLOT" ;; *) echo "Сохранено. Переключиться можно позже из меню." ;; esac
@@ -175,34 +165,10 @@ update_all_sources() {
     echo "Текущий активный слот: $ORIGINAL"
     echo
     UPDATED="0"
-
-    if slot_configured primary; then
-        echo "Обновление/проверка основного профиля без рестарта Xray..."
-        "$GO_FAILOVER_CMD" switch primary --no-restart
-        UPDATED="1"
-        echo
-    else
-        echo "Основной профиль не настроен, пропуск."
-    fi
-
-    if slot_configured backup; then
-        echo "Обновление/проверка резервного профиля без рестарта Xray..."
-        "$GO_FAILOVER_CMD" switch backup --no-restart
-        UPDATED="1"
-        echo
-    else
-        echo "Резервный профиль не настроен, пропуск."
-    fi
-
+    if slot_configured primary; then echo "Обновление/проверка основного профиля без рестарта Xray..."; "$GO_FAILOVER_CMD" switch primary --no-restart; UPDATED="1"; echo; else echo "Основной профиль не настроен, пропуск."; fi
+    if slot_configured backup; then echo "Обновление/проверка резервного профиля без рестарта Xray..."; "$GO_FAILOVER_CMD" switch backup --no-restart; UPDATED="1"; echo; else echo "Резервный профиль не настроен, пропуск."; fi
     [ "$UPDATED" = "0" ] && { echo "Обновлять нечего."; pause; return 0; }
-
-    case "$ORIGINAL" in
-        primary|backup)
-            echo "Возврат активного слота: $ORIGINAL"
-            "$GO_FAILOVER_CMD" switch "$ORIGINAL"
-            ;;
-        *) echo "Неизвестный исходный слот: $ORIGINAL. Оставлен последний проверенный слот." ;;
-    esac
+    case "$ORIGINAL" in primary|backup) echo "Возврат активного слота: $ORIGINAL"; "$GO_FAILOVER_CMD" switch "$ORIGINAL" ;; *) echo "Неизвестный исходный слот: $ORIGINAL. Оставлен последний проверенный слот." ;; esac
     echo
     pause
 }
@@ -313,29 +279,8 @@ show_watchdog_log() { show_header; echo "[Журнал watchdog]"; [ -s "$WATCHD
 follow_watchdog_log() { show_header; echo "[Журнал watchdog в реальном времени]"; echo "Ctrl+C остановит просмотр и вернёт в shell/menu."; echo; [ -e "$WATCHDOG_LOG" ] && tail -n 50 -f "$WATCHDOG_LOG" || { echo "Журнал отсутствует: $WATCHDOG_LOG"; pause; }; }
 show_switch_history() { show_header; echo "[История переключений]"; require_cmd "$GO_HISTORY_CMD" && "$GO_HISTORY_CMD" tail 80 || true; echo; pause; }
 follow_switch_history() { show_header; echo "[История переключений в реальном времени]"; echo "Ctrl+C остановит просмотр и вернёт в shell/menu."; echo; require_cmd "$GO_HISTORY_CMD" && "$GO_HISTORY_CMD" follow || pause; }
-
-update_go_edition() {
-    show_header
-    echo "[Обновить Go edition]"
-    require_cmd "$GO_INSTALLER_UPDATE_CMD" && "$GO_INSTALLER_UPDATE_CMD" --first
-    echo
-    pause
-}
-
-update_xray_core() {
-    show_header
-    echo "[Обновить Xray-core]"
-    require_cmd "$XRAY_CORE_UPDATE_CMD" || { pause; return 0; }
-    echo "Перед обновлением можно создать backup текущего бинарника Xray."
-    echo "Backup нужен для автоматического rollback, если новый Xray не запустится или конфиг окажется невалидным."
-    echo
-    read_tty "Создать backup перед обновлением Xray-core? [Y/n]: "
-    case "$REPLY" in n|N|no|NO|н|Н|нет|НЕТ) BACKUP_ARG="--no-backup"; echo "ПРЕДУПРЕЖДЕНИЕ: backup отключён, автоматический rollback бинарника будет недоступен." ;; *) BACKUP_ARG="--backup" ;; esac
-    echo
-    "$XRAY_CORE_UPDATE_CMD" "$BACKUP_ARG"
-    echo
-    pause
-}
+update_go_edition() { show_header; echo "[Обновить Go edition]"; require_cmd "$GO_INSTALLER_UPDATE_CMD" && "$GO_INSTALLER_UPDATE_CMD" --first; echo; pause; }
+update_xray_core() { show_header; echo "[Обновить Xray-core]"; require_cmd "$XRAY_CORE_UPDATE_CMD" || { pause; return 0; }; read_tty "Создать backup перед обновлением Xray-core? [Y/n]: "; case "$REPLY" in n|N|no|NO|н|Н|нет|НЕТ) BACKUP_ARG="--no-backup"; echo "ПРЕДУПРЕЖДЕНИЕ: backup отключён." ;; *) BACKUP_ARG="--backup" ;; esac; echo; "$XRAY_CORE_UPDATE_CMD" "$BACKUP_ARG"; echo; pause; }
 
 show_menu() {
     show_header
