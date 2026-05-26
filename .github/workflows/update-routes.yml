@@ -39,4 +39,3 @@ jobs:
             - `fastly` IPv4 prefixes
 
             Manual/domain lists are not modified.
-          labels: routes, automated
