@@ -1,0 +1,42 @@
+name: Update routes
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * 1'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-routes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update managed route lists
+        run: python3 scripts/update-routes.py
+
+      - name: Validate managed route lists
+        run: python3 scripts/update-routes.py --check
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ github.token }}
+          branch: automated/update-routes
+          delete-branch: true
+          commit-message: Update managed route lists
+          title: Update managed route lists
+          body: |
+            Automated update of machine-readable route lists under `routes/`.
+
+            Managed by `scripts/update-routes.py`:
+            - `amazon` / AWS CloudFront IPv4 prefixes
+            - `cloudflare` IPv4 prefixes
+            - `fastly` IPv4 prefixes
+
+            Manual/domain lists are not modified.
+          labels: routes, automated
