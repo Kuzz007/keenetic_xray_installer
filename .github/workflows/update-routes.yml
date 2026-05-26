@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   update-routes:
@@ -15,27 +14,48 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Update managed route lists
         run: python3 scripts/update-routes.py
 
-      - name: Validate managed route lists
-        run: python3 scripts/update-routes.py --check
+      - name: Validate route files
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
 
-      - name: Create pull request
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ github.token }}
-          branch: automated/update-routes
-          delete-branch: true
-          commit-message: Update managed route lists
-          title: Update managed route lists
-          body: |
-            Automated update of machine-readable route lists under `routes/`.
+          routes = Path('routes')
+          ok = True
+          for path in sorted(routes.glob('*.txt')):
+              expected = path.stem
+              seen = set()
+              for lineno, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+                  if not line:
+                      print(f'{path}:{lineno}: empty line', file=sys.stderr)
+                      ok = False
+                      continue
+                  left, sep, right = line.partition('|')
+                  if sep != '|' or left != expected or not right:
+                      print(f'{path}:{lineno}: invalid route line: {line!r}', file=sys.stderr)
+                      ok = False
+                  if right in seen:
+                      print(f'{path}:{lineno}: duplicate value: {right}', file=sys.stderr)
+                      ok = False
+                  seen.add(right)
+          if not ok:
+              raise SystemExit(1)
+          PY
 
-            Managed by `scripts/update-routes.py`:
-            - `amazon` / AWS CloudFront IPv4 prefixes
-            - `cloudflare` IPv4 prefixes
-            - `fastly` IPv4 prefixes
-
-            Manual/domain lists are not modified.
+      - name: Commit and push changes
+        run: |
+          if git diff --quiet -- routes; then
+            echo "No route changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add routes
+          git commit -m "Update managed route lists"
+          git push origin HEAD:main
