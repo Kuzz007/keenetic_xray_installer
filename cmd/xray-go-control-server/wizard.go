@@ -35,6 +35,7 @@ func (s *Server) startAddRouterWizard(chatID int64) {
 func sourceKeyboard(routerID string) inlineKeyboard {
 	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
 		{{Text: "📊 Статус источников", CallbackData: "act:source_status:" + routerID}},
+		{{Text: "🔄 Обновить подписку", CallbackData: "refresh-subscription:" + routerID}},
 		{{Text: "⬆️ Заменить основной", CallbackData: "setsrc:primary:" + routerID}},
 		{{Text: "⬇️ Заменить резервный", CallbackData: "setsrc:backup:" + routerID}},
 		{{Text: "⬅️ Назад", CallbackData: "router:" + routerID}, {Text: "🏠 Главное меню", CallbackData: "menu"}},
@@ -274,63 +275,9 @@ func looksLikeIPv4CIDR(value string) bool {
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return false
 	}
-	for _, r := range parts[0] + parts[1] {
-		if (r >= '0' && r <= '9') || r == '.' {
-			continue
-		}
+	if strings.ContainsAny(parts[1], ".abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") {
 		return false
 	}
-	return strings.Count(parts[0], ".") == 3
-}
-
-func addRouterDoneMessage(routerID, name, token, serverURL string) string {
-	msg := fmt.Sprintf("✅ Роутер добавлен\n\n📡 %s\nID: %s\n\nAgent token:\n%s\n\nОткрой меню роутера и нажми 📦 Установка агента.", name, routerID, token)
-	if strings.Contains(serverURL, "VPS_IP") {
-		msg += "\n\n⚠️ Если в команде установки будет VPS_IP, замени его на внешний IP или DNS VPS."
-	}
-	return msg
-}
-
-func agentServerURL(listen string) string {
-	listen = strings.TrimSpace(listen)
-	if listen == "" || strings.HasPrefix(listen, ":") || strings.HasPrefix(listen, "0.0.0.0:") || strings.HasPrefix(listen, "[::]:") {
-		port := "18090"
-		if idx := strings.LastIndex(listen, ":"); idx >= 0 && idx+1 < len(listen) {
-			port = listen[idx+1:]
-		}
-		return "http://VPS_IP:" + port
-	}
-	if strings.HasPrefix(listen, "http://") || strings.HasPrefix(listen, "https://") {
-		return listen
-	}
-	return "http://" + listen
-}
-
-func agentInstallCommand(serverURL, routerID, name, token string) string {
-	return fmt.Sprintf("curl -fsSL -o /opt/bin/xray-go-agent-install https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/xray-go-agent-install.sh\nchmod +x /opt/bin/xray-go-agent-install\n/opt/bin/xray-go-agent-install --server-url %s --router-id %s --router-name %s --agent-token %s --poll-interval 5", shellQuote(serverURL), shellQuote(routerID), shellQuote(name), shellQuote(token))
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
-}
-
-func normalizeSelector(selector string) string {
-	selector = strings.TrimSpace(selector)
-	if selector == "" {
-		return "first"
-	}
-	if selector == "first" || strings.HasPrefix(selector, "index:") {
-		return selector
-	}
-	allDigits := true
-	for _, r := range selector {
-		if r < '0' || r > '9' {
-			allDigits = false
-			break
-		}
-	}
-	if allDigits {
-		return "index:" + selector
-	}
-	return selector
+	octets := strings.Split(parts[0], ".")
+	return len(octets) == 4
 }
