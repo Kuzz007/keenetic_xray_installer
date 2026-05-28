@@ -59,6 +59,9 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 	if f.has("source_update") {
 		routeRow = append(routeRow, inlineButton{Text: "🔗 Источники", CallbackData: "sources:" + routerID})
 	}
+	if f.has("subscription_update") || f.has("source_update") {
+		routeRow = append(routeRow, inlineButton{Text: "🔄 Подписка", CallbackData: "refresh-subscription:" + routerID})
+	}
 	if f.has("routes_catalog") {
 		routeRow = append(routeRow, inlineButton{Text: "🧭 Маршруты", CallbackData: "routes:" + routerID})
 	}
