@@ -74,6 +74,7 @@ install_agent() {
   chmod +x "$tmp"
   mv "$tmp" "$BIN"
   patch_shell_agent_features
+  patch_minimal_go_update
   echo "Installed shell agent: $BIN"
 }
 
@@ -130,6 +131,30 @@ patch_shell_agent_features() {
   chmod +x "$tmp"
   mv "$tmp" "$BIN"
   echo "Patched shell agent: subscription refresh and source URL normalization"
+}
+
+patch_minimal_go_update() {
+  updater="/opt/bin/minimal-go-update"
+  [ -s "$updater" ] || return 0
+  if ! grep -q 'Minimal Go supports only direct vless:// links' "$updater" 2>/dev/null; then
+    return 0
+  fi
+  tmp="${updater}.patch.$$"
+  awk '
+    {
+      line=$0
+      gsub(/Usage: minimal-go-update primary\|backup '\''vless:\/\/\.\.\.'\''/, "Usage: minimal-go-update primary|backup '\''vless://...|https://subscription...'\''", line)
+      gsub(/ERROR: vless:\/\/ URL required/, "ERROR: vless:// or http(s):// source required", line)
+      if (line ~ /Minimal Go supports only direct vless:\/\/ links/) {
+        print "case \"$1\" in vless://*|http://*|https://*) ;; *) echo \"ERROR: Minimal Go source must start with vless://, http:// or https://\" >&2; exit 1 ;; esac"
+        next
+      }
+      print line
+    }
+  ' "$updater" > "$tmp"
+  chmod +x "$tmp"
+  mv "$tmp" "$updater"
+  echo "Patched Minimal Go updater: accepts vless://, http:// and https:// sources"
 }
 
 write_config() {
