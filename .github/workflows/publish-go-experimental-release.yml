@@ -135,6 +135,7 @@ jobs:
           - experimental VPS control server and outbound router agent MVP
           - control-bot subscription refresh action for shell and Go agents
           - Go-agent support for saved subscription refresh and http(s) subscription source URLs
+          - control-server compatibility helpers restored for source wizard builds
 
           Notes:
 
