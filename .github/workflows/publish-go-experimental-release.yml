@@ -40,6 +40,7 @@ jobs:
           mkdir -p dist
           BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           CONTROL_SERVER_LDFLAGS="-s -w -X main.buildCommit=${GITHUB_SHA} -X main.buildTime=${BUILD_TIME}"
+          sed -i 's/const agentVersion = "0.1.4-go-experimental"/const agentVersion = "0.1.5-go-experimental"/' cmd/xray-go-agent/main.go
 
           CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=arm64 \
             go build -trimpath -ldflags "-s -w" \
@@ -136,6 +137,7 @@ jobs:
           - control-bot subscription refresh action for shell and Go agents
           - Go-agent support for saved subscription refresh and http(s) subscription source URLs
           - control-server compatibility helpers restored for source wizard builds
+          - agent cards now distinguish refreshed Go and shell agent versions
 
           Notes:
 
