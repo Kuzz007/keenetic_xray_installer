@@ -394,10 +394,18 @@ update_agent_cmd() {
 }
 
 update_subscription_cmd() {
-  patch_minimal_go_update
+  patch_minimal_go_update 2>/dev/null || true
   if have /opt/bin/vless-go-auto-update; then /opt/bin/vless-go-auto-update run 2>&1; return $?; fi
   if have /opt/bin/vless-go-failover; then /opt/bin/vless-go-failover update-active 2>&1; return $?; fi
   if have /opt/bin/vless-go-update; then /opt/bin/vless-go-update 2>&1; return $?; fi
+  if have /opt/bin/minimal-go-switch; then
+    slot="$(active_slot | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    case "$slot" in
+      primary|backup) /opt/bin/minimal-go-switch "$slot" 2>&1; return $? ;;
+    esac
+    echo "unsupported subscription update on this router: active Minimal Go slot is unknown"
+    return 1
+  fi
   echo "unsupported subscription update on this router"
   return 1
 }
