@@ -73,7 +73,44 @@ install_agent() {
   fi
   chmod +x "$tmp"
   mv "$tmp" "$BIN"
+  patch_subscription_refresh
   echo "Installed shell agent: $BIN"
+}
+
+patch_subscription_refresh() {
+  [ -s "$BIN" ] || return 0
+  grep -q 'update_subscription_cmd()' "$BIN" 2>/dev/null && return 0
+  tmp="${BIN}.patch.$$"
+  awk '
+    {
+      line=$0
+      if (line ~ /out="\$out,update_scripts,update_agent"/) {
+        gsub(/update_scripts,update_agent/, "update_scripts,update_agent,subscription_update", line)
+      }
+      if (line ~ /has_feature_in "\$feature_list" update_agent && out="\$out,update_agent"/) {
+        print line
+        print "  has_feature_in \"$feature_list\" subscription_update && out=\"$out,update_subscription\""
+        next
+      }
+      if (line ~ /^routes_cmd\(\) \{/) {
+        print "update_subscription_cmd() {"
+        print "  if have /opt/bin/vless-go-auto-update; then /opt/bin/vless-go-auto-update run 2>&1; return $?; fi"
+        print "  if have /opt/bin/vless-go-failover; then /opt/bin/vless-go-failover update-active 2>&1; return $?; fi"
+        print "  if have /opt/bin/vless-go-update; then /opt/bin/vless-go-update 2>&1; return $?; fi"
+        print "  echo \"unsupported subscription update on this router\""
+        print "  return 1"
+        print "}"
+        print ""
+      }
+      if (line ~ /update_scripts\) update_scripts_cmd/) {
+        print "    update_subscription) update_subscription_cmd ;;"
+      }
+      print line
+    }
+  ' "$BIN" > "$tmp"
+  chmod +x "$tmp"
+  mv "$tmp" "$BIN"
+  echo "Patched shell agent: subscription refresh action"
 }
 
 write_config() {
