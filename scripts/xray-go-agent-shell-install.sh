@@ -74,13 +74,14 @@ install_agent() {
   chmod +x "$tmp"
   mv "$tmp" "$BIN"
   patch_shell_agent_features
+  patch_subscription_refresh_body
   patch_minimal_go_update
   echo "Installed shell agent: $BIN"
 }
 
 patch_shell_agent_features() {
   [ -s "$BIN" ] || return 0
-  if grep -q 'update_subscription_cmd()' "$BIN" 2>/dev/null && grep -q 'normalize_source()' "$BIN" 2>/dev/null; then
+  if grep -q 'normalize_source()' "$BIN" 2>/dev/null && grep -q 'subscription_update' "$BIN" 2>/dev/null; then
     return 0
   fi
   tmp="${BIN}.patch.$$"
@@ -114,9 +115,16 @@ patch_shell_agent_features() {
       }
       if (line ~ /^routes_cmd\(\) \{/) {
         print "update_subscription_cmd() {"
+        print "  patch_minimal_go_update"
         print "  if have /opt/bin/vless-go-auto-update; then /opt/bin/vless-go-auto-update run 2>&1; return $?; fi"
         print "  if have /opt/bin/vless-go-failover; then /opt/bin/vless-go-failover update-active 2>&1; return $?; fi"
         print "  if have /opt/bin/vless-go-update; then /opt/bin/vless-go-update 2>&1; return $?; fi"
+        print "  if have /opt/bin/minimal-go-switch; then"
+        print "    slot=\"$(active_slot | sed '\''s/^[[:space:]]*//; s/[[:space:]]*$//'\'')\""
+        print "    case \"$slot\" in primary|backup) /opt/bin/minimal-go-switch \"$slot\" 2>&1; return $? ;; esac"
+        print "    echo \"unsupported subscription update on this router: active Minimal Go slot is unknown\""
+        print "    return 1"
+        print "  fi"
         print "  echo \"unsupported subscription update on this router\""
         print "  return 1"
         print "}"
@@ -131,6 +139,39 @@ patch_shell_agent_features() {
   chmod +x "$tmp"
   mv "$tmp" "$BIN"
   echo "Patched shell agent: subscription refresh and source URL normalization"
+}
+
+patch_subscription_refresh_body() {
+  [ -s "$BIN" ] || return 0
+  grep -q 'update_subscription_cmd()' "$BIN" 2>/dev/null || return 0
+  grep -q 'minimal-go-switch' "$BIN" 2>/dev/null && return 0
+  tmp="${BIN}.subpatch.$$"
+  awk '
+    BEGIN { in_func=0 }
+    /^update_subscription_cmd\(\) \{/ {
+      print "update_subscription_cmd() {"
+      print "  patch_minimal_go_update"
+      print "  if have /opt/bin/vless-go-auto-update; then /opt/bin/vless-go-auto-update run 2>&1; return $?; fi"
+      print "  if have /opt/bin/vless-go-failover; then /opt/bin/vless-go-failover update-active 2>&1; return $?; fi"
+      print "  if have /opt/bin/vless-go-update; then /opt/bin/vless-go-update 2>&1; return $?; fi"
+      print "  if have /opt/bin/minimal-go-switch; then"
+      print "    slot=\"$(active_slot | sed '\''s/^[[:space:]]*//; s/[[:space:]]*$//'\'')\""
+      print "    case \"$slot\" in primary|backup) /opt/bin/minimal-go-switch \"$slot\" 2>&1; return $? ;; esac"
+      print "    echo \"unsupported subscription update on this router: active Minimal Go slot is unknown\""
+      print "    return 1"
+      print "  fi"
+      print "  echo \"unsupported subscription update on this router\""
+      print "  return 1"
+      print "}"
+      in_func=1
+      next
+    }
+    in_func && /^}/ { in_func=0; next }
+    !in_func { print }
+  ' "$BIN" > "$tmp"
+  chmod +x "$tmp"
+  mv "$tmp" "$BIN"
+  echo "Patched shell agent: Minimal Go subscription refresh fallback"
 }
 
 patch_minimal_go_update() {
