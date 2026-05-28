@@ -133,6 +133,8 @@ jobs:
           - hardened Full Go installer downloads and ELF validation
           - shell smoke-test guardrails for installers and helper scripts
           - experimental VPS control server and outbound router agent MVP
+          - control-bot subscription refresh action for shell and Go agents
+          - Go-agent support for saved subscription refresh and http(s) subscription source URLs
 
           Notes:
 
