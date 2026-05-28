@@ -42,7 +42,7 @@ func updateScripts() (bool, string) {
 	if err != nil {
 		return false, err.Error()
 	}
-	if !strings.HasPrefix(string(body), "#!/bin/sh") {
+	if !strings.HasPrefix(string(body), "#!/bin/sh") && !strings.HasPrefix(string(body), "#!/opt/bin/sh") {
 		return false, "downloaded auto_latest script does not look like a shell script"
 	}
 	if err := os.WriteFile(autoLatestPath, body, 0755); err != nil {
@@ -99,7 +99,7 @@ func installRoutesCatalogHelper(client *http.Client) (string, error) {
 	if err != nil {
 		return "Installing routes catalog helper...\nERROR: " + err.Error(), err
 	}
-	if !strings.HasPrefix(string(body), "#!/bin/sh") {
+	if !strings.HasPrefix(string(body), "#!/bin/sh") && !strings.HasPrefix(string(body), "#!/opt/bin/sh") {
 		err := fmt.Errorf("downloaded routes catalog helper does not look like a shell script")
 		return "Installing routes catalog helper...\nERROR: " + err.Error(), err
 	}
@@ -120,16 +120,31 @@ func installRoutesCatalogHelper(client *http.Client) (string, error) {
 }
 
 func checkShellSyntax(path string) error {
-	cmd := exec.Command("/bin/sh", "-n", path)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
+	candidates := []string{"/opt/bin/sh", "/bin/sh"}
+	unsupported := []string{}
+	for _, shell := range candidates {
+		if !exists(shell) {
+			continue
+		}
+		cmd := exec.Command(shell, "-n", path)
+		out, err := cmd.CombinedOutput()
 		msg := strings.TrimSpace(string(out))
+		if err == nil {
+			return nil
+		}
+		if strings.Contains(msg, "Invalid option") || strings.Contains(msg, "illegal option") || strings.Contains(msg, "bad option") || strings.Contains(msg, "unknown option") {
+			unsupported = append(unsupported, shell+": "+msg)
+			continue
+		}
 		if msg == "" {
 			msg = err.Error()
 		}
-		return fmt.Errorf("%s", msg)
+		return fmt.Errorf("%s: %s", shell, msg)
 	}
-	return nil
+	if len(unsupported) > 0 {
+		return nil
+	}
+	return fmt.Errorf("no shell available for syntax check")
 }
 
 func updateScriptsSummary(output string) string {
