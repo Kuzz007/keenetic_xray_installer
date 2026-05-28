@@ -84,6 +84,16 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 	case strings.HasPrefix(data, "install-shell:"):
 		routerID := strings.TrimPrefix(data, "install-shell:")
 		s.sendAgentInstallCommand(chatID, routerID, "shell")
+	case strings.HasPrefix(data, "refresh-subscription:"):
+		routerID := strings.TrimPrefix(data, "refresh-subscription:")
+		s.setActiveMenu(routerID, chatID, messageID)
+		id, err := s.enqueue(routerID, Command{Action: "update_subscription"})
+		if err != nil {
+			s.editMenuOnly(cb.ID, chatID, messageID, err.Error(), s.routersKeyboardWithUpdateScripts())
+			return
+		}
+		text := s.routerMenuTextWithExtra(routerID, "⏳ Обновление подписки поставлено в очередь\n"+id+"\n\nБудет использован уже сохранённый source активного Go-слота.")
+		s.editMenuOnly(cb.ID, chatID, messageID, text, s.currentRouterKeyboard(routerID))
 	case strings.HasPrefix(data, "sources:"):
 		routerID := strings.TrimPrefix(data, "sources:")
 		s.setActiveMenu(routerID, chatID, messageID)
