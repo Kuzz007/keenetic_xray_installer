@@ -79,7 +79,7 @@ features() {
   if have /opt/bin/xray-go || have /opt/bin/vless-go-recover; then out="$out,recovery"; fi
   if exists "$RESULT_LOG" || [ -d /opt/var/log ]; then out="$out,agent_log"; fi
   if command -v reboot >/dev/null 2>&1; then out="$out,reboot"; fi
-  out="$out,update_scripts,update_agent"
+  out="$out,update_scripts,update_agent,subscription_update"
   [ -x "$ROUTES_CATALOG_PATH" ] && out="$out,routes_catalog"
   out="${out#,}"
   [ -n "$out" ] || out="status"
@@ -115,6 +115,7 @@ capabilities_from_features() {
   has_feature_in "$feature_list" reboot && out="$out,reboot"
   has_feature_in "$feature_list" update_scripts && out="$out,update_scripts"
   has_feature_in "$feature_list" update_agent && out="$out,update_agent"
+  has_feature_in "$feature_list" subscription_update && out="$out,update_subscription"
   has_feature_in "$feature_list" routes_catalog && out="$out,routes_list,routes_preview,routes_apply,routes_apply_custom,routes_remove"
   printf '%s' "$out"
 }
@@ -157,13 +158,45 @@ short_status() {
   printf 'agent: shell version=%s; heartbeat: lightweight; capabilities: %s; features: %s' "$AGENT_VERSION" "$caps" "$feat"
 }
 
+normalize_source() {
+  value="$(printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  case "$value" in
+    \"*\") value="${value#\"}"; value="${value%\"}" ;;
+    \'*\') value="${value#\'}"; value="${value%\'}" ;;
+    \<*\>) value="${value#<}"; value="${value%>}" ;;
+  esac
+  printf '%s' "$value"
+}
+
+patch_minimal_go_update() {
+  updater="/opt/bin/minimal-go-update"
+  [ -s "$updater" ] || return 0
+  grep -q 'Minimal Go supports only direct vless:// links' "$updater" 2>/dev/null || return 0
+  tmp="${updater}.patch.$$"
+  awk '
+    {
+      line=$0
+      gsub(/Usage: minimal-go-update primary\|backup '\''vless:\/\/\.\.\.'\''/, "Usage: minimal-go-update primary|backup '\''vless://...|https://subscription...'\''", line)
+      gsub(/ERROR: vless:\/\/ URL required/, "ERROR: vless:// or http(s):// source required", line)
+      if (line ~ /Minimal Go supports only direct vless:\/\/ links/) {
+        print "case \"$1\" in vless://*|http://*|https://*) ;; *) echo \"ERROR: Minimal Go source must start with vless://, http:// or https://\" >&2; exit 1 ;; esac"
+        next
+      }
+      print line
+    }
+  ' "$updater" > "$tmp" || { rm -f "$tmp" 2>/dev/null || true; return 0; }
+  chmod +x "$tmp" 2>/dev/null || true
+  mv "$tmp" "$updater" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
+}
+
 set_source() {
   slot="$1"
   selector="$(normalize_selector "${2:-}")"
-  source="$3"
+  source="$(normalize_source "$3")"
   [ -n "$source" ] || { echo "source is empty"; return 1; }
   mkdir -p /opt/etc/xray/source-backups
   if minimal_mode && have /opt/bin/minimal-go-update; then
+    patch_minimal_go_update
     old="/opt/etc/xray/minimal-go-$slot.url"
     if [ -s "$old" ]; then cp "$old" "/opt/etc/xray/source-backups/$(date '+%Y%m%d-%H%M%S').minimal-$slot" 2>/dev/null || true; fi
     /opt/bin/minimal-go-update "$slot" "$source" 2>&1 || return $?
@@ -360,6 +393,15 @@ update_agent_cmd() {
   ( sleep 2; "$dst" --agent "$agent" --server-url "$SERVER_URL" --router-id "$ROUTER_ID" --router-name "$ROUTER_NAME" --agent-token "$AGENT_TOKEN" --poll-interval "$POLL_INTERVAL" >/opt/var/log/xray-go-agent-update.log 2>&1 ) &
 }
 
+update_subscription_cmd() {
+  patch_minimal_go_update
+  if have /opt/bin/vless-go-auto-update; then /opt/bin/vless-go-auto-update run 2>&1; return $?; fi
+  if have /opt/bin/vless-go-failover; then /opt/bin/vless-go-failover update-active 2>&1; return $?; fi
+  if have /opt/bin/vless-go-update; then /opt/bin/vless-go-update 2>&1; return $?; fi
+  echo "unsupported subscription update on this router"
+  return 1
+}
+
 routes_cmd() {
   sub="$1"
   list_id="$2"
@@ -399,6 +441,7 @@ run_action() {
     recover_disable) recover_cmd disable-hourly ;;
     set_primary_source) set_source primary "$selector" "$source" ;;
     set_backup_source) set_source backup "$selector" "$source" ;;
+    update_subscription) update_subscription_cmd ;;
     update_scripts) update_scripts_cmd; rc="$?"; refresh_feature_cache; return "$rc" ;;
     update_agent) update_agent_cmd ;;
     routes_list) routes_cmd list "" ;;
