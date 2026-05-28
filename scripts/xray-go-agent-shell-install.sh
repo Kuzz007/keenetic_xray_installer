@@ -144,7 +144,7 @@ patch_shell_agent_features() {
 patch_subscription_refresh_body() {
   [ -s "$BIN" ] || return 0
   grep -q 'update_subscription_cmd()' "$BIN" 2>/dev/null || return 0
-  grep -q 'minimal-go-switch' "$BIN" 2>/dev/null && return 0
+  grep -q 'active Minimal Go slot is unknown' "$BIN" 2>/dev/null && return 0
   tmp="${BIN}.subpatch.$$"
   awk '
     BEGIN { in_func=0 }
