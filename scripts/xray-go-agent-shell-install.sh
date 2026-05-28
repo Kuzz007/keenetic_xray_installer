@@ -73,15 +73,18 @@ install_agent() {
   fi
   chmod +x "$tmp"
   mv "$tmp" "$BIN"
-  patch_subscription_refresh
+  patch_shell_agent_features
   echo "Installed shell agent: $BIN"
 }
 
-patch_subscription_refresh() {
+patch_shell_agent_features() {
   [ -s "$BIN" ] || return 0
-  grep -q 'update_subscription_cmd()' "$BIN" 2>/dev/null && return 0
+  if grep -q 'update_subscription_cmd()' "$BIN" 2>/dev/null && grep -q 'normalize_source()' "$BIN" 2>/dev/null; then
+    return 0
+  fi
   tmp="${BIN}.patch.$$"
   awk '
+    BEGIN { inserted_normalize=0 }
     {
       line=$0
       if (line ~ /out="\$out,update_scripts,update_agent"/) {
@@ -91,6 +94,22 @@ patch_subscription_refresh() {
         print line
         print "  has_feature_in \"$feature_list\" subscription_update && out=\"$out,update_subscription\""
         next
+      }
+      if (line ~ /^set_source\(\) \{/ && inserted_normalize == 0) {
+        print "normalize_source() {"
+        print "  value=\"$(printf %s \"$1\" | sed \"s/^[[:space:]]*//; s/[[:space:]]*$//\")\""
+        print "  case \"$value\" in"
+        print "    \\\"*\\\") value=\"${value#\\\"}\"; value=\"${value%\\\"}\" ;;"
+        print "    '\''*'\'') value=\"${value#'\''}\"; value=\"${value%'\''}\" ;;"
+        print "    \\\<*\\\>) value=\"${value#<}\"; value=\"${value%>}\" ;;"
+        print "  esac"
+        print "  printf %s \"$value\""
+        print "}"
+        print ""
+        inserted_normalize=1
+      }
+      if (line ~ /^[[:space:]]*source="\$3"/) {
+        line="  source=\"$(normalize_source \"$3\")\""
       }
       if (line ~ /^routes_cmd\(\) \{/) {
         print "update_subscription_cmd() {"
@@ -110,7 +129,7 @@ patch_subscription_refresh() {
   ' "$BIN" > "$tmp"
   chmod +x "$tmp"
   mv "$tmp" "$BIN"
-  echo "Patched shell agent: subscription refresh action"
+  echo "Patched shell agent: subscription refresh and source URL normalization"
 }
 
 write_config() {
