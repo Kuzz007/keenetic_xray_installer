@@ -39,8 +39,13 @@ func updateAgent() (bool, string) {
 	if err != nil {
 		return false, err.Error()
 	}
-	if !strings.HasPrefix(string(body), "#!/bin/sh") {
-		return false, "downloaded agent installer does not look like a shell script"
+	text := string(body)
+	if !strings.HasPrefix(text, "#!/bin/sh") && !strings.HasPrefix(text, "#!/opt/bin/sh") {
+		firstLine := strings.SplitN(text, "\n", 2)[0]
+		if len(firstLine) > 120 {
+			firstLine = firstLine[:120]
+		}
+		return false, "downloaded agent installer does not look like a shell script: " + firstLine
 	}
 	if err := os.WriteFile(agentInstallerPath, body, 0755); err != nil {
 		return false, err.Error()
