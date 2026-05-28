@@ -73,6 +73,7 @@ install_agent() {
   fi
   chmod +x "$tmp"
   mv "$tmp" "$BIN"
+  sed -i 's/^AGENT_VERSION=.*/AGENT_VERSION="0.1.5-shell-experimental"/' "$BIN" 2>/dev/null || true
   patch_shell_agent_features
   patch_subscription_refresh_body
   patch_minimal_go_update
