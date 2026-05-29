@@ -1,6 +1,7 @@
 name: Control server CI
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - cmd/xray-go-control-server/**
@@ -32,7 +33,7 @@ jobs:
           files="$(find cmd/xray-go-control-server -name '*.go' -print)"
           test -z "$(gofmt -l $files)"
 
-      - name: Build control server
+      - name: Build control server amd64
         run: |
           CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=amd64 \
             go build -trimpath -o /tmp/xray-go-control-server ./cmd/xray-go-control-server
