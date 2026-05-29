@@ -40,7 +40,9 @@ jobs:
           mkdir -p dist
           BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           CONTROL_SERVER_LDFLAGS="-s -w -X main.buildCommit=${GITHUB_SHA} -X main.buildTime=${BUILD_TIME}"
-          sed -i 's/const agentVersion = "0.1.4-go-experimental"/const agentVersion = "0.1.5-go-experimental"/' cmd/xray-go-agent/main.go
+          sed -i 's/const agentVersion = "0.1.4-go-experimental"/const agentVersion = "0.2.0-unified"/' cmd/xray-go-agent/main.go
+          sed -i 's/const agentVersion = "0.1.5-go-experimental"/const agentVersion = "0.2.0-unified"/' cmd/xray-go-agent/main.go
+          sed -i 's/const agentVersion = "0.2.0-unified-test"/const agentVersion = "0.2.0-unified"/' cmd/xray-go-agent/main.go
 
           CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=arm64 \
             go build -trimpath -ldflags "-s -w" \
@@ -107,7 +109,7 @@ jobs:
 
           Latest experimental Go edition build for Keenetic/Entware VLESS failover.
 
-          This release publishes Go resolver/generator, optional Web UI, and experimental control-bot assets:
+          This release publishes Go resolver/generator, optional Web UI, and unified control-bot agent assets:
 
           ```text
           xray-failover-go-linux-arm64
@@ -121,10 +123,11 @@ jobs:
           xray-go-control-server-linux-arm64
           ```
 
-          Current package line: `v0.1.5-go-polish`.
+          Current package line: `v0.2.0-unified`.
 
           Includes:
 
+          - unified Go router agent path for arm64/aarch64, mipsel/mipselsf/mipsle and mips
           - unified `xray-go` command wrapper
           - support-safe `xray-go doctor --support`
           - quiet hourly recovery helpers for Full Go and Minimal Go
@@ -134,10 +137,10 @@ jobs:
           - hardened Full Go installer downloads and ELF validation
           - shell smoke-test guardrails for installers and helper scripts
           - experimental VPS control server and outbound router agent MVP
-          - control-bot subscription refresh action for shell and Go agents
-          - Go-agent support for saved subscription refresh and http(s) subscription source URLs
+          - control-bot subscription refresh action for router agents
+          - agent support for saved subscription refresh and http(s) subscription source URLs
           - control-server compatibility helpers restored for source wizard builds
-          - agent cards now distinguish refreshed Go and shell agent versions
+          - recovery dependency checks and Proxy0 recreation helpers
 
           Notes:
 
@@ -145,7 +148,6 @@ jobs:
           - The control-bot assets are experimental and should be tested before production use.
           - Router agents use outbound polling; no inbound router port is required.
           - Raw VLESS links, UUIDs, server addresses, and subscription URLs are not intentionally printed by support diagnostics.
-          - mipsel/mipselsf resolver, Web UI, and agent assets are built, but physical router validation is still pending when hardware is available.
           EOF
 
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
