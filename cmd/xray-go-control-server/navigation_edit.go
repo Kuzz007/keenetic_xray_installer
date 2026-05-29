@@ -21,19 +21,19 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 	case data == "help":
 		s.editMenuOnly(cb.ID, chatID, messageID, helpText(), mainMenuKeyboard())
 	case data == "routers":
-		s.editMenuOnly(cb.ID, chatID, messageID, s.groupedRouterList(), s.routerGroupsKeyboard())
+		s.editMenuOnly(cb.ID, chatID, messageID, s.groupedRouterList(), s.routersKeyboardWithUpdateScripts())
 	case strings.HasPrefix(data, "group:"):
 		text, kb := s.routerGroupView(strings.TrimPrefix(data, "group:"))
 		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
 	case data == "doctor_all":
 		text := s.enqueueDoctorAll()
-		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.groupedRouterList(), s.routerGroupsKeyboard())
+		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.groupedRouterList(), s.routersKeyboardWithUpdateScripts())
 	case data == "update_scripts_all":
 		text := s.enqueueUpdateScriptsAll()
-		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.groupedRouterList(), s.routerGroupsKeyboard())
+		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.groupedRouterList(), s.routersKeyboardWithUpdateScripts())
 	case data == "update_agents_all":
 		text := s.enqueueUpdateAgentsAll()
-		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.groupedRouterList(), s.routerGroupsKeyboard())
+		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.groupedRouterList(), s.routersKeyboardWithUpdateScripts())
 	case data == "add_router_help":
 		s.startAddRouterWizard(chatID)
 	case strings.HasPrefix(data, "routes-custom:"):
@@ -45,21 +45,21 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 			s.enqueueRoutesRemove(chatID, messageID, parts[1], parts[2])
 			return
 		}
-		s.editMenuOnly(cb.ID, chatID, messageID, "Bad routes remove button", mainMenuKeyboard())
+		s.editMenuOnly(cb.ID, chatID, messageID, "Некорректная кнопка удаления маршрутов", mainMenuKeyboard())
 	case strings.HasPrefix(data, "routes-apply:"):
 		parts := strings.SplitN(data, ":", 3)
 		if len(parts) == 3 {
 			s.enqueueRoutesApply(chatID, messageID, parts[1], parts[2])
 			return
 		}
-		s.editMenuOnly(cb.ID, chatID, messageID, "Bad routes apply button", mainMenuKeyboard())
+		s.editMenuOnly(cb.ID, chatID, messageID, "Некорректная кнопка применения маршрутов", mainMenuKeyboard())
 	case strings.HasPrefix(data, "routes-preview:"):
 		parts := strings.SplitN(data, ":", 3)
 		if len(parts) == 3 {
 			s.enqueueRoutesPreview(chatID, messageID, parts[1], parts[2])
 			return
 		}
-		s.editMenuOnly(cb.ID, chatID, messageID, "Bad routes preview button", mainMenuKeyboard())
+		s.editMenuOnly(cb.ID, chatID, messageID, "Некорректная кнопка маршрутов", mainMenuKeyboard())
 	case strings.HasPrefix(data, "routes-list:"):
 		s.enqueueRoutesList(chatID, messageID, strings.TrimPrefix(data, "routes-list:"))
 	case strings.HasPrefix(data, "routes:"):
@@ -67,7 +67,7 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.setActiveMenu(routerID, chatID, messageID)
 		text, kb, ok := s.routesMenuView(routerID)
 		if !ok {
-			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routerGroupsKeyboard())
+			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboardWithUpdateScripts())
 			return
 		}
 		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
@@ -76,7 +76,7 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.setActiveMenu(routerID, chatID, messageID)
 		text, kb, ok := s.agentInstallMenuView(routerID)
 		if !ok {
-			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routerGroupsKeyboard())
+			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboardWithUpdateScripts())
 			return
 		}
 		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
@@ -89,17 +89,17 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.setActiveMenu(routerID, chatID, messageID)
 		id, err := s.enqueue(routerID, Command{Action: "update_subscription"})
 		if err != nil {
-			s.editMenuOnly(cb.ID, chatID, messageID, err.Error(), s.routerGroupsKeyboard())
+			s.editMenuOnly(cb.ID, chatID, messageID, err.Error(), s.routersKeyboardWithUpdateScripts())
 			return
 		}
-		text := s.routerMenuTextWithExtra(routerID, "Queued subscription update\n"+id)
+		text := s.routerMenuTextWithExtra(routerID, "⏳ Обновление подписки поставлено в очередь\n"+id+"\n\nБудет использован уже сохранённый source активного Go-слота.")
 		s.editMenuOnly(cb.ID, chatID, messageID, text, s.currentRouterKeyboard(routerID))
 	case strings.HasPrefix(data, "sources:"):
 		routerID := strings.TrimPrefix(data, "sources:")
 		s.setActiveMenu(routerID, chatID, messageID)
 		text, kb, ok := s.sourceMenuView(routerID)
 		if !ok {
-			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routerGroupsKeyboard())
+			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboardWithUpdateScripts())
 			return
 		}
 		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
@@ -117,14 +117,14 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.setActiveMenu(routerID, chatID, messageID)
 		text, kb, ok := s.routerMenuView(routerID)
 		if !ok {
-			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routerGroupsKeyboard())
+			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboardWithUpdateScripts())
 			return
 		}
 		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
 	case strings.HasPrefix(data, "act:"):
 		s.handleActionCallbackStrict(cb.ID, chatID, messageID, data)
 	default:
-		s.editMenuOnly(cb.ID, chatID, messageID, "Unknown button", mainMenuKeyboard())
+		s.editMenuOnly(cb.ID, chatID, messageID, "Неизвестная кнопка", mainMenuKeyboard())
 	}
 }
 
@@ -132,7 +132,7 @@ func (s *Server) editMenuOnly(callbackID string, chatID int64, messageID int, te
 	if messageID > 0 && s.editMessageWithKeyboard(chatID, messageID, text, keyboard) {
 		return true
 	}
-	s.answerCallback(callbackID, "Open /menu again")
+	s.answerCallback(callbackID, "Не удалось обновить это сообщение. Открой /menu заново.")
 	return false
 }
 
@@ -146,7 +146,7 @@ func (s *Server) routerMenuView(routerID string) (string, inlineKeyboard, bool) 
 	}
 	s.mu.Unlock()
 	if rt == nil {
-		return "unknown router: " + routerID, s.routerGroupsKeyboard(), false
+		return "unknown router: " + routerID, s.routersKeyboardWithUpdateScripts(), false
 	}
 	return card, routerKeyboardForStatus(routerID, status), true
 }
@@ -160,9 +160,10 @@ func (s *Server) sourceMenuView(routerID string) (string, inlineKeyboard, bool) 
 	}
 	s.mu.Unlock()
 	if rt == nil {
-		return "Router not found: " + routerID, s.routerGroupsKeyboard(), false
+		return "⚠️ Роутер не найден: " + routerID, s.routersKeyboardWithUpdateScripts(), false
 	}
-	return "Sources\n\n" + name + "\nID: " + routerID, sourceKeyboard(routerID), true
+	text := "🔗 Источники\n\n📡 " + name + "\nID: " + routerID + "\n\nВыберите действие для primary/backup источников."
+	return text, sourceKeyboard(routerID), true
 }
 
 func (s *Server) agentInstallMenuView(routerID string) (string, inlineKeyboard, bool) {
@@ -170,7 +171,8 @@ func (s *Server) agentInstallMenuView(routerID string) (string, inlineKeyboard, 
 	rt := s.cfg.Routers[routerID]
 	s.mu.Unlock()
 	if rt == nil {
-		return "Router not found: " + routerID, s.routerGroupsKeyboard(), false
+		return "⚠️ Router not found: " + routerID, s.routersKeyboardWithUpdateScripts(), false
 	}
-	return "Agent install\n\n" + rt.Name + "\nID: " + rt.ID, agentInstallKeyboard(routerID), true
+	msg := strings.TrimSpace("📦 Установка агента\n\n📡 " + rt.Name + "\nID: " + rt.ID + "\n\nРекомендуемый вариант: ⚙️ Auto install.\n\nОн сам определит архитектуру роутера и выберет агент:\n• ARM64 / aarch64 → Go-agent\n• MIPS / MT7621 / старые Keenetic → Legacy shell-agent\n\n🧩 Legacy shell-agent оставлен как ручной вариант для диагностики и старых MIPS.")
+	return msg, agentInstallKeyboard(routerID), true
 }
