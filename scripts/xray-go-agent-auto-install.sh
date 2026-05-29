@@ -15,19 +15,24 @@ Options are passed through to the selected installer:
   --router-name NAME
   --agent-token TOKEN
   --poll-interval SEC
-  --agent auto|go|shell  Force agent type, default auto
+  --agent auto|unified|go|shell  Force agent type, default auto
   -h, --help
 
 Auto policy:
-  - arm64/aarch64: Go-agent
-  - mips/mipsel/mipsle/mipselsf: Legacy shell-agent
-  - unknown: Legacy shell-agent
+  - arm64/aarch64: unified Go-agent
+  - mipsel/mipsle/mipselsf: unified Go-agent mipsle asset
+  - mips: unified Go-agent mips asset
+  - unknown: legacy shell-agent fallback
+
+Rollback:
+  - pass --agent shell to install legacy shell-agent explicitly
+  - pass --agent go to install legacy Go-agent installer explicitly
 EOF
 }
 
-opkg_arch() {
+opkg_arches() {
   if command -v opkg >/dev/null 2>&1; then
-    opkg print-architecture 2>/dev/null | awk 'NR==1{print $2}'
+    opkg print-architecture 2>/dev/null | awk '{print $2}' | tr '\n' ' '
   fi
 }
 
@@ -38,19 +43,17 @@ kernel_arch() {
 detect_agent() {
   forced="$1"
   case "$forced" in
-    go|shell) echo "$forced"; return 0 ;;
+    unified|go|shell) echo "$forced"; return 0 ;;
     auto) ;;
     *) echo "ERROR: invalid --agent value: $forced" >&2; exit 1 ;;
   esac
 
-  oa="$(opkg_arch || true)"
+  oa="$(opkg_arches || true)"
   ka="$(kernel_arch)"
-  case "$oa:$ka" in
-    *aarch64*:*|*arm64*:*|*:aarch64|*:arm64)
-      echo go
-      ;;
-    *mips*:*|*:mips*)
-      echo shell
+  hint="$oa $ka"
+  case "$hint" in
+    *aarch64*|*arm64*|*mipselsf*|*mipsel*|*mipsle*|*mips*)
+      echo unified
       ;;
     *)
       echo shell
@@ -98,11 +101,14 @@ main() {
   done
 
   selected="$(detect_agent "$FORCE_AGENT")"
-  echo "Detected Entware arch: $(opkg_arch || true)"
+  echo "Detected Entware arch: $(opkg_arches || true)"
   echo "Detected kernel arch: $(kernel_arch)"
   echo "Selected agent: $selected"
 
   case "$selected" in
+    unified)
+      installer="$(download_installer xray-go-agent-unified-install)"
+      ;;
     go)
       /opt/etc/init.d/S28xray-go-agent-shell stop 2>/dev/null || true
       rm -f /opt/etc/init.d/S28xray-go-agent-shell /opt/bin/xray-go-agent-shell
