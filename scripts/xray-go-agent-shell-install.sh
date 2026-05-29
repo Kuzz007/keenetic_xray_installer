@@ -76,6 +76,7 @@ install_agent() {
   sed -i 's/^AGENT_VERSION=.*/AGENT_VERSION="0.1.5-shell-experimental"/' "$BIN" 2>/dev/null || true
   patch_shell_agent_features
   patch_subscription_refresh_body
+  patch_update_scripts_body
   patch_minimal_go_update
   echo "Installed shell agent: $BIN"
 }
@@ -173,6 +174,63 @@ patch_subscription_refresh_body() {
   chmod +x "$tmp"
   mv "$tmp" "$BIN"
   echo "Patched shell agent: Minimal Go subscription refresh fallback"
+}
+
+patch_update_scripts_body() {
+  [ -s "$BIN" ] || return 0
+  grep -q 'WARN: routes catalog helper install failed; ignored' "$BIN" 2>/dev/null && return 0
+  tmp="${BIN}.updatepatch.$$"
+  awk '
+    BEGIN { in_func=0 }
+    /^update_scripts_cmd\(\) \{/ {
+      print "update_scripts_cmd() {"
+      print "  mkdir -p /opt/tmp /opt/var/log"
+      print "  url=\"https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh\""
+      print "  dst=\"/opt/tmp/xray_vless_failover_auto_latest.sh\""
+      print "  tmp=\"/opt/tmp/xray-go-update-scripts.out.$$\""
+      print "  echo \"Updating router scripts via auto_latest repair path...\" > \"$tmp\""
+      print "  if ! curl -fsSL -H '\''Cache-Control: no-cache'\'' -o \"$dst\" \"$url\" >> \"$tmp\" 2>&1; then"
+      print "    cp \"$tmp\" \"$UPDATE_SCRIPTS_LOG\" 2>/dev/null || true"
+      print "    cat \"$tmp\""
+      print "    rm -f \"$tmp\""
+      print "    return 1"
+      print "  fi"
+      print "  if ! chmod +x \"$dst\" >> \"$tmp\" 2>&1; then"
+      print "    cp \"$tmp\" \"$UPDATE_SCRIPTS_LOG\" 2>/dev/null || true"
+      print "    cat \"$tmp\""
+      print "    rm -f \"$tmp\""
+      print "    return 1"
+      print "  fi"
+      print "  \"$dst\" --update-only --no-restart >> \"$tmp\" 2>&1"
+      print "  rc=\"$?\""
+      print "  echo >> \"$tmp\""
+      print "  install_routes_catalog_helper >> \"$tmp\" 2>&1 || echo \"WARN: routes catalog helper install failed; ignored\" >> \"$tmp\""
+      print "  cp \"$tmp\" \"$UPDATE_SCRIPTS_LOG\" 2>/dev/null || true"
+      print "  if [ \"$rc\" -ne 0 ] && grep -q \"Update-only complete\" \"$UPDATE_SCRIPTS_LOG\" 2>/dev/null; then"
+      print "    echo \"WARN: update script returned rc=$rc but log contains Update-only complete; treating as success\" >> \"$UPDATE_SCRIPTS_LOG\""
+      print "    rc=0"
+      print "  fi"
+      print "  update_scripts_summary \"$UPDATE_SCRIPTS_LOG\""
+      print "  if [ \"$rc\" -ne 0 ]; then"
+      print "    echo \"status: failed\""
+      print "    echo \"error: update_scripts exited with code $rc\""
+      print "    echo \"log: $UPDATE_SCRIPTS_LOG\""
+      print "    rm -f \"$tmp\""
+      print "    return \"$rc\""
+      print "  fi"
+      print "  echo \"status: ok\""
+      print "  rm -f \"$tmp\""
+      print "  return 0"
+      print "}"
+      in_func=1
+      next
+    }
+    in_func && /^}/ { in_func=0; next }
+    !in_func { print }
+  ' "$BIN" > "$tmp"
+  chmod +x "$tmp"
+  mv "$tmp" "$BIN"
+  echo "Patched shell agent: scripts update result handling"
 }
 
 patch_minimal_go_update() {
