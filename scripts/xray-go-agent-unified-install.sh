@@ -65,17 +65,18 @@ value_or_ask() {
 }
 
 detect_asset() {
-  opkg_arch=""
+  opkg_arches=""
   if command -v opkg >/dev/null 2>&1; then
-    opkg_arch="$(opkg print-architecture 2>/dev/null | awk 'NR==1{print $2}')"
+    opkg_arches="$(opkg print-architecture 2>/dev/null | awk '{print $2}' | tr '\n' ' ')"
   fi
   kernel_arch="$(uname -m 2>/dev/null || echo unknown)"
-  case "$opkg_arch:$kernel_arch" in
-    *aarch64*:*|*:aarch64|*:arm64) echo "xray-go-unified-agent-linux-arm64" ;;
-    *mipsel*:*|*mipsle*:*|*mipselsf*:*) echo "xray-go-unified-agent-linux-mipsle" ;;
-    *:mips|*mips*:mips) echo "xray-go-unified-agent-linux-mips" ;;
+  arch_hint="$opkg_arches $kernel_arch"
+  case "$arch_hint" in
+    *aarch64*|*arm64*) echo "xray-go-unified-agent-linux-arm64" ;;
+    *mipselsf*|*mipsel*|*mipsle*) echo "xray-go-unified-agent-linux-mipsle" ;;
+    *mips*) echo "xray-go-unified-agent-linux-mips" ;;
     *)
-      echo "ERROR: unsupported router architecture: entware=$opkg_arch kernel=$kernel_arch" >&2
+      echo "ERROR: unsupported router architecture: entware=$opkg_arches kernel=$kernel_arch" >&2
       echo "Supported: arm64/aarch64, mipsel/mipselsf/mipsle and mips" >&2
       exit 1
       ;;
