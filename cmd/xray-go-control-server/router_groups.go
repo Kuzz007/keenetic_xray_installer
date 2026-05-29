@@ -63,12 +63,39 @@ func parseRouterGroups(value string) map[string]string {
 	return groups
 }
 
+func formatRouterGroups(groups map[string]string, ids []string) string {
+	items := []string{}
+	for _, id := range ids {
+		group := cleanRouterGroup(groups[id])
+		items = append(items, id+":"+group)
+	}
+	return strings.Join(items, ",")
+}
+
 func (s *Server) routerGroupMap() map[string]string {
 	data, err := os.ReadFile(s.cfg.ConfigPath)
 	if err != nil {
 		return map[string]string{}
 	}
 	return parseRouterGroups(parseConfigKeyValues(string(data))["ROUTER_GROUPS"])
+}
+
+func (s *Server) persistConfigWithGroupsLocked(groups map[string]string) error {
+	ids := make([]string, 0, len(s.cfg.Routers))
+	for id := range s.cfg.Routers {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	items := make([]string, 0, len(ids))
+	for _, id := range ids {
+		r := s.cfg.Routers[id]
+		items = append(items, r.ID+":"+r.Token+":"+r.Name)
+		if strings.TrimSpace(groups[id]) == "" {
+			groups[id] = defaultRouterGroup
+		}
+	}
+	content := fmt.Sprintf("LISTEN=\"%s\"\nBOT_TOKEN=\"%s\"\nADMIN_USER_ID=\"%d\"\nROUTERS=\"%s\"\nROUTER_GROUPS=\"%s\"\n", s.cfg.Listen, s.cfg.BotToken, s.cfg.AdminUserID, strings.Join(items, ","), formatRouterGroups(groups, ids))
+	return os.WriteFile(s.cfg.ConfigPath, []byte(content), 0660)
 }
 
 func (s *Server) routerGroupFor(id string) string {
