@@ -4,6 +4,7 @@ set -eu
 REPO="${REPO:-Kuzz007/keenetic_xray_installer}"
 REF="${REF:-main}"
 FORCE_AGENT="${FORCE_AGENT:-auto}"
+FORCE_LEGACY_SHELL="${FORCE_LEGACY_SHELL:-0}"
 
 usage() {
   cat <<EOF
@@ -15,7 +16,7 @@ Options are passed through to the selected installer:
   --router-name NAME
   --agent-token TOKEN
   --poll-interval SEC
-  --agent auto|unified|go|shell  Force agent type, default auto
+  --agent auto|unified|go|shell|legacy-shell  Force agent type, default auto
   -h, --help
 
 Auto policy:
@@ -24,8 +25,13 @@ Auto policy:
   - mips: unified Go-agent mips asset
   - unknown: legacy shell-agent fallback
 
+Migration compatibility:
+  - old shell-agent self-update calls this installer with --agent shell
+  - --agent shell is treated as unified migration by default
+
 Rollback:
-  - pass --agent shell to install legacy shell-agent explicitly
+  - pass --agent legacy-shell to install legacy shell-agent explicitly
+  - or use FORCE_LEGACY_SHELL=1 with --agent shell
   - pass --agent go to install legacy Go-agent installer explicitly
 EOF
 }
@@ -43,7 +49,16 @@ kernel_arch() {
 detect_agent() {
   forced="$1"
   case "$forced" in
-    unified|go|shell) echo "$forced"; return 0 ;;
+    unified|go) echo "$forced"; return 0 ;;
+    legacy-shell) echo shell; return 0 ;;
+    shell)
+      if [ "$FORCE_LEGACY_SHELL" = "1" ]; then
+        echo shell
+      else
+        echo unified
+      fi
+      return 0
+      ;;
     auto) ;;
     *) echo "ERROR: invalid --agent value: $forced" >&2; exit 1 ;;
   esac
@@ -103,6 +118,7 @@ main() {
   selected="$(detect_agent "$FORCE_AGENT")"
   echo "Detected Entware arch: $(opkg_arches || true)"
   echo "Detected kernel arch: $(kernel_arch)"
+  echo "Requested agent: $FORCE_AGENT"
   echo "Selected agent: $selected"
 
   case "$selected" in
