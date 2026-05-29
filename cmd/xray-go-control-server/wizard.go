@@ -11,7 +11,6 @@ type wizardState struct {
 	Step     string
 	RouterID string
 	Name     string
-	Group    string
 	Slot     string
 	Selector string
 	Values   string
@@ -132,15 +131,6 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 		if name == "" {
 			name = st.RouterID
 		}
-		st.Name = name
-		st.Step = "group"
-		wizardMu.Lock()
-		wizardByChat[chatID] = st
-		wizardMu.Unlock()
-		s.sendMessage(chatID, "📁 Группа роутера\n\nВведите группу, например:\n• Дом\n• Офис\n• Дача\n\nЕсли оставить пустым нельзя — для общей группы напишите: Без группы\n\nДля отмены: /cancel")
-		return true
-	case "group":
-		group := cleanRouterGroup(text)
 		token, err := randomTokenHex(24)
 		if err != nil {
 			wizardCancel(chatID)
@@ -154,10 +144,8 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 			s.sendMessage(chatID, "⚠️ Роутер уже существует: "+st.RouterID)
 			return true
 		}
-		groups := s.routerGroupMap()
-		groups[st.RouterID] = group
-		s.cfg.Routers[st.RouterID] = &Router{ID: st.RouterID, Name: st.Name, Token: token}
-		err = s.persistConfigWithGroupsLocked(groups)
+		s.cfg.Routers[st.RouterID] = &Router{ID: st.RouterID, Name: name, Token: token}
+		err = s.persistConfigLocked()
 		if err != nil {
 			delete(s.cfg.Routers, st.RouterID)
 		}
@@ -168,8 +156,7 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 			return true
 		}
 		serverURL := agentServerURL(s.cfg.Listen)
-		msg := addRouterDoneMessage(st.RouterID, st.Name, token, serverURL) + "\n\n📁 Группа: " + group
-		s.sendMessageWithKeyboard(chatID, msg, routerKeyboard(st.RouterID))
+		s.sendMessageWithKeyboard(chatID, addRouterDoneMessage(st.RouterID, name, token, serverURL), routerKeyboard(st.RouterID))
 		return true
 	default:
 		wizardCancel(chatID)
