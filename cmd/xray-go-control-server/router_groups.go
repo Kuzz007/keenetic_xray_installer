@@ -24,10 +24,7 @@ func cleanRouterGroup(group string) string {
 }
 
 func routerGroupName(rt *Router) string {
-	if rt == nil {
-		return defaultRouterGroup
-	}
-	return cleanRouterGroup(rt.Group)
+	return defaultRouterGroup
 }
 
 func routerDisplayName(id string, rt *Router) string {
