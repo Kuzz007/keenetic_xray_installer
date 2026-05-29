@@ -1,0 +1,132 @@
+name: Publish web control experiment
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to create/update
+        required: false
+        default: web-control-experiment
+  push:
+    branches:
+      - web-control-experiment
+    paths:
+      - cmd/xray-web-control-server/**
+      - cmd/xray-web-agent/**
+      - scripts/xray-web-agent-install.sh
+      - .github/workflows/publish-web-control-experiment.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || 'web-control-experiment' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: web-control-experiment
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Build assets
+        run: |
+          set -e
+          mkdir -p dist
+
+          CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags "-s -w" \
+            -o "dist/xray-web-control-server-linux-amd64" ./cmd/xray-web-control-server
+          chmod +x "dist/xray-web-control-server-linux-amd64"
+          sha256sum "dist/xray-web-control-server-linux-amd64" | tee "dist/xray-web-control-server-linux-amd64.sha256"
+
+          CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=arm64 \
+            go build -trimpath -ldflags "-s -w" \
+            -o "dist/xray-web-control-server-linux-arm64" ./cmd/xray-web-control-server
+          chmod +x "dist/xray-web-control-server-linux-arm64"
+          sha256sum "dist/xray-web-control-server-linux-arm64" | tee "dist/xray-web-control-server-linux-arm64.sha256"
+
+          CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=arm64 \
+            go build -trimpath -ldflags "-s -w" \
+            -o "dist/xray-web-agent-linux-arm64" ./cmd/xray-web-agent
+          chmod +x "dist/xray-web-agent-linux-arm64"
+          sha256sum "dist/xray-web-agent-linux-arm64" | tee "dist/xray-web-agent-linux-arm64.sha256"
+
+          CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=mipsle GOMIPS=softfloat \
+            go build -trimpath -ldflags "-s -w" \
+            -o "dist/xray-web-agent-linux-mipsle" ./cmd/xray-web-agent
+          chmod +x "dist/xray-web-agent-linux-mipsle"
+          sha256sum "dist/xray-web-agent-linux-mipsle" | tee "dist/xray-web-agent-linux-mipsle.sha256"
+
+          CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=mips GOMIPS=softfloat \
+            go build -trimpath -ldflags "-s -w" \
+            -o "dist/xray-web-agent-linux-mips" ./cmd/xray-web-agent
+          chmod +x "dist/xray-web-agent-linux-mips"
+          sha256sum "dist/xray-web-agent-linux-mips" | tee "dist/xray-web-agent-linux-mips.sha256"
+
+      - name: Create or update prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          NOTES_FILE="dist/release-notes.md"
+          cat > "$NOTES_FILE" <<'EOF'
+          ## web-control-experiment
+
+          Experimental standalone web control plane without Telegram.
+
+          Assets:
+
+          ```text
+          xray-web-control-server-linux-amd64
+          xray-web-control-server-linux-arm64
+          xray-web-agent-linux-arm64
+          xray-web-agent-linux-mipsle
+          xray-web-agent-linux-mips
+          ```
+
+          Server:
+          - serves Web UI and REST endpoints
+          - uses WEB_USER / WEB_PASSWORD for browser login
+          - uses AGENT_TOKEN bearer auth for router agents
+          - intended to run behind HTTPS reverse proxy such as Caddy or nginx
+
+          Agent:
+          - outbound-only polling to `/api/agent/poll`
+          - posts heartbeat and command results
+          - experimental and isolated from Telegram control path
+          EOF
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "$RELEASE_TAG" --notes-file "$NOTES_FILE" --prerelease
+          else
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$RELEASE_TAG" --notes-file "$NOTES_FILE" --prerelease
+          fi
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          ASSETS="
+          dist/xray-web-control-server-linux-amd64
+          dist/xray-web-control-server-linux-amd64.sha256
+          dist/xray-web-control-server-linux-arm64
+          dist/xray-web-control-server-linux-arm64.sha256
+          dist/xray-web-agent-linux-arm64
+          dist/xray-web-agent-linux-arm64.sha256
+          dist/xray-web-agent-linux-mipsle
+          dist/xray-web-agent-linux-mipsle.sha256
+          dist/xray-web-agent-linux-mips
+          dist/xray-web-agent-linux-mips.sha256
+          "
+          for asset in $ASSETS; do
+            echo "Uploading $asset"
+            gh release upload "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY" --clobber
+          done
