@@ -14,18 +14,22 @@ MINIMAL_BACKUP_STORE="$XRAY_DIR/minimal-go-backup.url"
 MINIMAL_SWITCH_CMD="/opt/bin/minimal-go-switch"
 MINIMAL_FAILOVER_INIT="/opt/etc/init.d/S25xray-minimal-go-failover"
 MINIMAL_HISTORY_LOG="/opt/var/log/minimal-go-switch-history.log"
+ROUTER_IP_STORE="$XRAY_DIR/router-lan-ip"
 SOCKS_HOST_SET="${SOCKS_HOST+x}"
 SOCKS_PORT_SET="${SOCKS_PORT+x}"
 CHECK_URLS_SET="${CHECK_URLS+x}"
+PROXY_UPSTREAM_HOST_SET="${PROXY_UPSTREAM_HOST+x}"
 SOCKS_HOST_ENV="${SOCKS_HOST:-}"
 SOCKS_PORT_ENV="${SOCKS_PORT:-}"
 CHECK_URLS_ENV="${CHECK_URLS:-}"
+PROXY_UPSTREAM_HOST_ENV="${PROXY_UPSTREAM_HOST:-}"
 SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
 SOCKS_PORT="${SOCKS_PORT:-10808}"
 CHECK_URLS="${CHECK_URLS:-http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204 http://www.gstatic.com/generate_204}"
 CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-5}"
 MAX_TIME="${MAX_TIME:-10}"
 PROXY_IFACE="${PROXY_IFACE:-Proxy0}"
+PROXY_UPSTREAM_HOST="${PROXY_UPSTREAM_HOST:-}"
 FULL_RECOVERY_LOG="/opt/var/log/vless-go-recover.log"
 MINIMAL_RECOVERY_LOG="/opt/var/log/xray-minimal-go-failover.log"
 LOG_FILE_OVERRIDE="${LOG_FILE:-}"
@@ -49,9 +53,9 @@ Usage: vless-go-recover [--quiet] [--mode auto|full|minimal] COMMAND
 
 Commands:
   check            Silent health check only. Prints nothing when OK.
-  run              Recovery ladder: check -> Proxy0 refresh -> Xray restart -> daemon restart -> failover.
+  run              Recovery ladder: check -> Proxy0 ensure/refresh -> Xray restart -> daemon restart -> failover.
   system-check     System overload recovery: high load counter -> restart Xray/daemon -> optional reboot.
-  proxy0           Refresh Proxy0 down/up.
+  proxy0           Recreate/refresh Proxy0 and bring it up.
   xray             Restart Xray init service.
   watchdog         Restart Full watchdog or Minimal failover daemon.
   enable-hourly    Install hourly network recovery. Default: '$DEFAULT_SCHEDULE'.
@@ -70,7 +74,7 @@ System overload environment:
 Notes:
   - Supports Full Go and Minimal Go. Mode is auto-detected by default.
   - Minimal mode reads /opt/libexec/minimal-go-common.sh when present.
-  - Environment variables SOCKS_HOST, SOCKS_PORT and CHECK_URLS override runtime defaults.
+  - Environment variables SOCKS_HOST, SOCKS_PORT, PROXY_UPSTREAM_HOST and CHECK_URLS override runtime defaults.
   - Healthy hourly checks are silent.
   - Recovery actions are logged to the mode-specific recovery log.
   - Router reboot is disabled by default for system overload recovery.
@@ -112,6 +116,7 @@ load_minimal_runtime_config() {
     [ -n "$SOCKS_HOST_SET" ] && SOCKS_HOST="$SOCKS_HOST_ENV"
     [ -n "$SOCKS_PORT_SET" ] && SOCKS_PORT="$SOCKS_PORT_ENV"
     [ -n "$CHECK_URLS_SET" ] && CHECK_URLS="$CHECK_URLS_ENV"
+    [ -n "$PROXY_UPSTREAM_HOST_SET" ] && PROXY_UPSTREAM_HOST="$PROXY_UPSTREAM_HOST_ENV"
 
     SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
     SOCKS_PORT="${SOCKS_PORT:-10808}"
@@ -179,11 +184,49 @@ health_check() {
     return 1
 }
 
+proxy_upstream_host() {
+    if [ -n "$PROXY_UPSTREAM_HOST" ]; then
+        echo "$PROXY_UPSTREAM_HOST"
+        return 0
+    fi
+    if [ -s "$ROUTER_IP_STORE" ]; then
+        sed -n '1p' "$ROUTER_IP_STORE" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+        return 0
+    fi
+    case "$SOCKS_HOST" in
+        127.0.0.1|localhost) echo "127.0.0.1" ;;
+        *) echo "$SOCKS_HOST" ;;
+    esac
+}
+
+ensure_proxy0() {
+    command -v ndmc >/dev/null 2>&1 || { log "Proxy0 ensure skipped: ndmc not found"; return 1; }
+    UPSTREAM_HOST="$(proxy_upstream_host)"
+    [ -n "$UPSTREAM_HOST" ] || UPSTREAM_HOST="127.0.0.1"
+    log "Recovery step: ensure $PROXY_IFACE SOCKS5 upstream $UPSTREAM_HOST:$SOCKS_PORT"
+    if ndmc -c "interface $PROXY_IFACE" >/dev/null 2>&1 \
+        && ndmc -c "interface $PROXY_IFACE proxy protocol socks5" >/dev/null 2>&1 \
+        && ndmc -c "interface $PROXY_IFACE proxy socks5-udp" >/dev/null 2>&1 \
+        && ndmc -c "interface $PROXY_IFACE proxy upstream $UPSTREAM_HOST $SOCKS_PORT" >/dev/null 2>&1 \
+        && ndmc -c "interface $PROXY_IFACE description Xray-Failover" >/dev/null 2>&1 \
+        && ndmc -c "interface $PROXY_IFACE no ip global" >/dev/null 2>&1 \
+        && ndmc -c "interface $PROXY_IFACE up" >/dev/null 2>&1; then
+        ndmc -c "system configuration save" >/dev/null 2>&1 || true
+        history_log proxy0_ensure source=recover iface="$PROXY_IFACE" upstream="$UPSTREAM_HOST:$SOCKS_PORT" result=ok mode="$(detect_mode)"
+        return 0
+    fi
+    log "Proxy0 ensure failed: iface=$PROXY_IFACE upstream=$UPSTREAM_HOST:$SOCKS_PORT"
+    history_log proxy0_ensure source=recover iface="$PROXY_IFACE" upstream="$UPSTREAM_HOST:$SOCKS_PORT" result=failed mode="$(detect_mode)"
+    return 1
+}
+
 refresh_proxy0() {
     command -v ndmc >/dev/null 2>&1 || { log "Proxy0 refresh skipped: ndmc not found"; return 1; }
+    ensure_proxy0 || true
     log "Recovery step: refresh $PROXY_IFACE"
     ndmc -c "interface $PROXY_IFACE down" >/dev/null 2>&1 || true
     sleep 2
+    ensure_proxy0 || true
     ndmc -c "interface $PROXY_IFACE up" >/dev/null 2>&1 || true
     history_log proxy0_refresh source=recover iface="$PROXY_IFACE" result=ok mode="$(detect_mode)"
 }
@@ -457,6 +500,7 @@ status() {
     echo "  active slot: $(active_slot)"
     echo "  socks: $SOCKS_HOST:$SOCKS_PORT"
     echo "  proxy iface: $PROXY_IFACE"
+    echo "  proxy upstream: $(proxy_upstream_host):$SOCKS_PORT"
     echo "  daemon init: $(daemon_init)"
     echo "  log: $(recovery_log_file)"
     echo "  system load: load1=$(load_one), cores=$(cpu_cores), threshold_multiplier=$SYSTEM_LOAD_MULTIPLIER"
@@ -482,7 +526,7 @@ case "$CMD" in
     check) health_check ;;
     run|recover) run_recovery ;;
     system-check|system|overload-check) run_system_check ;;
-    proxy0|refresh-proxy0) refresh_proxy0 ;;
+    proxy0|refresh-proxy0|ensure-proxy0) refresh_proxy0 ;;
     xray|restart-xray) restart_xray ;;
     watchdog|restart-watchdog|daemon|restart-daemon) restart_watchdog ;;
     enable-hourly|enable) enable_hourly "${1:-}" ;;
