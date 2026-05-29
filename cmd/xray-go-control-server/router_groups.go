@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 )
@@ -23,10 +24,6 @@ func cleanRouterGroup(group string) string {
 	return group
 }
 
-func routerGroupName(rt *Router) string {
-	return defaultRouterGroup
-}
-
 func routerDisplayName(id string, rt *Router) string {
 	if rt == nil || strings.TrimSpace(rt.Name) == "" {
 		return id
@@ -34,15 +31,67 @@ func routerDisplayName(id string, rt *Router) string {
 	return rt.Name
 }
 
+func parseConfigKeyValues(data string) map[string]string {
+	vals := map[string]string{}
+	for _, line := range strings.Split(data, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		vals[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), "\"")
+	}
+	return vals
+}
+
+func parseRouterGroups(value string) map[string]string {
+	groups := map[string]string{}
+	for _, item := range strings.Split(value, ",") {
+		parts := strings.SplitN(strings.TrimSpace(item), ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		id := strings.TrimSpace(parts[0])
+		if id == "" {
+			continue
+		}
+		groups[id] = cleanRouterGroup(parts[1])
+	}
+	return groups
+}
+
+func (s *Server) routerGroupMap() map[string]string {
+	data, err := os.ReadFile(s.cfg.ConfigPath)
+	if err != nil {
+		return map[string]string{}
+	}
+	return parseRouterGroups(parseConfigKeyValues(string(data))["ROUTER_GROUPS"])
+}
+
+func (s *Server) routerGroupFor(id string) string {
+	groups := s.routerGroupMap()
+	if group := strings.TrimSpace(groups[id]); group != "" {
+		return cleanRouterGroup(group)
+	}
+	return defaultRouterGroup
+}
+
 func (s *Server) routerGroupsSnapshot() map[string][]*Router {
+	groupsByID := s.routerGroupMap()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	groups := map[string][]*Router{}
-	for _, rt := range s.cfg.Routers {
+	for id, rt := range s.cfg.Routers {
 		if rt == nil {
 			continue
 		}
-		group := routerGroupName(rt)
+		group := defaultRouterGroup
+		if configured := strings.TrimSpace(groupsByID[id]); configured != "" {
+			group = cleanRouterGroup(configured)
+		}
 		groups[group] = append(groups[group], rt)
 	}
 	for group := range groups {
