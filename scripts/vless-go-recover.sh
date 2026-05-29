@@ -30,6 +30,7 @@ CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-5}"
 MAX_TIME="${MAX_TIME:-10}"
 PROXY_IFACE="${PROXY_IFACE:-Proxy0}"
 PROXY_UPSTREAM_HOST="${PROXY_UPSTREAM_HOST:-}"
+RECOVERY_AUTO_INSTALL_DEPS="${RECOVERY_AUTO_INSTALL_DEPS:-1}"
 FULL_RECOVERY_LOG="/opt/var/log/vless-go-recover.log"
 MINIMAL_RECOVERY_LOG="/opt/var/log/xray-minimal-go-failover.log"
 LOG_FILE_OVERRIDE="${LOG_FILE:-}"
@@ -46,6 +47,7 @@ SYSTEM_REBOOT_COOLDOWN="${SYSTEM_REBOOT_COOLDOWN:-1800}"
 SYSTEM_REBOOT_ENABLED="${SYSTEM_REBOOT_ENABLED:-0}"
 RECOVER_MODE="${RECOVER_MODE:-auto}"
 QUIET="0"
+DEPS_CHECKED="0"
 
 usage() {
     cat <<EOF
@@ -53,7 +55,7 @@ Usage: vless-go-recover [--quiet] [--mode auto|full|minimal] COMMAND
 
 Commands:
   check            Silent health check only. Prints nothing when OK.
-  run              Recovery ladder: check -> Proxy0 ensure/refresh -> Xray restart -> daemon restart -> failover.
+  run              Recovery ladder: deps -> check -> Proxy0 ensure/refresh -> Xray restart -> daemon restart -> failover.
   system-check     System overload recovery: high load counter -> restart Xray/daemon -> optional reboot.
   proxy0           Recreate/refresh Proxy0 and bring it up.
   xray             Restart Xray init service.
@@ -63,6 +65,9 @@ Commands:
   enable-system    Install system overload recovery. Default: '$SYSTEM_DEFAULT_SCHEDULE'.
   disable-system   Remove system overload recovery.
   status           Show recovery status.
+
+Recovery dependencies:
+  RECOVERY_AUTO_INSTALL_DEPS=$RECOVERY_AUTO_INSTALL_DEPS      1 = install missing Entware deps, 0 = diagnose only.
 
 System overload environment:
   SYSTEM_LOAD_MULTIPLIER=$SYSTEM_LOAD_MULTIPLIER      Load threshold: load1 >= CPU cores * multiplier.
@@ -75,6 +80,8 @@ Notes:
   - Supports Full Go and Minimal Go. Mode is auto-detected by default.
   - Minimal mode reads /opt/libexec/minimal-go-common.sh when present.
   - Environment variables SOCKS_HOST, SOCKS_PORT, PROXY_UPSTREAM_HOST and CHECK_URLS override runtime defaults.
+  - Recovery checks Entware dependencies and can install missing curl/ca-certificates/cron packages.
+  - ndmc is a Keenetic system command; recovery diagnoses it but does not install it from Entware.
   - Healthy hourly checks are silent.
   - Recovery actions are logged to the mode-specific recovery log.
   - Router reboot is disabled by default for system overload recovery.
@@ -112,7 +119,6 @@ load_minimal_runtime_config() {
     # shellcheck disable=SC1090
     . "$MINIMAL_COMMON"
 
-    # Environment overrides must win over values sourced from minimal-go-common.sh.
     [ -n "$SOCKS_HOST_SET" ] && SOCKS_HOST="$SOCKS_HOST_ENV"
     [ -n "$SOCKS_PORT_SET" ] && SOCKS_PORT="$SOCKS_PORT_ENV"
     [ -n "$CHECK_URLS_SET" ] && CHECK_URLS="$CHECK_URLS_ENV"
@@ -145,7 +151,6 @@ log() {
 }
 
 mode_name() { MODE="$(detect_mode)"; echo "$MODE"; }
-
 active_store() { case "$(detect_mode)" in full) echo "$FULL_ACTIVE_STORE" ;; minimal) echo "$MINIMAL_ACTIVE_STORE" ;; *) echo "$FULL_ACTIVE_STORE" ;; esac; }
 backup_store() { case "$(detect_mode)" in full) echo "$FULL_BACKUP_STORE" ;; minimal) echo "$MINIMAL_BACKUP_STORE" ;; *) echo "$FULL_BACKUP_STORE" ;; esac; }
 daemon_init() { case "$(detect_mode)" in full) echo "$FULL_WATCHDOG_INIT" ;; minimal) echo "$MINIMAL_FAILOVER_INIT" ;; *) echo "$FULL_WATCHDOG_INIT" ;; esac; }
@@ -157,6 +162,101 @@ active_slot() {
 
 cron_running() {
     ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1
+}
+
+opkg_cmd() {
+    if command -v opkg >/dev/null 2>&1; then command -v opkg; return 0; fi
+    [ -x /opt/bin/opkg ] && { echo /opt/bin/opkg; return 0; }
+    return 1
+}
+
+opkg_pkg_installed() {
+    pkg="$1"
+    OPKG="$(opkg_cmd 2>/dev/null || true)"
+    [ -n "$OPKG" ] || return 1
+    "$OPKG" status "$pkg" 2>/dev/null | grep -q '^Status: .* installed'
+}
+
+install_entware_packages() {
+    packages="$*"
+    [ -n "$packages" ] || return 0
+    OPKG="$(opkg_cmd 2>/dev/null || true)"
+    [ -n "$OPKG" ] || { log "Dependency install skipped: opkg not found; missing: $packages"; return 1; }
+    log "Dependency install: opkg update"
+    "$OPKG" update >> "$(recovery_log_file)" 2>&1 || { log "Dependency install failed: opkg update"; return 1; }
+    log "Dependency install: opkg install $packages"
+    "$OPKG" install $packages >> "$(recovery_log_file)" 2>&1 || { log "Dependency install failed: opkg install $packages"; return 1; }
+}
+
+start_cron_if_possible() {
+    if cron_running; then return 0; fi
+    if [ -x /opt/etc/init.d/S10cron ]; then /opt/etc/init.d/S10cron start >/dev/null 2>&1 || true; fi
+    if [ -x /opt/etc/init.d/Scron ]; then /opt/etc/init.d/Scron start >/dev/null 2>&1 || true; fi
+    if cron_running; then return 0; fi
+    if command -v crond >/dev/null 2>&1; then crond >/dev/null 2>&1 || true; fi
+    if [ -x /opt/sbin/crond ]; then /opt/sbin/crond >/dev/null 2>&1 || true; fi
+    if [ -x /opt/bin/crond ]; then /opt/bin/crond >/dev/null 2>&1 || true; fi
+    cron_running
+}
+
+ensure_cron_files() {
+    LOG_FILE="$(recovery_log_file)"
+    mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
+    touch "$CRON_FILE" "$LOG_FILE"
+    chmod 600 "$CRON_FILE" 2>/dev/null || true
+}
+
+ensure_cron_dependency() {
+    ensure_cron_files
+    if start_cron_if_possible; then return 0; fi
+    if [ "$RECOVERY_AUTO_INSTALL_DEPS" = "1" ]; then
+        # Entware feed names differ by platform/feed age. Try both common names.
+        if ! opkg_pkg_installed cron && ! opkg_pkg_installed cronie; then
+            install_entware_packages cron || install_entware_packages cronie || true
+        fi
+        start_cron_if_possible || true
+    fi
+    if ! cron_running; then
+        log "Dependency check warning: cron daemon is not running; scheduled recovery may not run"
+        return 1
+    fi
+    return 0
+}
+
+ensure_dependencies() {
+    [ "$DEPS_CHECKED" = "1" ] && return 0
+    DEPS_CHECKED="1"
+
+    missing_pkgs=""
+    if ! command -v curl >/dev/null 2>&1; then missing_pkgs="$missing_pkgs curl"; fi
+    if ! opkg_pkg_installed ca-certificates && [ ! -s /opt/etc/ssl/certs/ca-certificates.crt ] && [ ! -s /opt/etc/ssl/cert.pem ]; then
+        missing_pkgs="$missing_pkgs ca-certificates"
+    fi
+
+    if [ -n "$missing_pkgs" ]; then
+        if [ "$RECOVERY_AUTO_INSTALL_DEPS" = "1" ]; then
+            install_entware_packages $missing_pkgs || true
+        else
+            log "Dependency check: missing Entware packages:$missing_pkgs; auto-install disabled"
+        fi
+    fi
+
+    ensure_cron_files
+    ensure_cron_dependency || true
+
+    if ! command -v curl >/dev/null 2>&1; then log "Dependency check failed: curl is missing"; return 1; fi
+    if ! command -v ndmc >/dev/null 2>&1; then log "Dependency check warning: ndmc is missing; Proxy0 recovery is unavailable"; fi
+    return 0
+}
+
+dependencies_summary() {
+    echo "  dependency curl: $(command -v curl >/dev/null 2>&1 && echo OK || echo missing)"
+    echo "  dependency ndmc: $(command -v ndmc >/dev/null 2>&1 && echo OK || echo missing)"
+    if opkg_cmd >/dev/null 2>&1; then echo "  dependency opkg: OK"; else echo "  dependency opkg: missing"; fi
+    if opkg_pkg_installed ca-certificates || [ -s /opt/etc/ssl/certs/ca-certificates.crt ] || [ -s /opt/etc/ssl/cert.pem ]; then echo "  dependency ca-certificates: OK"; else echo "  dependency ca-certificates: missing"; fi
+    if cron_running; then echo "  dependency cron daemon: running"; else echo "  dependency cron daemon: not running"; fi
+    echo "  dependency cron file: $CRON_FILE"
+    echo "  dependency auto-install: $RECOVERY_AUTO_INSTALL_DEPS"
 }
 
 history_log() {
@@ -172,12 +272,9 @@ history_log() {
 }
 
 health_check() {
-    command -v curl >/dev/null 2>&1 || return 1
+    ensure_dependencies || return 1
     for URL in $CHECK_URLS; do
-        if curl -fsS --socks5-hostname "$SOCKS_HOST:$SOCKS_PORT" \
-            --connect-timeout "$CONNECT_TIMEOUT" \
-            --max-time "$MAX_TIME" \
-            "$URL" >/dev/null 2>&1; then
+        if curl -fsS --socks5-hostname "$SOCKS_HOST:$SOCKS_PORT" --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" "$URL" >/dev/null 2>&1; then
             return 0
         fi
     done
@@ -185,32 +282,18 @@ health_check() {
 }
 
 proxy_upstream_host() {
-    if [ -n "$PROXY_UPSTREAM_HOST" ]; then
-        echo "$PROXY_UPSTREAM_HOST"
-        return 0
-    fi
-    if [ -s "$ROUTER_IP_STORE" ]; then
-        sed -n '1p' "$ROUTER_IP_STORE" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
-        return 0
-    fi
-    case "$SOCKS_HOST" in
-        127.0.0.1|localhost) echo "127.0.0.1" ;;
-        *) echo "$SOCKS_HOST" ;;
-    esac
+    if [ -n "$PROXY_UPSTREAM_HOST" ]; then echo "$PROXY_UPSTREAM_HOST"; return 0; fi
+    if [ -s "$ROUTER_IP_STORE" ]; then sed -n '1p' "$ROUTER_IP_STORE" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; return 0; fi
+    case "$SOCKS_HOST" in 127.0.0.1|localhost) echo "127.0.0.1" ;; *) echo "$SOCKS_HOST" ;; esac
 }
 
 ensure_proxy0() {
+    ensure_dependencies || true
     command -v ndmc >/dev/null 2>&1 || { log "Proxy0 ensure skipped: ndmc not found"; return 1; }
     UPSTREAM_HOST="$(proxy_upstream_host)"
     [ -n "$UPSTREAM_HOST" ] || UPSTREAM_HOST="127.0.0.1"
     log "Recovery step: ensure $PROXY_IFACE SOCKS5 upstream $UPSTREAM_HOST:$SOCKS_PORT"
-    if ndmc -c "interface $PROXY_IFACE" >/dev/null 2>&1 \
-        && ndmc -c "interface $PROXY_IFACE proxy protocol socks5" >/dev/null 2>&1 \
-        && ndmc -c "interface $PROXY_IFACE proxy socks5-udp" >/dev/null 2>&1 \
-        && ndmc -c "interface $PROXY_IFACE proxy upstream $UPSTREAM_HOST $SOCKS_PORT" >/dev/null 2>&1 \
-        && ndmc -c "interface $PROXY_IFACE description Xray-Failover" >/dev/null 2>&1 \
-        && ndmc -c "interface $PROXY_IFACE no ip global" >/dev/null 2>&1 \
-        && ndmc -c "interface $PROXY_IFACE up" >/dev/null 2>&1; then
+    if ndmc -c "interface $PROXY_IFACE" >/dev/null 2>&1 && ndmc -c "interface $PROXY_IFACE proxy protocol socks5" >/dev/null 2>&1 && ndmc -c "interface $PROXY_IFACE proxy socks5-udp" >/dev/null 2>&1 && ndmc -c "interface $PROXY_IFACE proxy upstream $UPSTREAM_HOST $SOCKS_PORT" >/dev/null 2>&1 && ndmc -c "interface $PROXY_IFACE description Xray-Failover" >/dev/null 2>&1 && ndmc -c "interface $PROXY_IFACE no ip global" >/dev/null 2>&1 && ndmc -c "interface $PROXY_IFACE up" >/dev/null 2>&1; then
         ndmc -c "system configuration save" >/dev/null 2>&1 || true
         history_log proxy0_ensure source=recover iface="$PROXY_IFACE" upstream="$UPSTREAM_HOST:$SOCKS_PORT" result=ok mode="$(detect_mode)"
         return 0
@@ -221,6 +304,7 @@ ensure_proxy0() {
 }
 
 refresh_proxy0() {
+    ensure_dependencies || true
     command -v ndmc >/dev/null 2>&1 || { log "Proxy0 refresh skipped: ndmc not found"; return 1; }
     ensure_proxy0 || true
     log "Recovery step: refresh $PROXY_IFACE"
@@ -250,197 +334,86 @@ restart_watchdog() {
 try_failover() {
     MODE="$(detect_mode)"
     SLOT="$(active_slot)"
-    if [ "$SLOT" != "primary" ]; then
-        log "Recovery step: failover skipped, active slot is $SLOT"
-        return 1
-    fi
-
+    if [ "$SLOT" != "primary" ]; then log "Recovery step: failover skipped, active slot is $SLOT"; return 1; fi
     BACKUP="$(backup_store)"
     [ -s "$BACKUP" ] || { log "Recovery step: failover skipped, backup is not configured"; return 1; }
-
     case "$MODE" in
         full)
             [ -x "$FULL_FAILOVER_CMD" ] || { log "Recovery step: failover skipped, command not found: $FULL_FAILOVER_CMD"; return 1; }
             log "Recovery step: switch primary -> backup (full)"
-            if VLESS_GO_HISTORY_SUPPRESS=1 "$FULL_FAILOVER_CMD" switch backup --first >/dev/null 2>&1; then
-                sleep 5
-                history_log recover_failover from=primary to=backup result=ok mode=full
-                return 0
-            fi
+            if VLESS_GO_HISTORY_SUPPRESS=1 "$FULL_FAILOVER_CMD" switch backup --first >/dev/null 2>&1; then sleep 5; history_log recover_failover from=primary to=backup result=ok mode=full; return 0; fi
             ;;
         minimal)
             [ -x "$MINIMAL_SWITCH_CMD" ] || { log "Recovery step: failover skipped, command not found: $MINIMAL_SWITCH_CMD"; return 1; }
             log "Recovery step: switch primary -> backup (minimal)"
-            if "$MINIMAL_SWITCH_CMD" backup >/dev/null 2>&1; then
-                sleep 5
-                history_log recover_failover from=primary to=backup result=ok mode=minimal
-                return 0
-            fi
+            if "$MINIMAL_SWITCH_CMD" backup >/dev/null 2>&1; then sleep 5; history_log recover_failover from=primary to=backup result=ok mode=minimal; return 0; fi
             ;;
-        *)
-            log "Recovery step: failover skipped, mode is unknown"
-            return 1
-            ;;
+        *) log "Recovery step: failover skipped, mode is unknown"; return 1 ;;
     esac
-
     log "Recovery step failed: switch primary -> backup"
     history_log failed_switch source=recover from=primary to=backup reason=recover_switch_failed mode="$MODE"
     return 1
 }
 
 run_recovery() {
-    if health_check; then
-        return 0
-    fi
-
+    ensure_dependencies || true
+    if health_check; then return 0; fi
     MODE="$(detect_mode)"
     log "Recovery started: SOCKS health failed on $(active_slot), mode=$MODE"
-
     refresh_proxy0 || true
-    if health_check; then
-        log "Recovery OK after Proxy0 refresh"
-        history_log recover_ok step=proxy0 result=ok mode="$MODE"
-        return 0
-    fi
-
+    if health_check; then log "Recovery OK after Proxy0 refresh"; history_log recover_ok step=proxy0 result=ok mode="$MODE"; return 0; fi
     restart_xray || true
-    if health_check; then
-        log "Recovery OK after Xray restart"
-        history_log recover_ok step=xray_restart result=ok mode="$MODE"
-        return 0
-    fi
-
+    if health_check; then log "Recovery OK after Xray restart"; history_log recover_ok step=xray_restart result=ok mode="$MODE"; return 0; fi
     restart_watchdog || true
-    if health_check; then
-        log "Recovery OK after daemon restart"
-        history_log recover_ok step=daemon_restart result=ok mode="$MODE"
-        return 0
-    fi
-
+    if health_check; then log "Recovery OK after daemon restart"; history_log recover_ok step=daemon_restart result=ok mode="$MODE"; return 0; fi
     try_failover || true
-    if health_check; then
-        log "Recovery OK after failover"
-        history_log recover_ok step=failover result=ok mode="$MODE"
-        return 0
-    fi
-
+    if health_check; then log "Recovery OK after failover"; history_log recover_ok step=failover result=ok mode="$MODE"; return 0; fi
     log "Recovery failed: manual intervention may be required; router reboot is not automatic"
     history_log recover_failed result=failed active="$(active_slot)" mode="$MODE"
     return 1
 }
 
-now_epoch() {
-    date +%s 2>/dev/null || echo 0
-}
+now_epoch() { date +%s 2>/dev/null || echo 0; }
+uptime_seconds() { awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0; }
+cpu_cores() { cores="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 1)"; case "$cores" in ''|0|*[!0-9]*) cores=1 ;; esac; echo "$cores"; }
+load_one() { awk '{print $1}' /proc/loadavg 2>/dev/null || echo 0; }
+system_overloaded() { load="$(load_one)"; cores="$(cpu_cores)"; awk -v load="$load" -v cores="$cores" -v mult="$SYSTEM_LOAD_MULTIPLIER" 'BEGIN { exit !(load >= cores * mult) }'; }
 
-uptime_seconds() {
-    awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0
-}
-
-cpu_cores() {
-    cores="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 1)"
-    case "$cores" in ''|0|*[!0-9]*) cores=1 ;; esac
-    echo "$cores"
-}
-
-load_one() {
-    awk '{print $1}' /proc/loadavg 2>/dev/null || echo 0
-}
-
-system_overloaded() {
-    load="$(load_one)"
-    cores="$(cpu_cores)"
-    awk -v load="$load" -v cores="$cores" -v mult="$SYSTEM_LOAD_MULTIPLIER" 'BEGIN { exit !(load >= cores * mult) }'
-}
-
-system_state_read() {
-    if [ -s "$SYSTEM_STATE_FILE" ]; then
-        sed -n '1p' "$SYSTEM_STATE_FILE"
-    else
-        echo "0 0"
-    fi
-}
-
-system_state_write() {
-    mkdir -p "$(dirname "$SYSTEM_STATE_FILE")" 2>/dev/null || true
-    printf '%s %s\n' "$1" "$2" > "$SYSTEM_STATE_FILE"
-}
-
-system_state_reset_count() {
-    last_reboot="$(system_state_read | awk '{print $2+0}')"
-    system_state_write 0 "$last_reboot"
-}
+system_state_read() { if [ -s "$SYSTEM_STATE_FILE" ]; then sed -n '1p' "$SYSTEM_STATE_FILE"; else echo "0 0"; fi; }
+system_state_write() { mkdir -p "$(dirname "$SYSTEM_STATE_FILE")" 2>/dev/null || true; printf '%s %s\n' "$1" "$2" > "$SYSTEM_STATE_FILE"; }
+system_state_reset_count() { last_reboot="$(system_state_read | awk '{print $2+0}')"; system_state_write 0 "$last_reboot"; }
 
 log_top_processes() {
     log "System overload process snapshot follows"
     LOG_FILE="$(recovery_log_file)"
-    {
-        echo "--- ps snapshot ---"
-        ps 2>/dev/null | head -n 40 || true
-        echo "--- loadavg ---"
-        cat /proc/loadavg 2>/dev/null || true
-        echo "--- meminfo ---"
-        grep -E 'MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree' /proc/meminfo 2>/dev/null || true
-        echo "--- df /opt ---"
-        df -h /opt 2>/dev/null || true
-    } >> "$LOG_FILE" 2>/dev/null || true
+    { echo "--- ps snapshot ---"; ps 2>/dev/null | head -n 40 || true; echo "--- loadavg ---"; cat /proc/loadavg 2>/dev/null || true; echo "--- meminfo ---"; grep -E 'MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree' /proc/meminfo 2>/dev/null || true; echo "--- df /opt ---"; df -h /opt 2>/dev/null || true; } >> "$LOG_FILE" 2>/dev/null || true
 }
 
 run_system_check() {
+    ensure_dependencies || true
     up="$(uptime_seconds)"
-    if [ "$up" -lt "$SYSTEM_GRACE_AFTER_BOOT" ]; then
-        system_state_reset_count
-        [ "$QUIET" = "1" ] || echo "System check skipped: boot grace ${up}/${SYSTEM_GRACE_AFTER_BOOT}s"
-        return 0
-    fi
-
+    if [ "$up" -lt "$SYSTEM_GRACE_AFTER_BOOT" ]; then system_state_reset_count; [ "$QUIET" = "1" ] || echo "System check skipped: boot grace ${up}/${SYSTEM_GRACE_AFTER_BOOT}s"; return 0; fi
     state="$(system_state_read)"
     count="$(echo "$state" | awk '{print $1+0}')"
     last_reboot="$(echo "$state" | awk '{print $2+0}')"
-
-    if ! system_overloaded; then
-        system_state_write 0 "$last_reboot"
-        [ "$QUIET" = "1" ] || echo "System check OK: load1=$(load_one), cores=$(cpu_cores), multiplier=$SYSTEM_LOAD_MULTIPLIER"
-        return 0
-    fi
-
+    if ! system_overloaded; then system_state_write 0 "$last_reboot"; [ "$QUIET" = "1" ] || echo "System check OK: load1=$(load_one), cores=$(cpu_cores), multiplier=$SYSTEM_LOAD_MULTIPLIER"; return 0; fi
     count=$((count + 1))
     system_state_write "$count" "$last_reboot"
     log "System overload detected: load1=$(load_one), cores=$(cpu_cores), multiplier=$SYSTEM_LOAD_MULTIPLIER, count=$count/$SYSTEM_CONSECUTIVE, mode=$(detect_mode)"
-
-    if [ "$count" -lt "$SYSTEM_CONSECUTIVE" ]; then
-        return 1
-    fi
-
+    if [ "$count" -lt "$SYSTEM_CONSECUTIVE" ]; then return 1; fi
     log_top_processes
     restart_xray || true
     restart_watchdog || true
     history_log system_overload count="$count" mode="$(detect_mode)"
-
-    if [ "$SYSTEM_REBOOT_ENABLED" != "1" ]; then
-        log "System overload reboot skipped: SYSTEM_REBOOT_ENABLED=$SYSTEM_REBOOT_ENABLED"
-        return 1
-    fi
-
+    if [ "$SYSTEM_REBOOT_ENABLED" != "1" ]; then log "System overload reboot skipped: SYSTEM_REBOOT_ENABLED=$SYSTEM_REBOOT_ENABLED"; return 1; fi
     now="$(now_epoch)"
     since=$((now - last_reboot))
-    if [ "$last_reboot" -gt 0 ] && [ "$since" -lt "$SYSTEM_REBOOT_COOLDOWN" ]; then
-        log "System overload reboot skipped: cooldown ${since}/${SYSTEM_REBOOT_COOLDOWN}s"
-        return 1
-    fi
-
+    if [ "$last_reboot" -gt 0 ] && [ "$since" -lt "$SYSTEM_REBOOT_COOLDOWN" ]; then log "System overload reboot skipped: cooldown ${since}/${SYSTEM_REBOOT_COOLDOWN}s"; return 1; fi
     system_state_write 0 "$now"
     log "System overload reboot scheduled: load1=$(load_one), cores=$(cpu_cores), mode=$(detect_mode)"
     history_log system_overload_reboot mode="$(detect_mode)"
     ( sleep 2; reboot ) >/dev/null 2>&1 &
     return 1
-}
-
-ensure_cron_files() {
-    LOG_FILE="$(recovery_log_file)"
-    mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
-    touch "$CRON_FILE" "$LOG_FILE"
-    chmod 600 "$CRON_FILE" 2>/dev/null || true
 }
 
 remove_cron_marker() {
@@ -452,33 +425,31 @@ remove_cron_marker() {
     chmod 600 "$CRON_FILE" 2>/dev/null || true
 }
 
-remove_cron() {
-    remove_cron_marker "$MARKER"
-}
+remove_cron() { remove_cron_marker "$MARKER"; }
 
 enable_hourly() {
+    ensure_dependencies || true
     SCHEDULE="${1:-$DEFAULT_SCHEDULE}"
     ensure_cron_files
     remove_cron
     printf '%s %s --quiet --mode %s run # %s\n' "$SCHEDULE" "/opt/bin/vless-go-recover" "$(detect_mode)" "$MARKER" >> "$CRON_FILE"
     chmod 600 "$CRON_FILE" 2>/dev/null || true
+    start_cron_if_possible || true
     echo "Hourly recovery enabled: $SCHEDULE"
     echo "Mode: $(detect_mode)"
     echo "Healthy checks are silent; recovery actions are logged to $(recovery_log_file)"
 }
 
-disable_hourly() {
-    remove_cron
-    echo "Hourly recovery disabled."
-}
+disable_hourly() { remove_cron; echo "Hourly recovery disabled."; }
 
 enable_system() {
+    ensure_dependencies || true
     SCHEDULE="${1:-$SYSTEM_DEFAULT_SCHEDULE}"
     ensure_cron_files
     remove_cron_marker "$SYSTEM_MARKER"
-    printf '%s SYSTEM_LOAD_MULTIPLIER=%s SYSTEM_CONSECUTIVE=%s SYSTEM_GRACE_AFTER_BOOT=%s SYSTEM_REBOOT_COOLDOWN=%s SYSTEM_REBOOT_ENABLED=%s %s --quiet --mode %s system-check # %s\n' \
-        "$SCHEDULE" "$SYSTEM_LOAD_MULTIPLIER" "$SYSTEM_CONSECUTIVE" "$SYSTEM_GRACE_AFTER_BOOT" "$SYSTEM_REBOOT_COOLDOWN" "$SYSTEM_REBOOT_ENABLED" "/opt/bin/vless-go-recover" "$(detect_mode)" "$SYSTEM_MARKER" >> "$CRON_FILE"
+    printf '%s SYSTEM_LOAD_MULTIPLIER=%s SYSTEM_CONSECUTIVE=%s SYSTEM_GRACE_AFTER_BOOT=%s SYSTEM_REBOOT_COOLDOWN=%s SYSTEM_REBOOT_ENABLED=%s %s --quiet --mode %s system-check # %s\n' "$SCHEDULE" "$SYSTEM_LOAD_MULTIPLIER" "$SYSTEM_CONSECUTIVE" "$SYSTEM_GRACE_AFTER_BOOT" "$SYSTEM_REBOOT_COOLDOWN" "$SYSTEM_REBOOT_ENABLED" "/opt/bin/vless-go-recover" "$(detect_mode)" "$SYSTEM_MARKER" >> "$CRON_FILE"
     chmod 600 "$CRON_FILE" 2>/dev/null || true
+    start_cron_if_possible || true
     echo "System overload recovery enabled: $SCHEDULE"
     echo "Mode: $(detect_mode)"
     echo "Reboot enabled: $SYSTEM_REBOOT_ENABLED"
@@ -486,12 +457,10 @@ enable_system() {
     echo "Actions are logged to $(recovery_log_file)"
 }
 
-disable_system() {
-    remove_cron_marker "$SYSTEM_MARKER"
-    echo "System overload recovery disabled."
-}
+disable_system() { remove_cron_marker "$SYSTEM_MARKER"; echo "System overload recovery disabled."; }
 
 status() {
+    ensure_dependencies || true
     ensure_cron_files
     echo "VLESS Go recovery status:"
     echo "  command: /opt/bin/vless-go-recover"
@@ -503,20 +472,11 @@ status() {
     echo "  proxy upstream: $(proxy_upstream_host):$SOCKS_PORT"
     echo "  daemon init: $(daemon_init)"
     echo "  log: $(recovery_log_file)"
+    dependencies_summary
     echo "  system load: load1=$(load_one), cores=$(cpu_cores), threshold_multiplier=$SYSTEM_LOAD_MULTIPLIER"
     echo "  system reboot enabled: $SYSTEM_REBOOT_ENABLED"
-    if grep "# $MARKER" "$CRON_FILE" >/dev/null 2>&1; then
-        echo "  hourly recovery: enabled"
-        grep "# $MARKER" "$CRON_FILE"
-    else
-        echo "  hourly recovery: disabled"
-    fi
-    if grep "# $SYSTEM_MARKER" "$CRON_FILE" >/dev/null 2>&1; then
-        echo "  system recovery: enabled"
-        grep "# $SYSTEM_MARKER" "$CRON_FILE"
-    else
-        echo "  system recovery: disabled"
-    fi
+    if grep "# $MARKER" "$CRON_FILE" >/dev/null 2>&1; then echo "  hourly recovery: enabled"; grep "# $MARKER" "$CRON_FILE"; else echo "  hourly recovery: disabled"; fi
+    if grep "# $SYSTEM_MARKER" "$CRON_FILE" >/dev/null 2>&1; then echo "  system recovery: enabled"; grep "# $SYSTEM_MARKER" "$CRON_FILE"; else echo "  system recovery: disabled"; fi
     if cron_running; then echo "  cron: running"; else echo "  cron: not running or not visible"; fi
 }
 
