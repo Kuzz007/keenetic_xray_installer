@@ -21,16 +21,19 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 	case data == "help":
 		s.editMenuOnly(cb.ID, chatID, messageID, helpText(), mainMenuKeyboard())
 	case data == "routers":
-		s.editMenuOnly(cb.ID, chatID, messageID, s.routerList(), s.routersKeyboardWithUpdateScripts())
+		s.editMenuOnly(cb.ID, chatID, messageID, s.groupedRouterList(), s.routersKeyboardWithUpdateScripts())
+	case strings.HasPrefix(data, "group:"):
+		text, kb := s.routerGroupView(strings.TrimPrefix(data, "group:"))
+		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
 	case data == "doctor_all":
 		text := s.enqueueDoctorAll()
-		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
+		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.groupedRouterList(), s.routersKeyboardWithUpdateScripts())
 	case data == "update_scripts_all":
 		text := s.enqueueUpdateScriptsAll()
-		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
+		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.groupedRouterList(), s.routersKeyboardWithUpdateScripts())
 	case data == "update_agents_all":
 		text := s.enqueueUpdateAgentsAll()
-		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
+		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.groupedRouterList(), s.routersKeyboardWithUpdateScripts())
 	case data == "add_router_help":
 		s.startAddRouterWizard(chatID)
 	case strings.HasPrefix(data, "routes-custom:"):
@@ -58,8 +61,7 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		}
 		s.editMenuOnly(cb.ID, chatID, messageID, "Некорректная кнопка маршрутов", mainMenuKeyboard())
 	case strings.HasPrefix(data, "routes-list:"):
-		routerID := strings.TrimPrefix(data, "routes-list:")
-		s.enqueueRoutesList(chatID, messageID, routerID)
+		s.enqueueRoutesList(chatID, messageID, strings.TrimPrefix(data, "routes-list:"))
 	case strings.HasPrefix(data, "routes:"):
 		routerID := strings.TrimPrefix(data, "routes:")
 		s.setActiveMenu(routerID, chatID, messageID)
@@ -79,11 +81,9 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		}
 		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
 	case strings.HasPrefix(data, "install-go:"):
-		routerID := strings.TrimPrefix(data, "install-go:")
-		s.sendAgentInstallCommand(chatID, routerID, "go")
+		s.sendAgentInstallCommand(chatID, strings.TrimPrefix(data, "install-go:"), "go")
 	case strings.HasPrefix(data, "install-shell:"):
-		routerID := strings.TrimPrefix(data, "install-shell:")
-		s.sendAgentInstallCommand(chatID, routerID, "shell")
+		s.sendAgentInstallCommand(chatID, strings.TrimPrefix(data, "install-shell:"), "shell")
 	case strings.HasPrefix(data, "refresh-subscription:"):
 		routerID := strings.TrimPrefix(data, "refresh-subscription:")
 		s.setActiveMenu(routerID, chatID, messageID)
@@ -109,11 +109,9 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 			s.startSetSourceWizard(chatID, parts[2], parts[1])
 		}
 	case strings.HasPrefix(data, "delete-router:"):
-		routerID := strings.TrimPrefix(data, "delete-router:")
-		s.sendDeleteRouterConfirm(chatID, routerID)
+		s.sendDeleteRouterConfirm(chatID, strings.TrimPrefix(data, "delete-router:"))
 	case strings.HasPrefix(data, "confirm-delete-router:"):
-		routerID := strings.TrimPrefix(data, "confirm-delete-router:")
-		s.deleteRouter(chatID, routerID)
+		s.deleteRouter(chatID, strings.TrimPrefix(data, "confirm-delete-router:"))
 	case strings.HasPrefix(data, "router:"):
 		routerID := strings.TrimPrefix(data, "router:")
 		s.setActiveMenu(routerID, chatID, messageID)
