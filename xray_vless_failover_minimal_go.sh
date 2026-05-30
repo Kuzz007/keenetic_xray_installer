@@ -1,133 +1,41 @@
 #!/bin/sh
 set -e
-# Self-extracting safe installer wrapper. Embedded payload contains the full patched script.
+
+# Xray VLESS Failover Minimal Go Edition public entrypoint.
+# Keep this filename as the current installer URL, but avoid embedded gzip/base64 payloads.
+# Some Keenetic/Entware environments report gzip crc/magic errors with self-extracting wrappers.
+
+REPO_BRANCH="${REPO_BRANCH:-main}"
+REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
+PLAIN_URL="${MINIMAL_GO_PLAIN_URL:-${REPO_BASE}/xray_vless_failover_minimal_old_go.sh}"
 TMP_DIR="${TMP_DIR:-/opt/tmp}"
-[ -d "$TMP_DIR" ] || mkdir -p "$TMP_DIR"
-OUT="$TMP_DIR/xray_vless_failover_minimal_go_safe.sh.$$"
-cleanup() { rm -f "$OUT" "$OUT.b64" 2>/dev/null || true; }
+OUT="$TMP_DIR/xray_vless_failover_minimal_go.plain.$$"
+
+cleanup() { rm -f "$OUT" 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
-cat > "$OUT.b64" <<'PAYLOAD_B64'
-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
-ivn4HxMukBK8XgAA
-PAYLOAD_B64
-if base64 -d "$OUT.b64" 2>/dev/null | gzip -dc > "$OUT"; then
-    :
-elif base64 -D "$OUT.b64" 2>/dev/null | gzip -dc > "$OUT"; then
-    :
+
+mkdir -p "$TMP_DIR"
+
+echo "Downloading Minimal Go plain installer..."
+if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -H 'Cache-Control: no-cache' -o "$OUT" "$PLAIN_URL"
+elif command -v wget >/dev/null 2>&1; then
+    wget -O "$OUT" "$PLAIN_URL"
 else
-    echo "ERROR: failed to decode embedded xray_vless_failover_minimal_go_safe.sh payload" >&2
+    echo "ERROR: curl or wget required" >&2
     exit 1
 fi
+
+if ! head -n 1 "$OUT" | grep -Eq '^#!/bin/sh|^#!/opt/bin/sh'; then
+    echo "ERROR: downloaded Minimal Go installer does not look like a shell script: $PLAIN_URL" >&2
+    head -n 3 "$OUT" >&2 || true
+    exit 1
+fi
+
+if ! sh -n "$OUT"; then
+    echo "ERROR: downloaded Minimal Go installer failed shell syntax check: $PLAIN_URL" >&2
+    exit 1
+fi
+
 chmod +x "$OUT"
-sh -n "$OUT"
 exec sh "$OUT" "$@"
