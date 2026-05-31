@@ -107,35 +107,48 @@ active_slot_from_output() {
     sed -n 's/.*active slot:[[:space:]]*//p; s/.*active:[[:space:]]*//p; s/.*активный слот:[[:space:]]*//p' "$1" 2>/dev/null | tail -n 1 | json_escape
 }
 
+summary_seen() {
+    grep -Eq 'OK=[0-9]+[[:space:]]+WARN=[0-9]+[[:space:]]+FAIL=[0-9]+' "$1" 2>/dev/null
+}
+
 run_doctor_json() {
     need_exec "$GO_DOCTOR_CMD"
     tmp="/tmp/xray-go-doctor-json.$$"
-    rc="0"
-    "$GO_DOCTOR_CMD" >"$tmp" 2>&1 || rc="$?"
+    doctor_rc="0"
+    "$GO_DOCTOR_CMD" >"$tmp" 2>&1 || doctor_rc="$?"
     ok_count="$(counter_from_summary OK "$tmp")"
     warn_count="$(counter_from_summary WARN "$tmp")"
     fail_count="$(counter_from_summary FAIL "$tmp")"
     active_slot="$(active_slot_from_output "$tmp")"
     status="ok"
-    if [ "${fail_count:-0}" -gt 0 ] || [ "$rc" -ne 0 ]; then
+    exit_code="0"
+
+    if [ "${fail_count:-0}" -gt 0 ]; then
         status="fail"
-    elif [ "${warn_count:-0}" -gt 0 ]; then
+        exit_code="2"
+    elif ! summary_seen "$tmp" && [ "$doctor_rc" -ne 0 ]; then
+        status="fail"
+        exit_code="$doctor_rc"
+    elif [ "${warn_count:-0}" -gt 0 ] || [ "$doctor_rc" -ne 0 ]; then
         status="warn"
+        exit_code="0"
     fi
+
     printf '{'
     printf '"schema":"xray-go.doctor.v1"'
     printf ',"ok":%s' "$( [ "$status" = "fail" ] && printf false || printf true )"
     printf ',"status":"%s"' "$status"
-    printf ',"exit_code":%s' "$rc"
+    printf ',"exit_code":%s' "$exit_code"
     printf ',"ok_count":%s' "$ok_count"
     printf ',"warn_count":%s' "$warn_count"
     printf ',"fail_count":%s' "$fail_count"
     printf ',"active_slot":"%s"' "$active_slot"
     printf ',"support_safe":true'
     printf ',"raw_output_included":false'
-    printf '}\n'
+    printf '}
+'
     rm -f "$tmp" 2>/dev/null || true
-    exit "$rc"
+    exit "$exit_code"
 }
 
 run_doctor() {
@@ -265,38 +278,28 @@ case "${1:-help}" in
         shift
         run_update "$@"
         ;;
-    update-core|update-xray-core)
+    update-core)
         shift
-        run_update xray-core "$@"
+        run_update xray-core
         ;;
     switch)
         shift
-        SLOT="${1:-}"
-        case "$SLOT" in
-            primary|backup)
-                need_exec "$GO_FAILOVER_CMD"
-                "$GO_FAILOVER_CMD" switch "$SLOT"
-                ;;
-            *)
-                echo "Использование: xray-go switch primary|backup" >&2
-                exit 2
-                ;;
-        esac
+        need_exec "$GO_FAILOVER_CMD"
+        "$GO_FAILOVER_CMD" switch "$@"
         ;;
     cleanup)
         shift
         need_exec "$GO_CLEANUP_CMD"
         "$GO_CLEANUP_CMD" "$@"
         ;;
-    version|--version|-v)
-        echo "xray-go $XRAY_GO_VERSION"
+    version|--version|-V)
+        echo "$XRAY_GO_VERSION"
         ;;
-    help|--help|-h|"")
+    help|-h|--help|"")
         usage
         ;;
     *)
         echo "ОШИБКА: неизвестная команда: $1" >&2
-        echo >&2
         usage >&2
         exit 2
         ;;
