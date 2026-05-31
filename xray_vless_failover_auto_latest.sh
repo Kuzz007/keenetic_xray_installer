@@ -1,110 +1,407 @@
 #!/bin/sh
 set -e
-# Self-extracting safe installer wrapper. Embedded payload contains the full patched script.
-TMP_DIR="${TMP_DIR:-/opt/tmp}"
-[ -d "$TMP_DIR" ] || mkdir -p "$TMP_DIR"
-OUT="$TMP_DIR/xray_vless_failover_auto_latest_safe.sh.$$"
-cleanup() { rm -f "$OUT" "$OUT.b64" 2>/dev/null || true; }
-trap cleanup EXIT INT TERM
-cat > "$OUT.b64" <<'PAYLOAD_B64'
-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
-PAYLOAD_B64
-if base64 -d "$OUT.b64" 2>/dev/null | gzip -dc > "$OUT"; then
-    :
-elif base64 -D "$OUT.b64" 2>/dev/null | gzip -dc > "$OUT"; then
-    :
+
+# Auto installer latest edition.
+# Thin downloader/selector wrapper: no embedded gzip/base64 payload.
+# Chooses between:
+#   - Go/Entware latest feed edition for normal /opt storage
+#   - Minimal Go edition for low /opt storage
+
+REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main}"
+GO_FEED_URL="${GO_FEED_URL:-$REPO_BASE/scripts/install-entware-feed.sh}"
+GO_FULL_URL="${GO_FULL_URL:-$REPO_BASE/xray_vless_failover_go.sh}"
+MINIMAL_GO_URL="${MINIMAL_GO_URL:-$REPO_BASE/xray_vless_failover_minimal_go.sh}"
+MINIMAL_NEXT_URL="${MINIMAL_NEXT_URL:-$REPO_BASE/xray_vless_failover_minimal_next.sh}"
+MINIMAL_GO_MENU_URL="${MINIMAL_GO_MENU_URL:-$REPO_BASE/scripts/minimal-go-menu.sh}"
+
+GO_TMP="/opt/tmp/install-entware-feed.latest.sh"
+GO_FULL_TMP="/opt/tmp/xray_vless_failover_go.sh"
+MINIMAL_GO_TMP="/opt/tmp/xray_vless_failover_minimal_go.sh"
+MINIMAL_NEXT_TMP="/opt/tmp/xray_vless_failover_minimal_next.sh"
+MINIMAL_GO_MENU_BIN="/opt/bin/minimal-go-menu"
+
+THRESHOLD_KB="${THRESHOLD_KB:-80000}"
+EDITION="${EDITION:-auto}"
+ASSUME_YES="${ASSUME_YES:-0}"
+MODE="${MODE:-install}"
+NO_CRON="${NO_CRON:-0}"
+NO_RESTART="${NO_RESTART:-0}"
+FORCE_GO_RESOLVER_UPDATE="${FORCE_GO_RESOLVER_UPDATE:-0}"
+
+usage() {
+    cat <<'USAGE'
+Usage: xray_vless_failover_auto_latest.sh [options]
+
+Edition selection:
+  --auto                 Auto: low /opt space selects Minimal Go; update-only repairs installed edition
+  --go                   Force Go/Entware latest edition
+  --minimal-go           Force Minimal Go edition
+  --minimal-next         Force legacy minimal-next edition
+
+Modes:
+  --detect-only          Print detection/selection only; make no changes
+  --doctor               Print diagnostics and recovery status; make no install changes
+  --update-only          Safe repair-lite update for already installed edition
+  --dry-run              Alias for --detect-only compatibility
+
+Other options:
+  --yes                  Do not ask interactive confirmation
+  --force-go-resolver    Re-download /opt/bin/xray-failover-go during update-only repair
+  --no-cron              Do not create/modify cron entries in safe update path
+  --no-restart           Do not restart services in safe update path
+  -h, --help             Show help
+USAGE
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --go|--force-go) EDITION="go"; shift ;;
+        --minimal|--minimal-go|--force-minimal) EDITION="minimal-go"; shift ;;
+        --minimal-next|--legacy-minimal) EDITION="minimal-next"; shift ;;
+        --auto) EDITION="auto"; shift ;;
+        -y|--yes) ASSUME_YES="1"; shift ;;
+        --dry-run|--check|--print-selection|--detect-only) MODE="detect-only"; shift ;;
+        --doctor) MODE="doctor"; shift ;;
+        --update-only) MODE="update-only"; ASSUME_YES="1"; shift ;;
+        --force-go-resolver|--force-resolver) FORCE_GO_RESOLVER_UPDATE="1"; shift ;;
+        --no-cron) NO_CRON="1"; shift ;;
+        --no-restart) NO_RESTART="1"; shift ;;
+        -h|--help|help) usage; exit 0 ;;
+        *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
+    esac
+done
+
+case "$THRESHOLD_KB" in ''|*[!0-9]*) echo "ERROR: THRESHOLD_KB must be numeric, got: $THRESHOLD_KB" >&2; exit 1 ;; esac
+case "$EDITION" in auto|go|minimal-go|minimal-next) ;; minimal) EDITION="minimal-go" ;; *) echo "ERROR: unsupported EDITION=$EDITION" >&2; exit 1 ;; esac
+case "$MODE" in install|detect-only|doctor|update-only) ;; *) echo "ERROR: unsupported MODE=$MODE" >&2; exit 1 ;; esac
+
+read_tty() {
+    prompt="$1"
+    if [ -r /dev/tty ]; then
+        printf "%s" "$prompt" >/dev/tty
+        IFS= read -r REPLY </dev/tty
+    else
+        printf "%s" "$prompt" >&2
+        IFS= read -r REPLY
+    fi
+}
+
+confirm_install() {
+    label="$1"
+    [ "$ASSUME_YES" = "1" ] && return 0
+    read_tty "Install $label edition? [Y/n]: "
+    case "$REPLY" in n|N|no|NO|Нет|нет) echo "Cancelled."; exit 0 ;; esac
+}
+
+opkg_bin() {
+    if command -v opkg >/dev/null 2>&1; then command -v opkg; elif [ -x /opt/bin/opkg ]; then echo /opt/bin/opkg; else echo ""; fi
+}
+
+need_opkg() {
+    [ -n "$(opkg_bin)" ] || { echo "ERROR: opkg not found. Entware is required." >&2; exit 1; }
+}
+
+opkg_install_missing() {
+    OPKG_BIN="$(opkg_bin)"
+    missing=""
+    for pkg in "$@"; do
+        [ -n "$pkg" ] || continue
+        "$OPKG_BIN" status "$pkg" >/dev/null 2>&1 || missing="$missing $pkg"
+    done
+    [ -n "$missing" ] || return 0
+    echo "Installing missing packages:$missing"
+    "$OPKG_BIN" install $missing
+}
+
+ensure_curl() {
+    command -v curl >/dev/null 2>&1 && return 0
+    echo "curl not found. Installing curl via Entware..."
+    OPKG_BIN="$(opkg_bin)"
+    "$OPKG_BIN" update
+    "$OPKG_BIN" install curl ca-certificates || "$OPKG_BIN" install curl ca-bundle || "$OPKG_BIN" install curl
+    command -v curl >/dev/null 2>&1 || { echo "ERROR: failed to install curl." >&2; exit 1; }
+}
+
+get_xray_bin() {
+    if command -v xray >/dev/null 2>&1; then command -v xray; elif [ -x /opt/sbin/xray ]; then echo /opt/sbin/xray; elif [ -x /opt/bin/xray ]; then echo /opt/bin/xray; else echo ""; fi
+}
+
+ensure_xray() {
+    [ -n "$(get_xray_bin)" ] && return 0
+    echo "Installing Xray core..."
+    OPKG_BIN="$(opkg_bin)"
+    "$OPKG_BIN" install xray-core || "$OPKG_BIN" install xray || { echo "ERROR: failed to install xray-core/xray." >&2; exit 1; }
+}
+
+ensure_cron() {
+    [ "$NO_CRON" = "1" ] && { echo "No cron: skip cron setup."; return 0; }
+    mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
+    touch /opt/var/spool/cron/crontabs/root 2>/dev/null || true
+    chmod 600 /opt/var/spool/cron/crontabs/root 2>/dev/null || true
+    if ! command -v cron >/dev/null 2>&1 && ! command -v crond >/dev/null 2>&1; then
+        OPKG_BIN="$(opkg_bin)"
+        "$OPKG_BIN" install cron || "$OPKG_BIN" install cronie || "$OPKG_BIN" install busybox-cron || echo "WARN: failed to install cron package."
+    fi
+    if ! ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1; then
+        if [ -x /opt/etc/init.d/S10cron ]; then /opt/etc/init.d/S10cron start >/dev/null 2>&1 || true
+        elif [ -x /opt/etc/init.d/S10crond ]; then /opt/etc/init.d/S10crond start >/dev/null 2>&1 || true
+        elif command -v crond >/dev/null 2>&1; then crond -c /opt/var/spool/cron/crontabs >/dev/null 2>&1 || crond >/dev/null 2>&1 || true
+        elif command -v cron >/dev/null 2>&1; then cron >/dev/null 2>&1 || true
+        fi
+    fi
+}
+
+bootstrap_common_dependencies() {
+    need_opkg
+    mkdir -p /opt/tmp /opt/etc/xray /opt/var/log
+    OPKG_BIN="$(opkg_bin)"
+    "$OPKG_BIN" update
+    ensure_curl
+    opkg_install_missing ca-certificates ca-bundle >/dev/null 2>&1 || true
+}
+
+bootstrap_selected_dependencies() {
+    case "$1" in
+        go) echo "Preparing dependencies for Go/Entware latest edition..."; bootstrap_common_dependencies; opkg_install_missing wget-ssl ca-certificates || true; ensure_cron ;;
+        minimal-go) echo "Preparing dependencies for Minimal Go edition..."; bootstrap_common_dependencies; ensure_xray; ensure_cron ;;
+        minimal-next) echo "Preparing dependencies for Minimal-next edition..."; bootstrap_common_dependencies; ensure_xray ;;
+        *) echo "ERROR: unknown selected edition: $1" >&2; exit 1 ;;
+    esac
+}
+
+check_shell_syntax() {
+    file="$1"
+    for shell in /opt/bin/sh /bin/sh sh; do
+        ([ -x "$shell" ] || command -v "$shell" >/dev/null 2>&1) || continue
+        out="$($shell -n "$file" 2>&1)" && return 0
+        case "$out" in *"Invalid option"*|*"illegal option"*|*"bad option"*) continue ;; *) echo "$out" >&2; return 1 ;; esac
+    done
+    return 0
+}
+
+looks_like_shell_script() {
+    head -n 1 "$1" | grep -Eq '^#!/bin/sh|^#!/opt/bin/sh'
+}
+
+download_installer() {
+    url="$1"
+    output="$2"
+    label="$3"
+    mkdir -p "$(dirname "$output")"
+    echo "Downloading $label installer..."
+    curl -fsSL -H 'Cache-Control: no-cache' -o "$output" "$url" || { echo "ERROR: failed to download $label installer: $url" >&2; exit 1; }
+    looks_like_shell_script "$output" || { echo "ERROR: downloaded $label installer does not look like a shell script: $url" >&2; head -n 3 "$output" >&2 || true; exit 1; }
+    check_shell_syntax "$output" || { echo "ERROR: downloaded $label installer failed shell syntax check: $output" >&2; exit 1; }
+    chmod +x "$output"
+}
+
+download_helper() {
+    url="$1"; output="$2"; label="$3"
+    mkdir -p "$(dirname "$output")" /opt/tmp
+    tmp="/opt/tmp/$(basename "$output").$$"
+    echo "Refreshing $label..."
+    if curl -fsSL -H 'Cache-Control: no-cache' -o "$tmp" "$url" && looks_like_shell_script "$tmp" && check_shell_syntax "$tmp"; then
+        mv "$tmp" "$output"; chmod +x "$output"; return 0
+    fi
+    rm -f "$tmp" 2>/dev/null || true
+    echo "WARN: failed to refresh $label from $url" >&2
+    return 1
+}
+
+space_mb() { awk "BEGIN { printf \"%.1f\", $1 / 1024 }"; }
+
+has_opkg_package() { OPKG_BIN="$(opkg_bin)"; [ -n "$OPKG_BIN" ] && "$OPKG_BIN" status "$1" >/dev/null 2>&1; }
+
+detect_installed_edition() {
+    if [ -x /opt/bin/minimal-go-status ] || [ -x /opt/bin/minimal-go-switch ] || [ -f /opt/etc/xray/minimal-go-active ] || [ -x /opt/etc/init.d/S25xray-minimal-go-failover ]; then echo minimal-go; return; fi
+    if [ -x /opt/bin/xray-go ] || [ -x /opt/bin/vless-go-failover ] || [ -f /opt/etc/xray/vless-go.active ] || has_opkg_package failover-go; then echo go; return; fi
+    if [ -x /opt/bin/vless-failover ] || [ -f /opt/etc/xray/vless.active ]; then echo minimal-next; return; fi
+    echo none
+}
+
+cron_state() { ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1 && echo running || echo "not running"; }
+
+print_detection() {
+    cat <<EOF_DETECTION
+Free /opt space: ${FREE_KB} KB (${FREE_MB} MB)
+Full/Go threshold: ${THRESHOLD_KB} KB (${THRESHOLD_MB} MB)
+Installed edition: $INSTALLED_EDITION
+Selected edition: $SELECTED
+Selection reason: $SELECT_REASON
+Mode: $MODE
+No cron: $NO_CRON
+No restart: $NO_RESTART
+Force Go resolver update: $FORCE_GO_RESOLVER_UPDATE
+EOF_DETECTION
+}
+
+print_selection_notes() {
+    echo
+    echo "Selection notes:"
+    case "$SELECTED" in
+        minimal-go)
+            echo "  - Minimal Go is selected: direct vless:// only, low storage footprint."
+            [ "$FREE_KB" -lt "$THRESHOLD_KB" ] && echo "  - Low /opt space detected; Full Go may fail to install xray-core/failover-go."
+            [ "$INSTALLED_EDITION" != "none" ] && [ "$INSTALLED_EDITION" != "minimal-go" ] && echo "  - Existing $INSTALLED_EDITION remnants were detected, but Minimal Go is safer for this /opt size."
+            echo "  - After install/check: minimal-go-status ; vless-go-recover --mode minimal status ; minimal-go-menu"
+            ;;
+        go)
+            echo "  - Go/Entware latest is selected: feed package, full menu helpers, subscriptions/failover tooling."
+            echo "  - After install/check: xray-go status ; xray-go doctor --json ; vless-go-recover --mode full status"
+            ;;
+        minimal-next) echo "  - Minimal-next legacy-compatible edition is selected. Prefer Minimal Go for new low-space installs." ;;
+    esac
+    echo
+}
+
+print_post_install_checks() {
+    echo
+    echo "Post-install checks:"
+    case "$1" in
+        minimal-go) echo "  minimal-go-status"; echo "  vless-go-recover --mode minimal status"; echo "  minimal-go-menu" ;;
+        go) echo "  xray-go status"; echo "  xray-go doctor --json"; echo "  vless-go-recover --mode full status" ;;
+        *) echo "  Run status/doctor commands for the selected edition." ;;
+    esac
+    echo
+}
+
+run_recovery_status() { [ -x /opt/bin/vless-go-recover ] && /opt/bin/vless-go-recover --mode "$1" status 2>/dev/null || echo "vless-go-recover: not installed"; }
+
+run_doctor() {
+    echo "Diagnostics:"
+    echo "  installed runtime: $INSTALLED_EDITION"
+    echo "  selected runtime: $SELECTED"
+    echo "  opkg: $(command -v opkg >/dev/null 2>&1 && echo yes || echo no)"
+    echo "  curl: $(command -v curl >/dev/null 2>&1 && echo yes || echo no)"
+    echo "  xray: $([ -n "$(get_xray_bin)" ] && echo yes || echo no)"
+    echo "  cron process: $(cron_state)"
+    echo "  minimal-go-status: $([ -x /opt/bin/minimal-go-status ] && echo yes || echo no)"
+    echo "  minimal-go-switch: $([ -x /opt/bin/minimal-go-switch ] && echo yes || echo no)"
+    echo "  minimal-go-menu: $([ -x /opt/bin/minimal-go-menu ] && echo yes || echo no)"
+    echo "  xray-go: $([ -x /opt/bin/xray-go ] && echo yes || echo no)"
+    echo "  vless-go-failover: $([ -x /opt/bin/vless-go-failover ] && echo yes || echo no)"
+    echo "  failover-go package present: $(has_opkg_package failover-go && echo yes || echo no)"
+    echo "  vless-go-recover: $([ -x /opt/bin/vless-go-recover ] && echo yes || echo no)"
+    echo
+    case "$SELECTED" in minimal-go) echo "Recovery status (minimal):"; run_recovery_status minimal ;; go) echo "Recovery status (full):"; run_recovery_status full ;; esac
+}
+
+install_minimal_go_menu() { download_helper "$MINIMAL_GO_MENU_URL" "$MINIMAL_GO_MENU_BIN" "Minimal Go menu"; }
+
+safe_update_minimal_go() {
+    echo "Safe update for Minimal Go edition..."
+    bootstrap_selected_dependencies minimal-go
+    download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go repair"
+    args="--repair-only"
+    [ "$NO_CRON" = "1" ] && args="$args --no-cron"
+    [ "$NO_RESTART" = "1" ] && args="$args --no-restart"
+    [ "$FORCE_GO_RESOLVER_UPDATE" = "1" ] && args="$args --force-go-resolver"
+    echo "Running Minimal Go repair: $MINIMAL_GO_TMP $args"
+    sh "$MINIMAL_GO_TMP" $args
+    install_minimal_go_menu || true
+    print_post_install_checks minimal-go
+}
+
+safe_update_go() {
+    echo "Safe update for Go/Entware latest edition..."
+    bootstrap_selected_dependencies go
+    download_installer "$GO_FULL_URL" "$GO_FULL_TMP" "Full Go repair"
+    args="--repair-only"
+    [ "$NO_CRON" = "1" ] && args="$args --no-cron"
+    [ "$NO_RESTART" = "1" ] && args="$args --no-restart"
+    [ "$FORCE_GO_RESOLVER_UPDATE" = "1" ] && args="$args --force-go-resolver"
+    echo "Running Full Go repair: $GO_FULL_TMP $args"
+    sh "$GO_FULL_TMP" $args
+    print_post_install_checks go
+}
+
+safe_update_minimal_next() {
+    echo "Safe update for Minimal-next edition..."
+    bootstrap_selected_dependencies minimal-next
+    download_installer "$MINIMAL_NEXT_URL" "$MINIMAL_NEXT_TMP" "Minimal-next"
+    echo "Minimal-next installer refreshed at: $MINIMAL_NEXT_TMP"
+}
+
+run_update_only() {
+    echo "Update-only mode: repair-lite; no config rewrite, no source rewrite, no agent changes."
+    case "$SELECTED" in minimal-go) safe_update_minimal_go ;; go) safe_update_go ;; minimal-next) safe_update_minimal_next ;; *) echo "ERROR: no installed or selected edition to update" >&2; exit 1 ;; esac
+    echo "Update-only complete."
+}
+
+FREE_KB="$(df -k /opt 2>/dev/null | awk 'NR==2 { print $4 }')"
+case "$FREE_KB" in ''|*[!0-9]*) FREE_KB="0" ;; esac
+
+INSTALLED_EDITION="$(detect_installed_edition)"
+if [ "$EDITION" = "auto" ]; then
+    if [ "$MODE" = "install" ] && [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
+        SELECTED="minimal-go"
+        if [ "$INSTALLED_EDITION" != "none" ] && [ "$INSTALLED_EDITION" != "minimal-go" ]; then SELECT_REASON="low /opt space overrides installed $INSTALLED_EDITION remnants"; else SELECT_REASON="free /opt space is below threshold"; fi
+    elif [ "$INSTALLED_EDITION" != "none" ]; then
+        SELECTED="$INSTALLED_EDITION"; SELECT_REASON="existing installation detected"
+    elif [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
+        SELECTED="minimal-go"; SELECT_REASON="free /opt space is below threshold"
+    else
+        SELECTED="go"; SELECT_REASON="free /opt space is at or above threshold"
+    fi
 else
-    echo "ERROR: failed to decode embedded xray_vless_failover_auto_latest_safe.sh payload" >&2
-    exit 1
+    SELECTED="$EDITION"; SELECT_REASON="explicit edition override"
 fi
-chmod +x "$OUT"
-sh -n "$OUT"
-exec sh "$OUT" "$@"
+
+FREE_MB="$(space_mb "$FREE_KB")"
+THRESHOLD_MB="$(space_mb "$THRESHOLD_KB")"
+print_detection
+print_selection_notes
+
+case "$MODE" in
+    detect-only) echo "Detect-only: no changes made."; exit 0 ;;
+    doctor) echo; run_doctor; exit 0 ;;
+    update-only) need_opkg; ensure_curl; mkdir -p /opt/tmp; run_update_only; exit 0 ;;
+esac
+
+need_opkg
+ensure_curl
+mkdir -p /opt/tmp
+bootstrap_selected_dependencies "$SELECTED"
+
+case "$SELECTED" in
+    minimal-go)
+        cat <<'EOF_MINIMAL_GO'
+Minimal Go edition:
+  - direct vless:// links only
+  - primary/backup failover
+  - no subscriptions
+  - no python3
+  - no Entware feed package
+  - intended for low-storage Entware installs around 40 MB free
+EOF_MINIMAL_GO
+        confirm_install "Minimal Go"
+        download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go"
+        sh "$MINIMAL_GO_TMP"
+        install_minimal_go_menu || true
+        print_post_install_checks minimal-go
+        exit 0
+        ;;
+    minimal-next)
+        cat <<'EOF_MINIMAL_NEXT'
+Minimal-next legacy-compatible edition:
+  - direct vless:// links only
+  - no subscriptions
+  - no python3
+  - legacy shell backend
+  - kept as compatibility fallback
+EOF_MINIMAL_NEXT
+        confirm_install "Minimal-next legacy-compatible"
+        download_installer "$MINIMAL_NEXT_URL" "$MINIMAL_NEXT_TMP" "Minimal-next"
+        exec sh "$MINIMAL_NEXT_TMP"
+        ;;
+esac
+
+cat <<'EOF_GO'
+Go/Entware latest edition:
+  - installs failover-go from GitHub Release feed
+  - auto-selects Entware architecture in feed bootstrap
+  - includes vless-go-doctor, watchdog, updater and menu helpers
+EOF_GO
+confirm_install "Go/Entware latest"
+download_installer "$GO_FEED_URL" "$GO_TMP" "Go/Entware latest"
+exec sh "$GO_TMP"
