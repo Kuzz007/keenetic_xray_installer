@@ -71,6 +71,10 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+case "$THRESHOLD_KB" in ''|*[!0-9]*) echo "ERROR: THRESHOLD_KB must be numeric, got: $THRESHOLD_KB" >&2; exit 1 ;; esac
+case "$EDITION" in auto|go|minimal-go|minimal-next) ;; minimal) EDITION="minimal-go" ;; *) echo "ERROR: unsupported EDITION=$EDITION" >&2; exit 1 ;; esac
+case "$MODE" in install|detect-only|doctor|update-only) ;; *) echo "ERROR: unsupported MODE=$MODE" >&2; exit 1 ;; esac
+
 read_tty() {
     prompt="$1"
     if [ -r /dev/tty ]; then
@@ -175,6 +179,10 @@ check_shell_syntax() {
     return 0
 }
 
+looks_like_shell_script() {
+    head -n 1 "$1" | grep -Eq '^#!/bin/sh|^#!/opt/bin/sh'
+}
+
 download_installer() {
     url="$1"
     output="$2"
@@ -182,7 +190,7 @@ download_installer() {
     mkdir -p "$(dirname "$output")"
     echo "Downloading $label installer..."
     curl -fsSL -H 'Cache-Control: no-cache' -o "$output" "$url" || { echo "ERROR: failed to download $label installer: $url" >&2; exit 1; }
-    head -n 1 "$output" | grep -Eq '^#!/bin/sh|^#!/opt/bin/sh' || { echo "ERROR: downloaded $label installer does not look like a shell script: $url" >&2; head -n 3 "$output" >&2 || true; exit 1; }
+    looks_like_shell_script "$output" || { echo "ERROR: downloaded $label installer does not look like a shell script: $url" >&2; head -n 3 "$output" >&2 || true; exit 1; }
     check_shell_syntax "$output" || { echo "ERROR: downloaded $label installer failed shell syntax check: $output" >&2; exit 1; }
     chmod +x "$output"
 }
@@ -192,7 +200,7 @@ download_helper() {
     mkdir -p "$(dirname "$output")" /opt/tmp
     tmp="/opt/tmp/$(basename "$output").$$"
     echo "Refreshing $label..."
-    if curl -fsSL -H 'Cache-Control: no-cache' -o "$tmp" "$url" && check_shell_syntax "$tmp"; then
+    if curl -fsSL -H 'Cache-Control: no-cache' -o "$tmp" "$url" && looks_like_shell_script "$tmp" && check_shell_syntax "$tmp"; then
         mv "$tmp" "$output"; chmod +x "$output"; return 0
     fi
     rm -f "$tmp" 2>/dev/null || true
@@ -214,7 +222,7 @@ detect_installed_edition() {
 cron_state() { ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1 && echo running || echo "not running"; }
 
 print_detection() {
-    cat <<EOF
+    cat <<EOF_DETECTION
 Free /opt space: ${FREE_KB} KB (${FREE_MB} MB)
 Full/Go threshold: ${THRESHOLD_KB} KB (${THRESHOLD_MB} MB)
 Installed edition: $INSTALLED_EDITION
@@ -224,7 +232,7 @@ Mode: $MODE
 No cron: $NO_CRON
 No restart: $NO_RESTART
 Force Go resolver update: $FORCE_GO_RESOLVER_UPDATE
-EOF
+EOF_DETECTION
 }
 
 print_selection_notes() {
@@ -298,8 +306,9 @@ safe_update_go() {
     echo "Safe update for Go/Entware latest edition..."
     bootstrap_selected_dependencies go
     download_installer "$GO_FULL_URL" "$GO_FULL_TMP" "Full Go repair"
-    args="--repair-only --no-restart"
+    args="--repair-only"
     [ "$NO_CRON" = "1" ] && args="$args --no-cron"
+    [ "$NO_RESTART" = "1" ] && args="$args --no-restart"
     [ "$FORCE_GO_RESOLVER_UPDATE" = "1" ] && args="$args --force-go-resolver"
     echo "Running Full Go repair: $GO_FULL_TMP $args"
     sh "$GO_FULL_TMP" $args
@@ -319,15 +328,8 @@ run_update_only() {
     echo "Update-only complete."
 }
 
-need_opkg
-ensure_curl
-mkdir -p /opt/tmp
-
 FREE_KB="$(df -k /opt 2>/dev/null | awk 'NR==2 { print $4 }')"
 case "$FREE_KB" in ''|*[!0-9]*) FREE_KB="0" ;; esac
-case "$THRESHOLD_KB" in ''|*[!0-9]*) echo "ERROR: THRESHOLD_KB must be numeric, got: $THRESHOLD_KB" >&2; exit 1 ;; esac
-case "$EDITION" in auto|go|minimal-go|minimal-next) ;; minimal) EDITION="minimal-go" ;; *) echo "ERROR: unsupported EDITION=$EDITION" >&2; exit 1 ;; esac
-case "$MODE" in install|detect-only|doctor|update-only) ;; *) echo "ERROR: unsupported MODE=$MODE" >&2; exit 1 ;; esac
 
 INSTALLED_EDITION="$(detect_installed_edition)"
 if [ "$EDITION" = "auto" ]; then
@@ -353,14 +355,17 @@ print_selection_notes
 case "$MODE" in
     detect-only) echo "Detect-only: no changes made."; exit 0 ;;
     doctor) echo; run_doctor; exit 0 ;;
-    update-only) run_update_only; exit 0 ;;
+    update-only) need_opkg; ensure_curl; mkdir -p /opt/tmp; run_update_only; exit 0 ;;
 esac
 
+need_opkg
+ensure_curl
+mkdir -p /opt/tmp
 bootstrap_selected_dependencies "$SELECTED"
 
 case "$SELECTED" in
     minimal-go)
-        cat <<'EOF'
+        cat <<'EOF_MINIMAL_GO'
 Minimal Go edition:
   - direct vless:// links only
   - primary/backup failover
@@ -368,7 +373,7 @@ Minimal Go edition:
   - no python3
   - no Entware feed package
   - intended for low-storage Entware installs around 40 MB free
-EOF
+EOF_MINIMAL_GO
         confirm_install "Minimal Go"
         download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go"
         sh "$MINIMAL_GO_TMP"
@@ -377,26 +382,26 @@ EOF
         exit 0
         ;;
     minimal-next)
-        cat <<'EOF'
+        cat <<'EOF_MINIMAL_NEXT'
 Minimal-next legacy-compatible edition:
   - direct vless:// links only
   - no subscriptions
   - no python3
   - legacy shell backend
   - kept as compatibility fallback
-EOF
+EOF_MINIMAL_NEXT
         confirm_install "Minimal-next legacy-compatible"
         download_installer "$MINIMAL_NEXT_URL" "$MINIMAL_NEXT_TMP" "Minimal-next"
         exec sh "$MINIMAL_NEXT_TMP"
         ;;
 esac
 
-cat <<'EOF'
+cat <<'EOF_GO'
 Go/Entware latest edition:
   - installs failover-go from GitHub Release feed
   - auto-selects Entware architecture in feed bootstrap
   - includes vless-go-doctor, watchdog, updater and menu helpers
-EOF
+EOF_GO
 confirm_install "Go/Entware latest"
 download_installer "$GO_FEED_URL" "$GO_TMP" "Go/Entware latest"
 exec sh "$GO_TMP"
