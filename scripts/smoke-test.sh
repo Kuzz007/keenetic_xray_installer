@@ -69,6 +69,15 @@ check_executable_hint() {
     fi
 }
 
+check_repo_plain_target() {
+    entrypoint="$1"
+    target="$2"
+    label="$3"
+
+    check_file_exists "$target"
+    check_contains "$entrypoint" "$target" "$label points at existing repo path: $target"
+}
+
 info "== Required top-level installers =="
 for path in \
     xray_vless_failover_auto_latest.sh \
@@ -84,13 +93,40 @@ for path in \
     done
 
 info ""
-info "== Architecture guardrails =="
-check_contains xray_vless_failover_go.sh 'detect_entware_arch' "Full Go installer detects Entware architecture"
-check_contains xray_vless_failover_go.sh 'asset_name_for_arch' "Full Go installer maps architecture to Go asset"
-check_contains xray_vless_failover_go.sh 'xray-failover-go-linux-mipsle' "Full Go installer supports mipsle resolver asset"
-check_not_contains xray_vless_failover_go.sh 'GO_BINARY_URL="\${GO_BINARY_URL:-https://github.com/.*/xray-failover-go-linux-arm64}' "Full Go installer does not default to arm64-only resolver URL"
-check_contains scripts/xray-go-installer-update.sh 'asset_name_for_arch' "Go updater maps architecture to Go asset"
-check_contains xray_vless_failover_minimal_go.sh 'asset_name_for_arch' "Minimal Go installer maps architecture to Go asset"
+info "== Downloader entrypoint target guardrails =="
+check_repo_plain_target xray_vless_failover_go.sh scripts/install-entware-feed.sh "Go/Entware entrypoint"
+check_repo_plain_target xray_vless_failover_minimal_go.sh xray_vless_failover_minimal.sh "Minimal Go entrypoint"
+check_contains xray_vless_failover_go.sh 'GO_PLAIN_URL' "Go/Entware entrypoint keeps URL override"
+check_contains xray_vless_failover_minimal_go.sh 'MINIMAL_GO_PLAIN_URL' "Minimal Go entrypoint keeps URL override"
+check_not_contains xray_vless_failover_go.sh 'xray_vless_failover_old_go.sh' "Go/Entware entrypoint does not point at removed old_go path"
+check_not_contains xray_vless_failover_minimal_go.sh 'xray_vless_failover_minimal_old_go.sh' "Minimal Go entrypoint does not point at removed minimal_old_go path"
+
+info ""
+info "== Embedded payload guardrails for public entrypoints =="
+for path in \
+    xray_vless_failover_auto_latest.sh \
+    xray_vless_failover_go.sh \
+    xray_vless_failover_minimal_go.sh
+    do
+        check_not_contains "$path" 'PAYLOAD_B64' "$path has no embedded base64 payload marker"
+        check_not_contains "$path" 'gzip -dc' "$path has no gzip self-extract decode path"
+    done
+
+info ""
+info "== Auto-latest read-only mode guardrails =="
+check_contains xray_vless_failover_auto_latest.sh 'detect-only).*no changes made' "Auto-latest keeps detect-only no-change exit path"
+check_contains xray_vless_failover_auto_latest.sh 'doctor).*run_doctor' "Auto-latest keeps doctor path before install flow"
+check_contains xray_vless_failover_auto_latest.sh 'update-only).*need_opkg' "Auto-latest gates dependency bootstrap to update-only/install paths"
+check_contains xray_vless_failover_auto_latest.sh 'args="--repair-only"' "Go update-only starts without forced --no-restart"
+
+info ""
+info "== Entware feed architecture guardrails =="
+check_contains scripts/install-entware-feed.sh 'detect_entware_arch' "Feed installer detects Entware architecture"
+check_contains scripts/install-entware-feed.sh 'normalize_feed_tag' "Feed installer maps architecture to release tag"
+check_contains scripts/install-entware-feed.sh 'latest-mipsel-3.4' "Feed installer supports mipsel feed tag"
+check_contains scripts/install-entware-feed.sh 'latest-mipselsf-k3.4' "Feed installer supports mipselsf feed tag"
+check_contains packaging/entware/failover-go/postinst 'asset_name_for_arch' "Package postinst maps architecture to Go resolver asset"
+check_contains packaging/entware/failover-go/postinst 'xray-failover-go-linux-mipsle' "Package postinst supports mipsle resolver asset"
 
 info ""
 info "== Helper scripts syntax =="
