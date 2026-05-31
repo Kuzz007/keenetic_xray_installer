@@ -2,7 +2,7 @@
 set -e
 
 PKG_NAME="failover-go"
-PKG_VERSION="${PKG_VERSION:-0.1.3-go-experimental}"
+PKG_VERSION="${PKG_VERSION:-0.1.4-go-experimental}"
 PKG_ARCH="${PKG_ARCH:-aarch64-3.10}"
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
