@@ -1,0 +1,32 @@
+name: Installer smoke test
+
+on:
+  pull_request:
+    paths:
+      - 'xray_vless_failover*.sh'
+      - 'xray_vless_go_watchdog_install.sh'
+      - 'scripts/*.sh'
+      - 'packaging/entware/failover-go/**'
+      - 'scripts/smoke-test.sh'
+      - '.github/workflows/installer-smoke-test.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'xray_vless_failover*.sh'
+      - 'xray_vless_go_watchdog_install.sh'
+      - 'scripts/*.sh'
+      - 'packaging/entware/failover-go/**'
+      - 'scripts/smoke-test.sh'
+      - '.github/workflows/installer-smoke-test.yml'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run installer smoke test
+        run: sh scripts/smoke-test.sh
