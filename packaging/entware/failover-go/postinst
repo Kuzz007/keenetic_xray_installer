@@ -4,6 +4,8 @@ set -e
 GO_EXPERIMENTAL_TAG="${GO_EXPERIMENTAL_TAG:-latest}"
 GO_RESOLVER="/opt/bin/xray-failover-go"
 XRAY_DIR="/opt/etc/xray"
+WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
+WATCHDOG_CONF="$XRAY_DIR/vless-go-watchdog.conf"
 
 mkdir -p /opt/bin /opt/libexec "$XRAY_DIR" /opt/var/log /opt/var/spool/cron/crontabs
 
@@ -32,10 +34,27 @@ asset_name_for_arch() {
     esac
 }
 
+restart_watchdog_if_configured() {
+    if [ ! -x "$WATCHDOG_INIT" ]; then
+        echo "VLESS Go watchdog init not found; skipping watchdog start."
+        return 0
+    fi
+    if [ ! -s "$WATCHDOG_CONF" ]; then
+        echo "VLESS Go watchdog config not found; skipping watchdog start."
+        return 0
+    fi
+
+    if "$WATCHDOG_INIT" start >/dev/null 2>&1; then
+        echo "VLESS Go watchdog started or already running."
+    else
+        echo "WARNING: failed to start VLESS Go watchdog; run manually: $WATCHDOG_INIT start" >&2
+    fi
+}
+
 ENTWARE_ARCH="${ENTWARE_ARCH:-$(detect_entware_arch)}"
 [ -n "$ENTWARE_ARCH" ] || ENTWARE_ARCH="$(uname -m 2>/dev/null || echo unknown)"
 
-GO_ASSET_NAME="${GO_ASSET_NAME:-$(asset_name_for_arch "$ENTWARE_ARCH")}"
+GO_ASSET_NAME="${GO_ASSET_NAME:-$(asset_name_for_arch "$ENTWARE_ARCH")}" 
 [ -n "$GO_ASSET_NAME" ] || { echo "ERROR: unsupported architecture for Go resolver: $ENTWARE_ARCH" >&2; exit 1; }
 
 GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${GO_EXPERIMENTAL_TAG}/${GO_ASSET_NAME}}"
@@ -56,6 +75,8 @@ chmod 600 "$XRAY_DIR"/vless-go.* 2>/dev/null || true
 
 touch /opt/var/spool/cron/crontabs/root 2>/dev/null || true
 chmod 600 /opt/var/spool/cron/crontabs/root 2>/dev/null || true
+
+restart_watchdog_if_configured
 
 echo "failover-go package installed."
 echo "Next steps:"
