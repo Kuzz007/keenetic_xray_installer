@@ -16,15 +16,21 @@ trap cleanup EXIT INT TERM
 
 mkdir -p "$TMP_DIR"
 
-echo "Downloading Minimal Go plain installer..."
-if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -H 'Cache-Control: no-cache' -o "$OUT" "$PLAIN_URL"
-elif command -v wget >/dev/null 2>&1; then
-    wget -O "$OUT" "$PLAIN_URL"
-else
+fetch_plain() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL -H 'Cache-Control: no-cache' -o "$OUT" "$PLAIN_URL"
+        return $?
+    fi
+    if command -v wget >/dev/null 2>&1; then
+        wget --header='Cache-Control: no-cache' -O "$OUT" "$PLAIN_URL" || wget --no-check-certificate --header='Cache-Control: no-cache' -O "$OUT" "$PLAIN_URL"
+        return $?
+    fi
     echo "ERROR: curl or wget required" >&2
-    exit 1
-fi
+    return 1
+}
+
+echo "Downloading Minimal Go plain installer..."
+fetch_plain || { echo "ERROR: failed to download Minimal Go installer: $PLAIN_URL" >&2; exit 1; }
 
 if ! head -n 1 "$OUT" | grep -Eq '^#!/bin/sh|^#!/opt/bin/sh'; then
     echo "ERROR: downloaded Minimal Go installer does not look like a shell script: $PLAIN_URL" >&2
