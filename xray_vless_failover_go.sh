@@ -100,14 +100,18 @@ normalize_selector() {
     esac
 }
 
-show_profiles() {
-    value="$1"
-    [ -n "$value" ] || return 0
-    [ -x /opt/bin/xray-failover-go ] || return 0
-    echo
-    echo "Available profiles from the provided link/subscription:"
-    /opt/bin/xray-failover-go -input "$value" -list || echo "WARN: failed to list profiles; selector can still be entered manually."
-    echo
+show_profiles_hint() {
+    slot="$1"
+    source_value="$2"
+    [ -n "$source_value" ] || return 0
+    case "$source_value" in
+        http://*|https://*)
+            echo
+            echo "Subscription profile listing is not available in this installer build."
+            echo "For $slot selector use 'first' or a profile number, e.g. 1 = index:1."
+            echo
+            ;;
+    esac
 }
 
 prompt_source() {
@@ -134,7 +138,7 @@ prompt_selector() {
     env_value="$3"
     default="first"
 
-    show_profiles "$source_value" >&2
+    show_profiles_hint "$slot" "$source_value" >&2
 
     if [ -n "$env_value" ]; then
         normalize_selector "$env_value"
@@ -203,10 +207,10 @@ run_first_setup() {
 
     echo
     echo "Saving primary profile..."
-    /opt/bin/vless-go-failover set-primary "$primary_value" --selector "$primary_selector" --no-restart
+    /opt/bin/vless-go-failover set-primary "$primary_value" --selector "$primary_selector"
 
     echo "Saving backup profile..."
-    /opt/bin/vless-go-failover set-backup "$backup_value" --selector "$backup_selector" --no-restart
+    /opt/bin/vless-go-failover set-backup "$backup_value" --selector "$backup_selector"
 
     echo "Applying primary profile..."
     if [ "$NO_RESTART" = "1" ]; then
