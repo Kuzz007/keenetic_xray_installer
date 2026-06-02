@@ -10,6 +10,10 @@ REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_
 PLAIN_URL="${GO_PLAIN_URL:-${REPO_BASE}/scripts/install-entware-feed.sh}"
 TMP_DIR="${TMP_DIR:-/opt/tmp}"
 OUT="$TMP_DIR/xray_vless_failover_go.feed.$$"
+XRAY_DIR="/opt/etc/xray"
+XRAY_CONFIG="$XRAY_DIR/config.json"
+XRAY_INIT="/opt/etc/init.d/S24xray"
+WATCHDOG_CONF="$XRAY_DIR/vless-go-watchdog.conf"
 
 DO_SETUP="1"
 NO_RESTART="0"
@@ -159,7 +163,70 @@ prompt_selector() {
 }
 
 already_configured() {
-    [ -s /opt/etc/xray/vless-go.primary ] && [ -s /opt/etc/xray/vless-go.backup ]
+    [ -s "$XRAY_DIR/vless-go.primary" ] && [ -s "$XRAY_DIR/vless-go.backup" ]
+}
+
+ensure_xray_backup_dir() {
+    mkdir -p "$XRAY_DIR/backups"
+    chmod 700 "$XRAY_DIR/backups" 2>/dev/null || true
+}
+
+ensure_watchdog_conf() {
+    mkdir -p "$XRAY_DIR"
+    if [ -s "$WATCHDOG_CONF" ]; then
+        return 0
+    fi
+
+    cat > "$WATCHDOG_CONF" <<'EOF_CONF'
+SOCKS_HOST="127.0.0.1"
+SOCKS_PORT="10808"
+CHECK_URLS="http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204 http://www.gstatic.com/generate_204"
+CHECK_RETRIES="2"
+CHECK_RETRY_DELAY="2"
+WATCHDOG_INTERVAL="15"
+FAILOVER_FAILURES_REQUIRED="2"
+RECOVERY_SUCCESSES_REQUIRED="2"
+AUTO_RECOVER_PRIMARY="0"
+RECOVERY_TEST_PORT="18080"
+RECOVERY_COOLDOWN_CYCLES="2"
+POST_SWITCH_DELAY="5"
+PROXY0_REFRESH="0"
+PROXY_IFACE="Proxy0"
+EOF_CONF
+    chmod 600 "$WATCHDOG_CONF" 2>/dev/null || true
+    echo "Default VLESS Go watchdog config created: $WATCHDOG_CONF"
+}
+
+ensure_xray_init() {
+    [ -s "$XRAY_CONFIG" ] || return 0
+    if [ -x "$XRAY_INIT" ]; then
+        return 0
+    fi
+
+    mkdir -p /opt/etc/init.d
+    cat > "$XRAY_INIT" <<EOF_INIT
+#!/bin/sh
+
+ENABLED=yes
+PROCS=xray
+ARGS="run -config $XRAY_CONFIG"
+PREARGS=""
+DESC="Xray"
+
+. /opt/etc/init.d/rc.func
+EOF_INIT
+    chmod 755 "$XRAY_INIT"
+    echo "Xray init installed: $XRAY_INIT"
+}
+
+ensure_xray_ready() {
+    ensure_xray_init
+    [ -x "$XRAY_INIT" ] || return 0
+    if "$XRAY_INIT" status >/dev/null 2>&1; then
+        return 0
+    fi
+    "$XRAY_INIT" start >/dev/null 2>&1 || "$XRAY_INIT" restart >/dev/null 2>&1 || true
+    sleep 2
 }
 
 run_feed_install() {
@@ -252,6 +319,10 @@ run_first_setup() {
         /opt/bin/vless-go-failover switch primary
     fi
 
+    ensure_xray_backup_dir
+    ensure_watchdog_conf
+    ensure_xray_ready
+
     echo "Starting watchdog..."
     if [ -x /opt/etc/init.d/S26vless-go-watchdog ]; then
         /opt/etc/init.d/S26vless-go-watchdog start || true
@@ -261,6 +332,8 @@ run_first_setup() {
 
     echo "Enabling hourly recovery..."
     /opt/bin/vless-go-recover --mode full enable-hourly || true
+
+    ensure_xray_ready
 
     echo
     echo "Installation and first-run setup complete."
