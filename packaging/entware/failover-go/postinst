@@ -142,8 +142,24 @@ EOF_INIT
     echo "VLESS Go watchdog init installed: $WATCHDOG_INIT"
 }
 
+normalize_watchdog_auto_recover() {
+    [ -s "$WATCHDOG_CONF" ] || return 0
+
+    if grep -q '^AUTO_RECOVER_PRIMARY=' "$WATCHDOG_CONF" 2>/dev/null; then
+        if grep -q '^AUTO_RECOVER_PRIMARY="1"' "$WATCHDOG_CONF" 2>/dev/null; then
+            return 0
+        fi
+        sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY="1"/' "$WATCHDOG_CONF" 2>/dev/null || true
+    else
+        printf '%s\n' 'AUTO_RECOVER_PRIMARY="1"' >> "$WATCHDOG_CONF"
+    fi
+    chmod 600 "$WATCHDOG_CONF" 2>/dev/null || true
+    echo "VLESS Go watchdog auto recovery enabled in config: $WATCHDOG_CONF"
+}
+
 ensure_watchdog_conf_if_configured() {
     if [ -s "$WATCHDOG_CONF" ]; then
+        normalize_watchdog_auto_recover
         return 0
     fi
 
@@ -163,7 +179,7 @@ CHECK_RETRY_DELAY="2"
 WATCHDOG_INTERVAL="15"
 FAILOVER_FAILURES_REQUIRED="2"
 RECOVERY_SUCCESSES_REQUIRED="2"
-AUTO_RECOVER_PRIMARY="0"
+AUTO_RECOVER_PRIMARY="1"
 RECOVERY_TEST_PORT="18080"
 RECOVERY_COOLDOWN_CYCLES="2"
 POST_SWITCH_DELAY="5"
@@ -182,7 +198,7 @@ restart_watchdog_if_configured() {
         return 0
     fi
 
-    if "$WATCHDOG_INIT" start >/dev/null 2>&1; then
+    if "$WATCHDOG_INIT" restart >/dev/null 2>&1 || "$WATCHDOG_INIT" start >/dev/null 2>&1; then
         echo "VLESS Go watchdog started or already running."
     else
         echo "WARNING: failed to start VLESS Go watchdog; run manually: $WATCHDOG_INIT start" >&2
