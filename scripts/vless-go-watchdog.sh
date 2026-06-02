@@ -158,7 +158,7 @@ switch_to() {
 
     TMP_SWITCH="/tmp/vless-go-watchdog.switch.$$"
     set +e
-    VLESS_GO_HISTORY_SUPPRESS=1 "$FAILOVER_CMD" switch "$SLOT" --first >"$TMP_SWITCH" 2>&1
+    VLESS_GO_HISTORY_SUPPRESS=1 "$FAILOVER_CMD" switch "$SLOT" >"$TMP_SWITCH" 2>&1
     RC="$?"
     set -e
 
@@ -361,77 +361,53 @@ run_daemon() {
     done
 }
 
-ensure_cron_files() {
-    mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
-    touch "$CRON_FILE" "$LOG_FILE" "$DETAIL_LOG_FILE"
-    chmod 600 "$CRON_FILE" 2>/dev/null || true
-}
-
-remove_cron() {
-    ensure_cron_files
-    TMP_FILE="$CRON_FILE.$$"
-    grep -v "# $MARKER" "$CRON_FILE" > "$TMP_FILE" 2>/dev/null || true
-    mv "$TMP_FILE" "$CRON_FILE"
-    chmod 600 "$CRON_FILE" 2>/dev/null || true
-}
-
-enable_cron() {
-    SCHEDULE="${1:-$DEFAULT_SCHEDULE}"
-    ensure_cron_files
-    remove_cron
-    printf '%s %s check >> %s 2>&1 # %s\n' "$SCHEDULE" "/opt/bin/vless-go-watchdog" "$LOG_FILE" "$MARKER" >> "$CRON_FILE"
-    chmod 600 "$CRON_FILE" 2>/dev/null || true
-    echo "Cron watchdog включён: $SCHEDULE"
-}
-
-disable_cron() {
-    remove_cron
-    echo "Cron watchdog отключён."
-}
-
-daemon_status_line() {
-    if [ -s "$PID_FILE" ]; then
-        PID="$(cat "$PID_FILE" 2>/dev/null || true)"
-        if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then echo "запущен pid=$PID"; return 0; fi
-    fi
-    echo "не запущен"
-}
-
-status() {
-    ensure_cron_files
-    echo "Статус VLESS Go watchdog:"
-    echo "  активный слот: $(active_slot)"
-    [ -s "$PRIMARY_STORE" ] && echo "  основной профиль: настроен" || echo "  основной профиль: не настроен"
-    [ -s "$BACKUP_STORE" ] && echo "  резервный профиль: настроен" || echo "  резервный профиль: не настроен"
-    echo "  SOCKS: $SOCKS_HOST:$SOCKS_PORT"
-    echo "  URL проверки: $CHECK_URLS"
-    echo "  попыток проверки: $CHECK_RETRIES"
-    echo "  задержка между попытками: ${CHECK_RETRY_DELAY}s"
-    echo "  интервал daemon: ${WATCHDOG_INTERVAL}s"
-    echo "  ошибок до failover: $FAILOVER_FAILURES_REQUIRED"
-    echo "  успешных recovery probe: $RECOVERY_SUCCESSES_REQUIRED"
-    echo "  авто recovery primary: $AUTO_RECOVER_PRIMARY"
-    echo "  порт recovery test: $RECOVERY_TEST_PORT"
-    echo "  cooldown recovery: $RECOVERY_COOLDOWN_CYCLES"
-    echo "  задержка после переключения: ${POST_SWITCH_DELAY}s"
-    echo "  обновление Proxy0: $PROXY0_REFRESH"
-    echo "  daemon: $(daemon_status_line)"
-    echo "  config: $CONFIG_FILE"
-    echo "  log: $LOG_FILE"
-    echo "  detail log: $DETAIL_LOG_FILE"
-    if grep "# $MARKER" "$CRON_FILE" >/dev/null 2>&1; then echo "  cron: включён"; grep "# $MARKER" "$CRON_FILE"; else echo "  cron: отключён"; fi
-    if cron_running; then echo "  cron process: запущен"; else echo "  cron process: не запущен или не виден"; fi
-}
-
 case "${1:-check}" in
     check) check_and_switch ;;
     daemon) run_daemon ;;
-    status) status ;;
-    enable) shift; enable_cron "${1:-}" ;;
-    disable) disable_cron ;;
-    run-primary) switch_to primary manual; check_socks && { log "Проверка связи OK на primary"; history_log manual_switch to=primary result=ok; } || { log "Проверка связи FAILED на primary"; history_log failed_switch source=manual to=primary reason=health_failed; exit 1; } ;;
-    run-backup) switch_to backup manual; check_socks && { log "Проверка связи OK на backup"; history_log manual_switch to=backup result=ok; } || { log "Проверка связи FAILED на backup"; history_log failed_switch source=manual to=backup reason=health_failed; exit 1; } ;;
-    probe-primary) probe_primary && log "Recovery probe primary OK" || { log "Recovery probe primary FAILED"; exit 1; } ;;
+    status)
+        echo "Статус VLESS Go watchdog:"
+        echo "  активный слот: $(active_slot)"
+        [ -s "$PRIMARY_STORE" ] && echo "  основной профиль: настроен" || echo "  основной профиль: не настроен"
+        [ -s "$BACKUP_STORE" ] && echo "  резервный профиль: настроен" || echo "  резервный профиль: не настроен"
+        echo "  SOCKS: $SOCKS_HOST:$SOCKS_PORT"
+        echo "  URL проверки: $CHECK_URLS"
+        echo "  попыток проверки: $CHECK_RETRIES"
+        echo "  задержка между попытками: ${CHECK_RETRY_DELAY}s"
+        echo "  интервал daemon: ${WATCHDOG_INTERVAL}s"
+        echo "  ошибок до failover: $FAILOVER_FAILURES_REQUIRED"
+        echo "  успешных recovery probe: $RECOVERY_SUCCESSES_REQUIRED"
+        echo "  авто recovery primary: $AUTO_RECOVER_PRIMARY"
+        echo "  порт recovery test: $RECOVERY_TEST_PORT"
+        echo "  cooldown recovery: $RECOVERY_COOLDOWN_CYCLES"
+        echo "  задержка после переключения: ${POST_SWITCH_DELAY}s"
+        echo "  обновление Proxy0: $PROXY0_REFRESH"
+        if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then echo "  daemon: запущен pid=$(cat "$PID_FILE")"; else echo "  daemon: не запущен"; fi
+        echo "  config: $CONFIG_FILE"
+        echo "  log: $LOG_FILE"
+        echo "  detail log: $DETAIL_LOG_FILE"
+        if grep -F "$MARKER" "$CRON_FILE" >/dev/null 2>&1; then echo "  cron: включён"; else echo "  cron: отключён"; fi
+        if cron_running; then echo "  cron process: запущен"; else echo "  cron process: не запущен"; fi
+        ;;
+    enable)
+        SCHEDULE="${2:-$DEFAULT_SCHEDULE}"
+        mkdir -p "$(dirname "$CRON_FILE")"
+        touch "$CRON_FILE"
+        grep -v "$MARKER" "$CRON_FILE" > "$CRON_FILE.tmp" 2>/dev/null || true
+        printf '%s %s check # %s\n' "$SCHEDULE" "$0" "$MARKER" >> "$CRON_FILE.tmp"
+        cat "$CRON_FILE.tmp" > "$CRON_FILE"
+        rm -f "$CRON_FILE.tmp"
+        echo "Cron failover включён: $SCHEDULE"
+        ;;
+    disable)
+        [ -f "$CRON_FILE" ] || exit 0
+        grep -v "$MARKER" "$CRON_FILE" > "$CRON_FILE.tmp" 2>/dev/null || true
+        cat "$CRON_FILE.tmp" > "$CRON_FILE"
+        rm -f "$CRON_FILE.tmp"
+        echo "Cron failover отключён"
+        ;;
+    run-primary) switch_to primary manual ;;
+    run-backup) switch_to backup manual ;;
+    probe-primary) probe_primary ;;
     -h|--help|help) usage ;;
-    *) echo "ОШИБКА: неизвестная команда: $1" >&2; usage >&2; exit 1 ;;
+    *) usage >&2; exit 2 ;;
 esac
