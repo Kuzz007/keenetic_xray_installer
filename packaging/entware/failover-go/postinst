@@ -142,8 +142,41 @@ EOF_INIT
     echo "VLESS Go watchdog init installed: $WATCHDOG_INIT"
 }
 
+ensure_watchdog_conf_if_configured() {
+    if [ -s "$WATCHDOG_CONF" ]; then
+        return 0
+    fi
+
+    # Do not create config on a completely empty first install before sources exist.
+    # Do create it on upgrades or repaired installs where primary/backup state is already present.
+    if [ ! -s "$XRAY_DIR/vless-go.primary" ] && [ ! -s "$XRAY_DIR/vless-go.backup" ]; then
+        echo "VLESS Go watchdog config not found and no profiles configured; skipping watchdog config creation."
+        return 0
+    fi
+
+    cat > "$WATCHDOG_CONF" <<'EOF_CONF'
+SOCKS_HOST="127.0.0.1"
+SOCKS_PORT="10808"
+CHECK_URLS="http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204 http://www.gstatic.com/generate_204"
+CHECK_RETRIES="2"
+CHECK_RETRY_DELAY="2"
+WATCHDOG_INTERVAL="15"
+FAILOVER_FAILURES_REQUIRED="2"
+RECOVERY_SUCCESSES_REQUIRED="2"
+AUTO_RECOVER_PRIMARY="0"
+RECOVERY_TEST_PORT="18080"
+RECOVERY_COOLDOWN_CYCLES="2"
+POST_SWITCH_DELAY="5"
+PROXY0_REFRESH="0"
+PROXY_IFACE="Proxy0"
+EOF_CONF
+    chmod 600 "$WATCHDOG_CONF" 2>/dev/null || true
+    echo "Default VLESS Go watchdog config created: $WATCHDOG_CONF"
+}
+
 restart_watchdog_if_configured() {
     ensure_watchdog_init
+    ensure_watchdog_conf_if_configured
     if [ ! -s "$WATCHDOG_CONF" ]; then
         echo "VLESS Go watchdog config not found; skipping watchdog start."
         return 0
