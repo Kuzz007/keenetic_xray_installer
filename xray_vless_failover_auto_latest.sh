@@ -4,7 +4,7 @@ set -e
 # Auto installer latest edition.
 # Thin downloader/selector wrapper: no embedded gzip/base64 payload.
 # Chooses between:
-#   - Go/Entware latest feed edition for normal /opt storage
+#   - Go/Entware latest full first-run installer for normal /opt storage
 #   - Minimal Go edition for low /opt storage
 
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main}"
@@ -246,7 +246,7 @@ print_selection_notes() {
             echo "  - After install/check: minimal-go-status ; vless-go-recover --mode minimal status ; minimal-go-menu"
             ;;
         go)
-            echo "  - Go/Entware latest is selected: feed package, full menu helpers, subscriptions/failover tooling."
+            echo "  - Go/Entware latest is selected: full first-run installer, feed package, helpers, subscriptions/failover tooling."
             echo "  - After install/check: xray-go status ; xray-go doctor --json ; vless-go-recover --mode full status"
             ;;
         minimal-next) echo "  - Minimal-next legacy-compatible edition is selected. Prefer Minimal Go for new low-space installs." ;;
@@ -399,9 +399,9 @@ esac
 cat <<'EOF_GO'
 Go/Entware latest edition:
   - installs failover-go from GitHub Release feed
-  - auto-selects Entware architecture in feed bootstrap
-  - includes vless-go-doctor, watchdog, updater and menu helpers
+  - asks for primary and backup VLESS/subscription links
+  - applies primary profile, starts watchdog and enables hourly recovery
 EOF_GO
 confirm_install "Go/Entware latest"
-download_installer "$GO_FEED_URL" "$GO_TMP" "Go/Entware latest"
-exec sh "$GO_TMP"
+download_installer "$GO_FULL_URL" "$GO_FULL_TMP" "Go/Entware latest"
+exec sh "$GO_FULL_TMP"
