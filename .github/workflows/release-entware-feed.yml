@@ -12,7 +12,7 @@ on:
       version:
         description: Package version
         required: false
-        default: 0.1.6-go-experimental
+        default: 0.1.8-go-experimental
       arch:
         description: Entware architecture. Leave empty to infer from tag suffix.
         required: false
@@ -25,7 +25,7 @@ jobs:
   release-feed:
     runs-on: ubuntu-latest
     env:
-      INPUT_VERSION: ${{ github.event.inputs.version || '0.1.6-go-experimental' }}
+      INPUT_VERSION: ${{ github.event.inputs.version || '0.1.8-go-experimental' }}
       INPUT_ARCH: ${{ github.event.inputs.arch || '' }}
       RELEASE_TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
     steps:
