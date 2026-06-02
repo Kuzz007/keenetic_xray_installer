@@ -7,7 +7,7 @@ XRAY_DIR="/opt/etc/xray"
 WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
 WATCHDOG_CONF="$XRAY_DIR/vless-go-watchdog.conf"
 
-mkdir -p /opt/bin /opt/libexec "$XRAY_DIR" /opt/var/log /opt/var/spool/cron/crontabs
+mkdir -p /opt/bin /opt/libexec /opt/etc/init.d "$XRAY_DIR" /opt/var/log /opt/var/run /opt/var/spool/cron/crontabs
 
 detect_entware_arch() {
     OPKG_BIN=""
@@ -34,11 +34,116 @@ asset_name_for_arch() {
     esac
 }
 
-restart_watchdog_if_configured() {
-    if [ ! -x "$WATCHDOG_INIT" ]; then
-        echo "VLESS Go watchdog init not found; skipping watchdog start."
+ensure_watchdog_init() {
+    if [ -x "$WATCHDOG_INIT" ]; then
         return 0
     fi
+
+    cat > "$WATCHDOG_INIT" <<'EOF_INIT'
+#!/bin/sh
+
+ENABLED=yes
+DESC="VLESS Go Watchdog"
+DAEMON="/opt/bin/vless-go-watchdog"
+CONFIG="/opt/etc/xray/vless-go-watchdog.conf"
+PIDFILE="/opt/var/run/vless-go-watchdog.pid"
+LOGFILE="/opt/var/log/vless-go-watchdog.log"
+
+mkdir -p /opt/var/run /opt/var/log
+
+is_running() {
+    [ -f "$PIDFILE" ] || return 1
+    PID="$(cat "$PIDFILE" 2>/dev/null)"
+    [ -n "$PID" ] || return 1
+    kill -0 "$PID" 2>/dev/null
+}
+
+start() {
+    printf " Starting %s... " "$DESC"
+
+    if is_running; then
+        echo "already running."
+        exit 0
+    fi
+
+    if [ ! -x "$DAEMON" ]; then
+        echo "error."
+        echo "Daemon not found or not executable: $DAEMON"
+        exit 1
+    fi
+
+    if [ -f "$CONFIG" ]; then
+        . "$CONFIG"
+        export WATCHDOG_INTERVAL FAILOVER_FAILURES_REQUIRED CHECK_RETRIES CHECK_RETRY_DELAY CHECK_URL CHECK_URLS AUTO_RECOVER_PRIMARY RECOVERY_SUCCESSES_REQUIRED RECOVERY_COOLDOWN_CYCLES RECOVERY_TEST_PORT POST_SWITCH_DELAY PROXY0_REFRESH PROXY_IFACE
+    fi
+
+    "$DAEMON" daemon >/dev/null 2>&1 &
+    echo "$!" > "$PIDFILE"
+
+    sleep 2
+
+    if is_running; then
+        echo "done."
+        exit 0
+    fi
+
+    echo "error."
+    tail -n 30 "$LOGFILE" 2>/dev/null || true
+    rm -f "$PIDFILE"
+    exit 1
+}
+
+stop() {
+    printf " Stopping %s... " "$DESC"
+
+    if ! is_running; then
+        echo "not running."
+        rm -f "$PIDFILE"
+        exit 0
+    fi
+
+    PID="$(cat "$PIDFILE")"
+    kill "$PID" 2>/dev/null || true
+    sleep 2
+
+    if kill -0 "$PID" 2>/dev/null; then
+        kill -9 "$PID" 2>/dev/null || true
+    fi
+
+    rm -f "$PIDFILE"
+    echo "done."
+}
+
+status() {
+    printf " Checking %s... " "$DESC"
+    if is_running; then
+        echo "alive. PID: $(cat "$PIDFILE")"
+        exit 0
+    fi
+    echo "not running."
+    exit 1
+}
+
+restart() {
+    "$0" stop
+    sleep 1
+    "$0" start
+}
+
+case "$1" in
+    start) start ;;
+    stop) stop ;;
+    restart) restart ;;
+    status) status ;;
+    *) echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
+esac
+EOF_INIT
+    chmod 755 "$WATCHDOG_INIT"
+    echo "VLESS Go watchdog init installed: $WATCHDOG_INIT"
+}
+
+restart_watchdog_if_configured() {
+    ensure_watchdog_init
     if [ ! -s "$WATCHDOG_CONF" ]; then
         echo "VLESS Go watchdog config not found; skipping watchdog start."
         return 0
