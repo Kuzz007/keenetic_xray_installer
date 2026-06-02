@@ -182,6 +182,39 @@ run_feed_install() {
     sh "$OUT" $FEED_ARGS
 }
 
+print_final_summary() {
+    echo
+    echo "Final non-interactive status summary:"
+    echo
+
+    if [ -x /opt/bin/vless-go-failover ]; then
+        /opt/bin/vless-go-failover status || true
+    else
+        echo "WARN: /opt/bin/vless-go-failover not found"
+    fi
+
+    echo
+    if [ -x /opt/bin/vless-go-watchdog ]; then
+        /opt/bin/vless-go-watchdog status || true
+    else
+        echo "WARN: /opt/bin/vless-go-watchdog not found"
+    fi
+
+    echo
+    if [ -x /opt/bin/vless-go-recover ]; then
+        /opt/bin/vless-go-recover --mode full status || true
+    else
+        echo "WARN: /opt/bin/vless-go-recover not found"
+    fi
+
+    echo
+    if [ -x /opt/bin/vless-go-doctor ]; then
+        /opt/bin/vless-go-doctor || true
+    else
+        echo "WARN: /opt/bin/vless-go-doctor not found"
+    fi
+}
+
 run_first_setup() {
     if [ "$FORCE_SETUP" != "1" ] && already_configured; then
         echo "Existing primary and backup profiles detected; skipping first-run setup."
@@ -192,7 +225,7 @@ run_first_setup() {
     need_exec /opt/bin/vless-go-failover
     need_exec /opt/bin/vless-go-watchdog
     need_exec /opt/bin/vless-go-recover
-    need_exec /opt/bin/xray-go
+    need_exec /opt/bin/vless-go-doctor
 
     echo
     echo "Go/Entware first-run setup"
@@ -231,10 +264,7 @@ run_first_setup() {
 
     echo
     echo "Installation and first-run setup complete."
-    echo
-    /opt/bin/xray-go status || true
-    echo
-    /opt/bin/xray-go doctor --json || true
+    print_final_summary
     echo
     echo "Use 'failover-go' later to open the management menu."
 }
