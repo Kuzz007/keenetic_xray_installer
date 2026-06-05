@@ -16,6 +16,7 @@ if [ -s "$LOCK_HELPER" ]; then
     . "$LOCK_HELPER"
 else
     vless_go_acquire_lock() { return 0; }
+    vless_go_release_lock() { return 0; }
 fi
 
 get_xray_bin() {
@@ -43,6 +44,18 @@ usage() {
     echo "When --selector/--first are omitted, vless-go-update reads selector from:"
     echo "  /opt/etc/xray/vless-go.<active-slot>.selector"
     echo "and falls back to first."
+}
+
+validate_source_value() {
+    value="$1"
+    case "$value" in
+        vless://*|http://*|https://*) return 0 ;;
+        *)
+            echo "ERROR: source must start with vless://, http://, or https://" >&2
+            echo "Saved source was not changed." >&2
+            return 1
+            ;;
+    esac
 }
 
 FIRST="0"
@@ -93,13 +106,15 @@ vless_go_acquire_lock "vless-go-update"
 mkdir -p "$XRAY_DIR" "$TMP_DIR"
 
 if [ -n "$NEW_SOURCE" ]; then
-    printf '%s\n' "$NEW_SOURCE" > "$SOURCE_STORE"
-    chmod 600 "$SOURCE_STORE" 2>/dev/null || true
-fi
-
-if [ ! -s "$SOURCE_STORE" ]; then
-    echo "ERROR: source is not saved. Re-run xray_vless_failover_go.sh or use: vless-go-update --source URL_OR_VLESS" >&2
-    exit 1
+    validate_source_value "$NEW_SOURCE"
+    SOURCE_VALUE="$NEW_SOURCE"
+else
+    if [ ! -s "$SOURCE_STORE" ]; then
+        echo "ERROR: source is not saved. Re-run xray_vless_failover_go.sh or use: vless-go-update --source URL_OR_VLESS" >&2
+        exit 1
+    fi
+    SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE")"
+    validate_source_value "$SOURCE_VALUE"
 fi
 
 if [ ! -x "$GO_RESOLVER" ]; then
@@ -139,7 +154,6 @@ require_select_index_support() {
     fi
 }
 
-SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE")"
 TMP_CONFIG="$TMP_DIR/config.vless-go-update.$$.json"
 RESOLVER_LOG="$TMP_DIR/vless-go-update.resolver.$$.log"
 trap 'rm -f "$TMP_CONFIG" "$RESOLVER_LOG" 2>/dev/null || true; vless_go_release_lock 2>/dev/null || true' EXIT INT TERM
@@ -188,6 +202,11 @@ fi
 
 if ! "$XRAY_BIN" run -test -config "$TMP_CONFIG" >/dev/null 2>&1; then
     "$XRAY_BIN" test -config "$TMP_CONFIG"
+fi
+
+if [ -n "$NEW_SOURCE" ]; then
+    printf '%s\n' "$NEW_SOURCE" > "$SOURCE_STORE"
+    chmod 600 "$SOURCE_STORE" 2>/dev/null || true
 fi
 
 cp "$TMP_CONFIG" "$XRAY_CONFIG"
