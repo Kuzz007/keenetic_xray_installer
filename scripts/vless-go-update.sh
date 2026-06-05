@@ -29,6 +29,58 @@ get_xray_bin() {
     fi
 }
 
+xray_init_alive() {
+    [ -x "$INIT_SCRIPT" ] || return 1
+    "$INIT_SCRIPT" status >/dev/null 2>&1
+}
+
+socks_port_listening() {
+    netstat -lnt 2>/dev/null | grep -Eq "(^|[[:space:]])(127\.0\.0\.1:|0\.0\.0\.0:|:::)${SOCKS_PORT}([[:space:]]|$)|:${SOCKS_PORT}[[:space:]]"
+}
+
+wait_for_xray_ready() {
+    i=1
+    while [ "$i" -le 10 ]; do
+        if xray_init_alive && socks_port_listening; then
+            return 0
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+    return 1
+}
+
+restart_xray_checked() {
+    if [ ! -x "$INIT_SCRIPT" ]; then
+        echo "WARNING: init script not found: $INIT_SCRIPT" >&2
+        echo "Config updated, restart Xray manually." >&2
+        return 0
+    fi
+
+    if ! "$INIT_SCRIPT" restart; then
+        "$INIT_SCRIPT" start
+    fi
+
+    if wait_for_xray_ready; then
+        return 0
+    fi
+
+    echo "WARNING: Xray did not become ready after restart; trying start once more..." >&2
+    "$INIT_SCRIPT" start >/dev/null 2>&1 || "$INIT_SCRIPT" restart >/dev/null 2>&1 || true
+
+    if wait_for_xray_ready; then
+        return 0
+    fi
+
+    echo "ERROR: Xray is not ready after config update." >&2
+    echo "Init status:" >&2
+    "$INIT_SCRIPT" status >&2 || true
+    echo "SOCKS listen check:" >&2
+    netstat -lnt 2>/dev/null | grep "$SOCKS_PORT" >&2 || true
+    echo "Run: xray-go doctor" >&2
+    return 1
+}
+
 usage() {
     echo "Usage: vless-go-update [--source URL_OR_VLESS] [--selector first|index:N] [--first] [--no-restart] [--verbose]"
     echo ""
@@ -219,12 +271,7 @@ if [ "$NO_RESTART" = "1" ]; then
     exit 0
 fi
 
-if [ -x "$INIT_SCRIPT" ]; then
-    "$INIT_SCRIPT" restart || "$INIT_SCRIPT" start
-else
-    echo "WARNING: init script not found: $INIT_SCRIPT" >&2
-    echo "Config updated, restart Xray manually." >&2
-fi
+restart_xray_checked
 
 echo "Updated VLESS config from saved source."
 echo "Selector: $SELECTOR"
