@@ -10,14 +10,19 @@ set -e
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main}"
 GO_FULL_URL="${GO_FULL_URL:-$REPO_BASE/xray_vless_failover_go.sh}"
 MINIMAL_GO_URL="${MINIMAL_GO_URL:-$REPO_BASE/xray_vless_failover_minimal_go.sh}"
+MINIMAL_GO_MENU_URL="${MINIMAL_GO_MENU_URL:-$REPO_BASE/scripts/minimal-go-menu.sh}"
 
 GO_FULL_TMP="/opt/tmp/xray_vless_failover_go.sh"
 MINIMAL_GO_TMP="/opt/tmp/xray_vless_failover_minimal_go.sh"
+MINIMAL_GO_MENU_BIN="/opt/bin/minimal-go-menu"
 
 THRESHOLD_KB="${THRESHOLD_KB:-80000}"
 EDITION="${EDITION:-auto}"
 ASSUME_YES="${ASSUME_YES:-0}"
 MODE="${MODE:-install}"
+NO_CRON="${NO_CRON:-0}"
+NO_RESTART="${NO_RESTART:-0}"
+FORCE_GO_RESOLVER_UPDATE="${FORCE_GO_RESOLVER_UPDATE:-0}"
 LEGACY_REDIRECT="0"
 
 usage() {
@@ -25,7 +30,7 @@ usage() {
 Usage: xray_vless_failover_auto_latest.sh [options]
 
 Edition selection:
-  --auto                 Auto: low /opt space selects Minimal Go
+  --auto                 Auto: low /opt space selects Minimal Go; update-only repairs installed edition
   --go                   Force xray_vless_failover_go.sh
   --minimal-go           Force xray_vless_failover_minimal_go.sh
   --minimal              Alias for --minimal-go
@@ -33,11 +38,16 @@ Edition selection:
   --legacy-minimal       Legacy alias redirected to --minimal-go
 
 Modes:
-  --detect-only          Print selected installer and exit
-  --dry-run              Alias for --detect-only
+  --detect-only          Print detection/selection only; make no changes
+  --doctor               Print diagnostics and recovery status; make no install changes
+  --update-only          Safe repair-lite update for already installed edition
+  --dry-run              Alias for --detect-only compatibility
 
 Other options:
   -y, --yes              Do not ask interactive confirmation
+  --force-go-resolver    Re-download /opt/bin/xray-failover-go during update-only repair
+  --no-cron              Do not create/modify cron entries in safe update path
+  --no-restart           Do not restart services in safe update path
   -h, --help             Show help
 USAGE
 }
@@ -50,6 +60,11 @@ while [ "$#" -gt 0 ]; do
         --auto) EDITION="auto"; shift ;;
         -y|--yes) ASSUME_YES="1"; shift ;;
         --dry-run|--check|--print-selection|--detect-only) MODE="detect-only"; shift ;;
+        --doctor) MODE="doctor"; shift ;;
+        --update-only) MODE="update-only"; ASSUME_YES="1"; shift ;;
+        --force-go-resolver|--force-resolver) FORCE_GO_RESOLVER_UPDATE="1"; shift ;;
+        --no-cron) NO_CRON="1"; shift ;;
+        --no-restart) NO_RESTART="1"; shift ;;
         -h|--help|help) usage; exit 0 ;;
         *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -57,7 +72,7 @@ done
 
 case "$THRESHOLD_KB" in ''|*[!0-9]*) echo "ERROR: THRESHOLD_KB must be numeric, got: $THRESHOLD_KB" >&2; exit 1 ;; esac
 case "$EDITION" in auto|go|minimal-go) ;; *) echo "ERROR: unsupported EDITION=$EDITION" >&2; exit 1 ;; esac
-case "$MODE" in install|detect-only) ;; *) echo "ERROR: unsupported MODE=$MODE" >&2; exit 1 ;; esac
+case "$MODE" in install|detect-only|doctor|update-only) ;; *) echo "ERROR: unsupported MODE=$MODE" >&2; exit 1 ;; esac
 
 read_tty() {
     prompt="$1"
@@ -77,6 +92,86 @@ confirm_install() {
     case "$REPLY" in n|N|no|NO|Нет|нет) echo "Cancelled."; exit 0 ;; esac
 }
 
+opkg_bin() {
+    if command -v opkg >/dev/null 2>&1; then command -v opkg
+    elif [ -x /opt/bin/opkg ]; then echo /opt/bin/opkg
+    else echo ""
+    fi
+}
+
+need_opkg() {
+    [ -n "$(opkg_bin)" ] || { echo "ERROR: opkg not found. Entware is required." >&2; exit 1; }
+}
+
+ensure_curl() {
+    command -v curl >/dev/null 2>&1 && return 0
+    echo "curl not found. Installing curl via Entware..."
+    OPKG_BIN="$(opkg_bin)"
+    "$OPKG_BIN" update
+    "$OPKG_BIN" install curl ca-certificates || "$OPKG_BIN" install curl ca-bundle || "$OPKG_BIN" install curl
+    command -v curl >/dev/null 2>&1 || { echo "ERROR: failed to install curl." >&2; exit 1; }
+}
+
+get_xray_bin() {
+    if command -v xray >/dev/null 2>&1; then command -v xray
+    elif [ -x /opt/sbin/xray ]; then echo /opt/sbin/xray
+    elif [ -x /opt/bin/xray ]; then echo /opt/bin/xray
+    else echo ""
+    fi
+}
+
+has_opkg_package() {
+    OPKG_BIN="$(opkg_bin)"
+    [ -n "$OPKG_BIN" ] && "$OPKG_BIN" status "$1" >/dev/null 2>&1
+}
+
+ensure_xray() {
+    [ -n "$(get_xray_bin)" ] && return 0
+    echo "Installing Xray core..."
+    OPKG_BIN="$(opkg_bin)"
+    "$OPKG_BIN" install xray-core || "$OPKG_BIN" install xray || { echo "ERROR: failed to install xray-core/xray." >&2; exit 1; }
+}
+
+opkg_install_missing() {
+    OPKG_BIN="$(opkg_bin)"
+    missing=""
+    for pkg in "$@"; do
+        [ -n "$pkg" ] || continue
+        "$OPKG_BIN" status "$pkg" >/dev/null 2>&1 || missing="$missing $pkg"
+    done
+    [ -n "$missing" ] || return 0
+    echo "Installing missing packages:$missing"
+    "$OPKG_BIN" install $missing
+}
+
+ensure_cron() {
+    [ "$NO_CRON" = "1" ] && { echo "No cron: skip cron setup."; return 0; }
+    mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
+    touch /opt/var/spool/cron/crontabs/root 2>/dev/null || true
+    chmod 600 /opt/var/spool/cron/crontabs/root 2>/dev/null || true
+    if ! command -v cron >/dev/null 2>&1 && ! command -v crond >/dev/null 2>&1; then
+        OPKG_BIN="$(opkg_bin)"
+        "$OPKG_BIN" install cron || "$OPKG_BIN" install cronie || "$OPKG_BIN" install busybox-cron || echo "WARN: failed to install cron package."
+    fi
+}
+
+bootstrap_common_dependencies() {
+    need_opkg
+    mkdir -p /opt/tmp /opt/etc/xray /opt/var/log
+    OPKG_BIN="$(opkg_bin)"
+    "$OPKG_BIN" update
+    ensure_curl
+    opkg_install_missing ca-certificates ca-bundle >/dev/null 2>&1 || true
+}
+
+bootstrap_selected_dependencies() {
+    case "$1" in
+        go) echo "Preparing dependencies for Go/Entware latest edition..."; bootstrap_common_dependencies; opkg_install_missing wget-ssl ca-certificates || true; ensure_cron ;;
+        minimal-go) echo "Preparing dependencies for Minimal Go edition..."; bootstrap_common_dependencies; ensure_xray; ensure_cron ;;
+        *) echo "ERROR: unknown selected edition: $1" >&2; exit 1 ;;
+    esac
+}
+
 looks_like_shell_script() {
     head -n 1 "$1" | grep -Eq '^#!/bin/sh|^#!/opt/bin/sh'
 }
@@ -93,42 +188,169 @@ download_installer() {
     chmod +x "$output"
 }
 
+download_helper() {
+    url="$1"; output="$2"; label="$3"
+    mkdir -p "$(dirname "$output")" /opt/tmp
+    tmp="/opt/tmp/$(basename "$output").$$"
+    echo "Refreshing $label..."
+    if curl -fsSL -H 'Cache-Control: no-cache' -o "$tmp" "$url" && looks_like_shell_script "$tmp" && sh -n "$tmp"; then
+        mv "$tmp" "$output"; chmod +x "$output"; return 0
+    fi
+    rm -f "$tmp" 2>/dev/null || true
+    echo "WARN: failed to refresh $label from $url" >&2
+    return 1
+}
+
+install_minimal_go_menu() { download_helper "$MINIMAL_GO_MENU_URL" "$MINIMAL_GO_MENU_BIN" "Minimal Go menu"; }
+
+space_mb() { awk "BEGIN { printf \"%.1f\", $1 / 1024 }"; }
+
+detect_installed_edition() {
+    if [ -x /opt/bin/minimal-go-status ] || [ -x /opt/bin/minimal-go-switch ] || [ -f /opt/etc/xray/minimal-go-active ] || [ -x /opt/etc/init.d/S25xray-minimal-go-failover ]; then echo minimal-go; return; fi
+    if [ -x /opt/bin/xray-go ] || [ -x /opt/bin/vless-go-failover ] || [ -f /opt/etc/xray/vless-go.active ] || has_opkg_package failover-go; then echo go; return; fi
+    if [ -x /opt/bin/vless-failover ] || [ -f /opt/etc/xray/vless.active ]; then echo minimal-go; return; fi
+    echo none
+}
+
+cron_state() { ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1 && echo running || echo "not running"; }
+
+run_recovery_status() { [ -x /opt/bin/vless-go-recover ] && /opt/bin/vless-go-recover --mode "$1" status 2>/dev/null || echo "vless-go-recover: not installed"; }
+
+run_doctor() {
+    echo "Diagnostics:"
+    echo "  installed runtime: $INSTALLED_EDITION"
+    echo "  selected runtime: $SELECTED"
+    echo "  opkg: $(command -v opkg >/dev/null 2>&1 && echo yes || echo no)"
+    echo "  curl: $(command -v curl >/dev/null 2>&1 && echo yes || echo no)"
+    echo "  xray: $([ -n "$(get_xray_bin)" ] && echo yes || echo no)"
+    echo "  cron process: $(cron_state)"
+    echo "  minimal-go-status: $([ -x /opt/bin/minimal-go-status ] && echo yes || echo no)"
+    echo "  xray-go: $([ -x /opt/bin/xray-go ] && echo yes || echo no)"
+    echo "  vless-go-failover: $([ -x /opt/bin/vless-go-failover ] && echo yes || echo no)"
+    echo "  failover-go package present: $(has_opkg_package failover-go && echo yes || echo no)"
+    echo "  vless-go-recover: $([ -x /opt/bin/vless-go-recover ] && echo yes || echo no)"
+    echo
+    case "$SELECTED" in minimal-go) echo "Recovery status (minimal):"; run_recovery_status minimal ;; go) echo "Recovery status (full):"; run_recovery_status full ;; esac
+}
+
+print_detection() {
+    cat <<EOF_DETECTION
+Free /opt space: ${FREE_KB} KB (${FREE_MB} MB)
+Full/Go threshold: ${THRESHOLD_KB} KB (${THRESHOLD_MB} MB)
+Installed edition: $INSTALLED_EDITION
+Selected edition: $SELECTED
+Selection reason: $SELECT_REASON
+Mode: $MODE
+No cron: $NO_CRON
+No restart: $NO_RESTART
+Force Go resolver update: $FORCE_GO_RESOLVER_UPDATE
+Go installer URL: $GO_FULL_URL
+Minimal Go installer URL: $MINIMAL_GO_URL
+EOF_DETECTION
+}
+
+print_selection_notes() {
+    echo
+    echo "Selection notes:"
+    [ "$LEGACY_REDIRECT" = "1" ] && echo "  - Legacy minimal option requested; redirected to Minimal Go."
+    case "$SELECTED" in
+        minimal-go) echo "  - Minimal Go is selected."; echo "  - Installer: xray_vless_failover_minimal_go.sh" ;;
+        go) echo "  - Go/Entware latest is selected."; echo "  - Installer: xray_vless_failover_go.sh" ;;
+    esac
+    echo
+}
+
+print_post_install_checks() {
+    echo
+    echo "Post-install checks:"
+    case "$1" in
+        minimal-go) echo "  minimal-go-status"; echo "  vless-go-recover --mode minimal status"; echo "  minimal-go-menu" ;;
+        go) echo "  xray-go status"; echo "  xray-go doctor --json"; echo "  vless-go-recover --mode full status" ;;
+    esac
+    echo
+}
+
+safe_update_minimal_go() {
+    echo "Safe update for Minimal Go edition..."
+    bootstrap_selected_dependencies minimal-go
+    download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go repair"
+    args="--repair-only"
+    [ "$NO_CRON" = "1" ] && args="$args --no-cron"
+    [ "$NO_RESTART" = "1" ] && args="$args --no-restart"
+    [ "$FORCE_GO_RESOLVER_UPDATE" = "1" ] && args="$args --force-go-resolver"
+    echo "Running Minimal Go repair: $MINIMAL_GO_TMP $args"
+    sh "$MINIMAL_GO_TMP" $args
+    install_minimal_go_menu || true
+    print_post_install_checks minimal-go
+}
+
+safe_update_go() {
+    echo "Safe update for Go/Entware latest edition..."
+    bootstrap_selected_dependencies go
+    download_installer "$GO_FULL_URL" "$GO_FULL_TMP" "Full Go repair"
+    args="--repair-only"
+    [ "$NO_CRON" = "1" ] && args="$args --no-cron"
+    [ "$NO_RESTART" = "1" ] && args="$args --no-restart"
+    [ "$FORCE_GO_RESOLVER_UPDATE" = "1" ] && args="$args --force-go-resolver"
+    echo "Running Full Go repair: $GO_FULL_TMP $args"
+    sh "$GO_FULL_TMP" $args
+    print_post_install_checks go
+}
+
+run_update_only() {
+    echo "Update-only mode: repair-lite; no config rewrite, no source rewrite, no agent changes."
+    case "$SELECTED" in minimal-go) safe_update_minimal_go ;; go) safe_update_go ;; *) echo "ERROR: no installed or selected edition to update" >&2; exit 1 ;; esac
+    echo "Update-only complete."
+}
+
 FREE_KB="$(df -k /opt 2>/dev/null | awk 'NR==2 { print $4 }')"
 case "$FREE_KB" in ''|*[!0-9]*) FREE_KB="0" ;; esac
 
+INSTALLED_EDITION="$(detect_installed_edition)"
 if [ "$EDITION" = "auto" ]; then
-    if [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
+    if [ "$MODE" = "install" ] && [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
         SELECTED="minimal-go"
-        REASON="free /opt space is below threshold"
+        if [ "$INSTALLED_EDITION" != "none" ] && [ "$INSTALLED_EDITION" != "minimal-go" ]; then SELECT_REASON="low /opt space overrides installed $INSTALLED_EDITION remnants"; else SELECT_REASON="free /opt space is below threshold"; fi
+    elif [ "$INSTALLED_EDITION" != "none" ]; then
+        SELECTED="$INSTALLED_EDITION"; SELECT_REASON="existing installation detected"
+    elif [ "$FREE_KB" -lt "$THRESHOLD_KB" ]; then
+        SELECTED="minimal-go"; SELECT_REASON="free /opt space is below threshold"
     else
-        SELECTED="go"
-        REASON="free /opt space is at or above threshold"
+        SELECTED="go"; SELECT_REASON="free /opt space is at or above threshold"
     fi
 else
-    SELECTED="$EDITION"
-    REASON="explicit edition override"
+    SELECTED="$EDITION"; SELECT_REASON="explicit edition override"
 fi
 
-case "$SELECTED" in
-    minimal-go) INSTALLER_URL="$MINIMAL_GO_URL"; INSTALLER_TMP="$MINIMAL_GO_TMP"; INSTALLER_LABEL="Minimal Go" ;;
-    go) INSTALLER_URL="$GO_FULL_URL"; INSTALLER_TMP="$GO_FULL_TMP"; INSTALLER_LABEL="Go/Entware latest" ;;
-    *) echo "ERROR: unknown selected edition: $SELECTED" >&2; exit 1 ;;
+FREE_MB="$(space_mb "$FREE_KB")"
+THRESHOLD_MB="$(space_mb "$THRESHOLD_KB")"
+print_detection
+print_selection_notes
+
+case "$MODE" in
+    detect-only) echo "Detect-only: no changes made."; exit 0 ;;
+    doctor) echo; run_doctor; exit 0 ;;
+    update-only) need_opkg; ensure_curl; mkdir -p /opt/tmp; run_update_only; exit 0 ;;
 esac
 
-echo "Free /opt space: ${FREE_KB} KB"
-echo "Full/Go threshold: ${THRESHOLD_KB} KB"
-echo "Selected edition: $SELECTED"
-echo "Selection reason: $REASON"
-echo "Installer URL: $INSTALLER_URL"
-[ "$LEGACY_REDIRECT" = "1" ] && echo "Legacy minimal option was requested; redirected to Minimal Go."
+need_opkg
+ensure_curl
+mkdir -p /opt/tmp
+bootstrap_selected_dependencies "$SELECTED"
 
-if [ "$MODE" = "detect-only" ]; then
-    echo "Detect-only: no changes made."
-    exit 0
-fi
+case "$SELECTED" in
+    minimal-go)
+        echo "Minimal Go edition: downloads xray_vless_failover_minimal_go.sh"
+        confirm_install "Minimal Go"
+        download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go"
+        sh "$MINIMAL_GO_TMP"
+        install_minimal_go_menu || true
+        print_post_install_checks minimal-go
+        exit 0
+        ;;
+esac
 
-command -v curl >/dev/null 2>&1 || { echo "ERROR: curl not found. Install curl/ca-certificates via Entware first." >&2; exit 1; }
-
-confirm_install "$INSTALLER_LABEL"
-download_installer "$INSTALLER_URL" "$INSTALLER_TMP" "$INSTALLER_LABEL"
-exec sh "$INSTALLER_TMP"
+echo "Go/Entware latest edition: downloads xray_vless_failover_go.sh"
+confirm_install "Go/Entware latest"
+download_installer "$GO_FULL_URL" "$GO_FULL_TMP" "Go/Entware latest"
+exec sh "$GO_FULL_TMP"
