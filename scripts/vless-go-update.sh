@@ -9,6 +9,7 @@ SOCKS_PORT="10808"
 SOCKS_LISTEN="0.0.0.0"
 SOURCE_STORE="$XRAY_DIR/vless-go.source"
 ACTIVE_STORE="$XRAY_DIR/vless-go.active"
+SOCKS_AUTH_CONF="$XRAY_DIR/vless-go-socks-auth.conf"
 TMP_DIR="/opt/tmp"
 LOCK_HELPER="/opt/libexec/vless-go-lock.sh"
 
@@ -91,6 +92,9 @@ usage() {
     echo "  --no-restart        Generate and validate config, but do not restart Xray."
     echo "  --verbose           Show resolver profile/server metadata while generating config."
     echo ""
+    echo "SOCKS auth:"
+    echo "  Managed by /opt/bin/vless-go-socks-auth and $SOCKS_AUTH_CONF."
+    echo ""
     echo "Default output avoids printing profile/server metadata. Use --verbose only for local debugging."
     echo ""
     echo "When --selector/--first are omitted, vless-go-update reads selector from:"
@@ -108,6 +112,75 @@ validate_source_value() {
             return 1
             ;;
     esac
+}
+
+valid_socks_credential() {
+    value="$1"
+    case "$value" in
+        ''|*[!A-Za-z0-9._@:-]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+load_socks_auth() {
+    XRAY_SOCKS_AUTH="0"
+    XRAY_SOCKS_USER=""
+    XRAY_SOCKS_PASS=""
+    if [ -s "$SOCKS_AUTH_CONF" ]; then
+        # shellcheck disable=SC1090
+        . "$SOCKS_AUTH_CONF"
+    fi
+    XRAY_SOCKS_AUTH="${XRAY_SOCKS_AUTH:-0}"
+    XRAY_SOCKS_USER="${XRAY_SOCKS_USER:-}"
+    XRAY_SOCKS_PASS="${XRAY_SOCKS_PASS:-}"
+
+    case "$XRAY_SOCKS_AUTH" in 1|yes|true|on) XRAY_SOCKS_AUTH="1" ;; *) XRAY_SOCKS_AUTH="0" ;; esac
+    if [ "$XRAY_SOCKS_AUTH" = "1" ]; then
+        valid_socks_credential "$XRAY_SOCKS_USER" || { echo "ERROR: invalid SOCKS auth username in $SOCKS_AUTH_CONF" >&2; exit 1; }
+        valid_socks_credential "$XRAY_SOCKS_PASS" || { echo "ERROR: invalid SOCKS auth password in $SOCKS_AUTH_CONF" >&2; exit 1; }
+    fi
+}
+
+apply_socks_auth_to_config() {
+    config_file="$1"
+    [ "$XRAY_SOCKS_AUTH" = "1" ] || return 0
+    tmp_file="$config_file.auth.$$"
+
+    awk -v user="$XRAY_SOCKS_USER" -v pass="$XRAY_SOCKS_PASS" '
+        BEGIN { socks = 0; settings = 0; patched = 0 }
+        /"protocol"[[:space:]]*:[[:space:]]*"socks"/ { socks = 1 }
+        socks && !patched && /"settings"[[:space:]]*:[[:space:]]*\{/ {
+            print
+            print "      \"accounts\": ["
+            print "        {"
+            print "          \"pass\": \"" pass "\","
+            print "          \"user\": \"" user "\""
+            print "        }"
+            print "      ],"
+            print "      \"auth\": \"password\","
+            print "      \"udp\": true"
+            settings = 1
+            next
+        }
+        settings {
+            if ($0 ~ /^[[:space:]]*\},?[[:space:]]*$/) {
+                print
+                settings = 0
+                patched = 1
+                socks = 0
+            }
+            next
+        }
+        { print }
+        END { if (!patched) exit 7 }
+    ' "$config_file" > "$tmp_file" || {
+        rm -f "$tmp_file" 2>/dev/null || true
+        echo "ERROR: failed to apply SOCKS auth to generated Xray config" >&2
+        return 1
+    }
+
+    mv "$tmp_file" "$config_file"
+    chmod 600 "$config_file" 2>/dev/null || true
 }
 
 FIRST="0"
@@ -156,6 +229,7 @@ done
 vless_go_acquire_lock "vless-go-update"
 
 mkdir -p "$XRAY_DIR" "$TMP_DIR"
+load_socks_auth
 
 if [ -n "$NEW_SOURCE" ]; then
     validate_source_value "$NEW_SOURCE"
@@ -242,6 +316,8 @@ if [ "$RESOLVER_RC" -ne 0 ]; then
     exit "$RESOLVER_RC"
 fi
 
+apply_socks_auth_to_config "$TMP_CONFIG"
+
 if [ "$VERBOSE" = "1" ] && [ -s "$RESOLVER_LOG" ]; then
     cat "$RESOLVER_LOG"
 fi
@@ -267,6 +343,7 @@ chmod 600 "$XRAY_CONFIG" 2>/dev/null || true
 if [ "$NO_RESTART" = "1" ]; then
     echo "Updated and validated config: $XRAY_CONFIG"
     echo "Selector: $SELECTOR"
+    if [ "$XRAY_SOCKS_AUTH" = "1" ]; then echo "SOCKS auth: enabled"; else echo "SOCKS auth: disabled"; fi
     echo "Xray restart skipped."
     exit 0
 fi
@@ -275,3 +352,4 @@ restart_xray_checked
 
 echo "Updated VLESS config from saved source."
 echo "Selector: $SELECTOR"
+if [ "$XRAY_SOCKS_AUTH" = "1" ]; then echo "SOCKS auth: enabled"; else echo "SOCKS auth: disabled"; fi
