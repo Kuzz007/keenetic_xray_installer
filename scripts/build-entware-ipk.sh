@@ -42,6 +42,7 @@ copy_exec "$ROOT_DIR/scripts/vless-go-history.sh" "$PKG_DIR/opt/bin/vless-go-his
 copy_exec "$ROOT_DIR/scripts/vless-go-cleanup.sh" "$PKG_DIR/opt/bin/vless-go-cleanup"
 copy_exec "$ROOT_DIR/scripts/vless-go-recover.sh" "$PKG_DIR/opt/bin/vless-go-recover"
 copy_exec "$ROOT_DIR/scripts/vless-go-doctor.sh" "$PKG_DIR/opt/bin/vless-go-doctor"
+copy_exec "$ROOT_DIR/scripts/vless-go-socks-auth.sh" "$PKG_DIR/opt/bin/vless-go-socks-auth"
 copy_exec "$ROOT_DIR/scripts/vless-go-xray-core-update.sh" "$PKG_DIR/opt/bin/vless-go-xray-core-update"
 copy_exec "$ROOT_DIR/scripts/vless-go-web-install.sh" "$PKG_DIR/opt/bin/vless-go-web-install"
 copy_exec "$ROOT_DIR/scripts/xray-go-installer-update.sh" "$PKG_DIR/opt/bin/xray-go-installer-update"
