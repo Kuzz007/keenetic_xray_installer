@@ -5,6 +5,7 @@ XRAY_DIR="/opt/etc/xray"
 ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
 BACKUP_STORE="$XRAY_DIR/vless-go.backup"
+SOCKS_AUTH_CONF="$XRAY_DIR/vless-go-socks-auth.conf"
 FAILOVER_CMD="/opt/bin/vless-go-failover"
 GO_RESOLVER="/opt/bin/xray-failover-go"
 HISTORY_CMD="/opt/bin/vless-go-history"
@@ -36,6 +37,14 @@ DEFAULT_SCHEDULE="*/5 * * * *"
 
 [ -s "$CONFIG_FILE" ] && . "$CONFIG_FILE"
 [ -n "${CHECK_URLS:-}" ] || CHECK_URLS="$CHECK_URL"
+
+XRAY_SOCKS_AUTH="0"
+XRAY_SOCKS_USER=""
+XRAY_SOCKS_PASS=""
+[ -s "$SOCKS_AUTH_CONF" ] && . "$SOCKS_AUTH_CONF" 2>/dev/null || true
+case "${XRAY_SOCKS_AUTH:-0}" in 1|yes|true|on) XRAY_SOCKS_AUTH="1" ;; *) XRAY_SOCKS_AUTH="0" ;; esac
+XRAY_SOCKS_USER="${XRAY_SOCKS_USER:-}"
+XRAY_SOCKS_PASS="${XRAY_SOCKS_PASS:-}"
 
 usage() {
     echo "Использование: vless-go-watchdog check | daemon | status | enable [CRON] | disable | run-primary | run-backup | probe-primary"
@@ -75,6 +84,14 @@ ensure_failover_cmd() {
     [ -x "$FAILOVER_CMD" ] || { log "ОШИБКА: команда failover не найдена: $FAILOVER_CMD"; exit 1; }
 }
 
+socks_auth_for_target() {
+    [ "$XRAY_SOCKS_AUTH" = "1" ] || return 1
+    [ -n "$XRAY_SOCKS_USER" ] || return 1
+    [ -n "$XRAY_SOCKS_PASS" ] || return 1
+    [ "$2" = "$SOCKS_PORT" ] || return 1
+    return 0
+}
+
 curl_check_url() {
     TARGET_HOST="$1"
     TARGET_PORT="$2"
@@ -82,11 +99,13 @@ curl_check_url() {
     TMP_OUT="/tmp/vless-go-watchdog.check.$$"
     TMP_ERR="/tmp/vless-go-watchdog.err.$$"
 
+    set -- -fsS --socks5-hostname "$TARGET_HOST:$TARGET_PORT" --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME"
+    if socks_auth_for_target "$TARGET_HOST" "$TARGET_PORT"; then
+        set -- "$@" --proxy-user "$XRAY_SOCKS_USER:$XRAY_SOCKS_PASS"
+    fi
+
     set +e
-    curl -fsS --socks5-hostname "$TARGET_HOST:$TARGET_PORT" \
-        --connect-timeout "$CONNECT_TIMEOUT" \
-        --max-time "$MAX_TIME" \
-        "$URL" >"$TMP_OUT" 2>"$TMP_ERR"
+    curl "$@" "$URL" >"$TMP_OUT" 2>"$TMP_ERR"
     RC="$?"
     set -e
 
@@ -147,6 +166,9 @@ refresh_proxy0_if_needed() {
     log "Перезапуск интерфейса $PROXY_IFACE"
     ndmc -c "interface $PROXY_IFACE down" >> "$DETAIL_LOG_FILE" 2>&1 || true
     sleep 1
+    if [ -x /opt/bin/vless-go-socks-auth ]; then
+        /opt/bin/vless-go-socks-auth apply-proxy0 >> "$DETAIL_LOG_FILE" 2>&1 || true
+    fi
     ndmc -c "interface $PROXY_IFACE up" >> "$DETAIL_LOG_FILE" 2>&1 || true
 }
 
@@ -348,7 +370,7 @@ run_daemon() {
     DAEMON_RECOVERY_SUCCESS_COUNT="0"
     DAEMON_RECOVERY_COOLDOWN="0"
 
-    log "Daemon запущен: interval=${WATCHDOG_INTERVAL}s failover_failures_required=$FAILOVER_FAILURES_REQUIRED check_retries=$CHECK_RETRIES auto_recover_primary=$AUTO_RECOVER_PRIMARY post_switch_delay=${POST_SWITCH_DELAY}s proxy0_refresh=$PROXY0_REFRESH"
+    log "Daemon запущен: interval=${WATCHDOG_INTERVAL}s failover_failures_required=$FAILOVER_FAILURES_REQUIRED check_retries=$CHECK_RETRIES auto_recover_primary=$AUTO_RECOVER_PRIMARY post_switch_delay=${POST_SWITCH_DELAY}s proxy0_refresh=$PROXY0_REFRESH socks_auth=$XRAY_SOCKS_AUTH"
 
     while true; do
         SLOT="$(active_slot)"
@@ -370,6 +392,7 @@ case "${1:-check}" in
         [ -s "$PRIMARY_STORE" ] && echo "  основной профиль: настроен" || echo "  основной профиль: не настроен"
         [ -s "$BACKUP_STORE" ] && echo "  резервный профиль: настроен" || echo "  резервный профиль: не настроен"
         echo "  SOCKS: $SOCKS_HOST:$SOCKS_PORT"
+        echo "  SOCKS auth: $([ "$XRAY_SOCKS_AUTH" = "1" ] && echo enabled || echo disabled)"
         echo "  URL проверки: $CHECK_URLS"
         echo "  попыток проверки: $CHECK_RETRIES"
         echo "  задержка между попытками: ${CHECK_RETRY_DELAY}s"
