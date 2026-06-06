@@ -2,6 +2,8 @@
 set -e
 
 XRAY_GO_VERSION="${XRAY_GO_VERSION:-0.1.0}"
+REPO_BRANCH="${REPO_BRANCH:-main}"
+RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
 
 GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
 GO_WATCHDOG_CMD="/opt/bin/vless-go-watchdog"
@@ -10,6 +12,7 @@ GO_HISTORY_CMD="/opt/bin/vless-go-history"
 GO_CLEANUP_CMD="/opt/bin/vless-go-cleanup"
 GO_RECOVER_CMD="/opt/bin/vless-go-recover"
 GO_INSTALLER_UPDATE_CMD="/opt/bin/xray-go-installer-update"
+GO_INSTALLER_UPDATE_URL="${GO_INSTALLER_UPDATE_URL:-${RAW_BASE}/scripts/xray-go-installer-update.sh}"
 XRAY_CORE_UPDATE_CMD="/opt/bin/vless-go-xray-core-update"
 MENU_CMD="/opt/bin/failover-go"
 WATCHDOG_LOG="/opt/var/log/vless-go-watchdog.log"
@@ -67,6 +70,22 @@ need_exec() {
         echo "ОШИБКА: команда не найдена или не исполняемая: $1" >&2
         exit 127
     fi
+}
+
+refresh_installer_update() {
+    command -v curl >/dev/null 2>&1 || return 0
+    mkdir -p /opt/bin /opt/tmp
+    tmp="/opt/tmp/xray-go-installer-update.$$"
+    echo "Refreshing xray-go-installer-update..."
+    if curl -fsSL -H 'Cache-Control: no-cache' -o "$tmp" "$GO_INSTALLER_UPDATE_URL" && sh -n "$tmp"; then
+        chmod +x "$tmp"
+        mv "$tmp" "$GO_INSTALLER_UPDATE_CMD"
+        chmod +x "$GO_INSTALLER_UPDATE_CMD"
+        return 0
+    fi
+    rm -f "$tmp" 2>/dev/null || true
+    echo "WARN: failed to refresh xray-go-installer-update from $GO_INSTALLER_UPDATE_URL" >&2
+    return 0
 }
 
 show_recovery_summary() {
@@ -234,6 +253,7 @@ run_update() {
     TARGET="${1:-go}"
     case "$TARGET" in
         go|installer|edition)
+            refresh_installer_update
             need_exec "$GO_INSTALLER_UPDATE_CMD"
             "$GO_INSTALLER_UPDATE_CMD" --first
             ;;
