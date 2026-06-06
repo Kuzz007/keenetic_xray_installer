@@ -21,6 +21,8 @@ GO_CLEANUP_CMD="/opt/bin/vless-go-cleanup"
 GO_CLEANUP_URL="${GO_CLEANUP_URL:-${RAW_BASE}/scripts/vless-go-cleanup.sh}"
 GO_RECOVER_CMD="/opt/bin/vless-go-recover"
 GO_RECOVER_URL="${GO_RECOVER_URL:-${RAW_BASE}/scripts/vless-go-recover.sh}"
+GO_SOCKS_AUTH_CMD="/opt/bin/vless-go-socks-auth"
+GO_SOCKS_AUTH_URL="${GO_SOCKS_AUTH_URL:-${RAW_BASE}/scripts/vless-go-socks-auth.sh}"
 FAILOVER_GO_CMD="/opt/bin/failover-go"
 FAILOVER_GO_URL="${FAILOVER_GO_URL:-${RAW_BASE}/scripts/failover-go.sh}"
 XRAY_CORE_UPDATE_CMD="/opt/bin/vless-go-xray-core-update"
@@ -57,7 +59,7 @@ asset_name_for_arch() {
 
 ENTWARE_ARCH="${ENTWARE_ARCH:-$(detect_entware_arch)}"
 [ -n "$ENTWARE_ARCH" ] || ENTWARE_ARCH="$(uname -m 2>/dev/null || echo unknown)"
-GO_ASSET_NAME="${GO_ASSET_NAME:-$(asset_name_for_arch "$ENTWARE_ARCH")}"
+GO_ASSET_NAME="${GO_ASSET_NAME:-$(asset_name_for_arch "$ENTWARE_ARCH")}" 
 [ -n "$GO_ASSET_NAME" ] || { echo "ERROR: unsupported architecture for Go resolver: $ENTWARE_ARCH" >&2; exit 1; }
 GO_BINARY_URL="${GO_BINARY_URL:-https://github.com/Kuzz007/keenetic_xray_installer/releases/download/${GO_EXPERIMENTAL_TAG}/${GO_ASSET_NAME}}"
 
@@ -161,6 +163,7 @@ if [ "$NO_HELPERS" = "0" ]; then
     install_executable "$GO_HISTORY_URL" "$GO_HISTORY_CMD" "vless-go-history helper"
     install_executable "$GO_CLEANUP_URL" "$GO_CLEANUP_CMD" "vless-go-cleanup helper"
     install_executable "$GO_RECOVER_URL" "$GO_RECOVER_CMD" "vless-go-recover helper"
+    install_executable "$GO_SOCKS_AUTH_URL" "$GO_SOCKS_AUTH_CMD" "vless-go-socks-auth helper"
 fi
 
 [ "$NO_MENU" = "0" ] && install_executable "$FAILOVER_GO_URL" "$FAILOVER_GO_CMD" "failover-go menu"
@@ -210,5 +213,6 @@ echo "Lock helper: $LOCK_HELPER"
 echo "History command: $GO_HISTORY_CMD"
 echo "Cleanup command: $GO_CLEANUP_CMD"
 echo "Recovery command: $GO_RECOVER_CMD"
+echo "SOCKS auth command: $GO_SOCKS_AUTH_CMD"
 echo "Menu command: $FAILOVER_GO_CMD"
 echo "Xray-core updater command: $XRAY_CORE_UPDATE_CMD"
