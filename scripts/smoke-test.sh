@@ -52,6 +52,17 @@ check_not_contains xray_vless_failover_go.sh 'xray_vless_failover_old_go.sh' "Go
 check_not_contains xray_vless_failover_minimal_go.sh 'xray_vless_failover_minimal_old_go.sh' "Minimal Go entrypoint does not point at removed minimal_old_go path"
 
 info ""
+info "== xray-go wrapper guardrails =="
+check_contains scripts/xray-go.sh 'DIRECT_FULL_UPDATE_URL' "xray-go has direct full update URL"
+check_contains scripts/xray-go.sh 'refresh_direct_full_update' "xray-go can refresh direct full updater"
+check_contains scripts/xray-go.sh 'manifest_get_value INSTALL_MODE' "xray-go reads manifest install mode"
+check_contains scripts/xray-go.sh 'run_direct_go_update' "xray-go has direct go update path"
+check_contains scripts/xray-go.sh 'run_opkg_go_update' "xray-go preserves opkg-compatible update path"
+check_contains scripts/xray-go.sh 'Direct install mode detected' "xray-go announces direct update mode"
+check_contains scripts/xray-go.sh '--dry-run' "xray-go exposes update go dry-run"
+check_contains scripts/xray-go.sh 'xray-go update go --dry-run' "xray-go usage documents update dry-run"
+
+info ""
 info "== Direct-install skeleton guardrails =="
 check_contains scripts/xray-go-direct-install.sh '--download-binary' "direct-install keeps binary staging mode"
 check_contains scripts/xray-go-direct-install.sh '--install-binary' "direct-install keeps explicit binary install mode"
