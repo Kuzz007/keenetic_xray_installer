@@ -72,9 +72,12 @@
 - [x] Подтвердить на роутере: direct-init post-check показывает `OK=8 WARN=0 FAIL=0`.
 - [x] Установить/обновить watchdog init layer через `--install-watchdog-init -y`.
 - [x] Подтвердить на роутере: watchdog restart после direct-init сохраняет recovery `health: OK`.
+- [x] Подготовить direct-update через `xray-go update go`.
+- [x] Подтвердить на роутере: `xray-go update go --dry-run` запускает direct full dry-run и не меняет систему.
+- [x] Подтвердить на роутере: `xray-go update go` запускает direct full apply и завершается успешно.
+- [x] Подтвердить на роутере: после `xray-go update go` manifest direct, recovery `health: OK`, doctor `FAIL=0`.
 - [ ] Выполнить first-run setup.
 - [ ] Показать финальные post-install checks после полного direct-install как default flow.
-- [ ] Подготовить direct-update через `xray-go update go`.
 - [ ] Подготовить direct-uninstall/cleanup без `opkg remove failover-go`.
 
 ---
@@ -108,6 +111,8 @@ Manifest не должен хранить приватные источники,
 - [x] `xray-go logs`
 - [x] `xray-go recover`
 - [x] `xray-go update`
+- [x] `xray-go update go --dry-run`
+- [x] `xray-go update go` direct-aware path для direct manifest.
 - [x] `xray-go update-core`
 - [x] `xray-go switch`
 - [x] `xray-go cleanup`
@@ -195,18 +200,21 @@ Agent / Control Server:
 ## 9. Updates
 
 - [ ] Разделить update targets:
-  - [ ] Go edition direct-install files
-  - [ ] Xray-core
-  - [ ] Web UI
-  - [ ] Agent
-  - [ ] Control Server
+  - [x] Go edition direct-install files.
+  - [ ] Xray-core.
+  - [ ] Web UI.
+  - [ ] Agent.
+  - [ ] Control Server.
+- [x] Добавить direct-aware `xray-go update go`.
+- [x] Добавить `xray-go update go --dry-run`.
+- [x] Подтвердить на роутере: `xray-go update go --dry-run` работает через direct full dry-run.
+- [x] Подтвердить на роутере: `xray-go update go` работает через direct full apply.
 - [ ] Добавить:
-  - [ ] `xray-go update go`
-  - [ ] `xray-go update xray-core`
-  - [ ] `xray-go update web-ui`
-  - [ ] `xray-go update agent`
-- [ ] Не менять пользовательские профили при safe update.
-- [ ] Не перезаписывать primary/backup sources без явного действия пользователя.
+  - [ ] `xray-go update xray-core`.
+  - [ ] `xray-go update web-ui`.
+  - [ ] `xray-go update agent`.
+- [x] Не менять пользовательские профили при safe update direct path.
+- [x] Не перезаписывать primary/backup sources при direct update.
 - [x] Обновлять manifest после успешного `xray-go update go`.
 
 ---
@@ -215,10 +223,13 @@ Agent / Control Server:
 
 - [ ] Обновить README под `install.sh`.
 - [x] Добавить `docs/direct-install.md`.
+- [x] Добавить `docs/direct-update.md`.
 - [x] Описать direct full dry-run/apply orchestrator.
+- [x] Описать direct-aware `xray-go update go`.
 - [x] Описать `--stage-helpers` и `--install-helpers`.
 - [x] Описать direct-init helper и recovery cron management.
 - [x] Зафиксировать router validation для full direct apply.
+- [x] Зафиксировать router validation для direct-aware update.
 - [ ] Добавить `docs/install.md`.
 - [ ] Добавить `docs/modes.md`.
 - [ ] Добавить `docs/recovery.md`.
@@ -238,6 +249,7 @@ Agent / Control Server:
 - [x] Direct-init post-check подтверждает watchdog/recovery/cron без ошибок.
 - [x] Watchdog init reinstall подтверждён без поломки recovery health.
 - [x] Full direct apply подтверждён без редактирования VLESS sources и без first-run setup.
+- [x] Direct-aware `xray-go update go` подтверждён без редактирования VLESS sources и без first-run setup.
 - [ ] При ошибке скачивания или проверки рабочие файлы не должны меняться.
 - [ ] Direct-install update не должен оставлять систему в полуобновлённом состоянии.
 - [ ] Recovery не должен создавать reboot loop.
@@ -262,7 +274,7 @@ xray-go menu
 xray-go switch primary
 xray-go switch backup
 xray-go recover status
-xray-go update
+xray-go update go
 ```
 
 Пользователь не должен выбирать между множеством старых скриптов. Основной путь — `install.sh` для установки и `xray-go` для управления.
