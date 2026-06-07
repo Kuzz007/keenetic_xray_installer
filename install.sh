@@ -41,6 +41,7 @@ Usage:
   install.sh --direct-init-experimental [direct init options]
   install.sh --direct-init-post-check
   install.sh --direct-full-dry-run
+  install.sh --direct-full-experimental --yes
 
 Default mode:
   Without direct flags, this wrapper downloads and runs the stable
@@ -52,6 +53,7 @@ Experimental direct-install v2:
   --direct-init-experimental   Run scripts/xray-go-direct-init.sh
   --direct-init-post-check     Run direct init/service read-only checks
   --direct-full-dry-run        Print full direct-install plan; make no changes
+  --direct-full-experimental   Apply full direct sequence; requires --yes
 
 Examples:
   install.sh --detect-only
@@ -69,6 +71,7 @@ Examples:
   install.sh --direct-init-experimental --disable-recovery-cron -y
   install.sh --direct-init-post-check
   install.sh --direct-full-dry-run
+  install.sh --direct-full-experimental --yes
 USAGE
 }
 
@@ -167,6 +170,13 @@ case "${1:-}" in
         echo "Entrypoint: install.sh"
         echo "Mode: direct full dry-run"
         run_downloaded_script "$DIRECT_FULL_URL" "$DIRECT_FULL_TMP_FILE" "direct full orchestrator" --dry-run "$@"
+        ;;
+    --direct-full-experimental)
+        shift
+        echo "Keenetic Xray Go installer"
+        echo "Entrypoint: install.sh"
+        echo "Mode: direct full experimental apply"
+        run_downloaded_script "$DIRECT_FULL_URL" "$DIRECT_FULL_TMP_FILE" "direct full orchestrator" --apply "$@"
         ;;
 esac
 
