@@ -12,6 +12,8 @@ GO_DOCTOR_SUMMARY_CMD="/opt/bin/vless-go-doctor-summary"
 GO_DOCTOR_SUMMARY_URL="${GO_DOCTOR_SUMMARY_URL:-${RAW_BASE}/scripts/vless-go-doctor-summary.sh}"
 GO_PRIVACY_CHECK_CMD="/opt/bin/vless-go-privacy-check"
 GO_PRIVACY_CHECK_URL="${GO_PRIVACY_CHECK_URL:-${RAW_BASE}/scripts/vless-go-privacy-check.sh}"
+GO_SAFETY_CHECK_CMD="/opt/bin/xray-go-safety-check"
+GO_SAFETY_CHECK_URL="${GO_SAFETY_CHECK_URL:-${RAW_BASE}/scripts/xray-go-safety-check.sh}"
 GO_HISTORY_CMD="/opt/bin/vless-go-history"
 GO_CLEANUP_CMD="/opt/bin/vless-go-cleanup"
 GO_RECOVER_CMD="/opt/bin/vless-go-recover"
@@ -37,6 +39,7 @@ xray-go - единая команда управления Keenetic Xray Go edit
   xray-go summary
   xray-go doctor [--support|--summary|--verbose|--json]
   xray-go privacy-check
+  xray-go safety-check
   xray-go menu
   xray-go history [--follow]
   xray-go logs watchdog [--follow]
@@ -61,6 +64,10 @@ Summary mode:
 Privacy mode:
   xray-go privacy-check
     Read-only scanner для diagnostic/support output. Не печатает найденные значения.
+
+Safety mode:
+  xray-go safety-check
+    Read-only rollback boundary check для direct-install рабочих файлов.
 
 Support mode:
   xray-go doctor --support
@@ -110,6 +117,7 @@ Version mode:
   vless-go-doctor
   vless-go-doctor-summary
   vless-go-privacy-check
+  xray-go-safety-check
   vless-go-failover
   vless-go-history
   vless-go-cleanup
@@ -149,29 +157,13 @@ fetch_script_to() {
     return 1
 }
 
-refresh_installer_update() {
-    fetch_script_to "$GO_INSTALLER_UPDATE_URL" "$GO_INSTALLER_UPDATE_CMD" "xray-go-installer-update" || return 0
-}
-
-refresh_direct_full_update() {
-    fetch_script_to "$DIRECT_FULL_UPDATE_URL" "$DIRECT_FULL_UPDATE_CMD" "xray-go-direct-full" || return 0
-}
-
-refresh_direct_uninstall() {
-    fetch_script_to "$DIRECT_UNINSTALL_URL" "$DIRECT_UNINSTALL_CMD" "xray-go-direct-uninstall" || return 0
-}
-
-refresh_doctor_summary() {
-    fetch_script_to "$GO_DOCTOR_SUMMARY_URL" "$GO_DOCTOR_SUMMARY_CMD" "vless-go-doctor-summary" || return 0
-}
-
-refresh_privacy_check() {
-    fetch_script_to "$GO_PRIVACY_CHECK_URL" "$GO_PRIVACY_CHECK_CMD" "vless-go-privacy-check" || return 0
-}
-
-refresh_xray_core_update() {
-    fetch_script_to "$XRAY_CORE_UPDATE_URL" "$XRAY_CORE_UPDATE_CMD" "vless-go-xray-core-update" || return 0
-}
+refresh_installer_update() { fetch_script_to "$GO_INSTALLER_UPDATE_URL" "$GO_INSTALLER_UPDATE_CMD" "xray-go-installer-update" || return 0; }
+refresh_direct_full_update() { fetch_script_to "$DIRECT_FULL_UPDATE_URL" "$DIRECT_FULL_UPDATE_CMD" "xray-go-direct-full" || return 0; }
+refresh_direct_uninstall() { fetch_script_to "$DIRECT_UNINSTALL_URL" "$DIRECT_UNINSTALL_CMD" "xray-go-direct-uninstall" || return 0; }
+refresh_doctor_summary() { fetch_script_to "$GO_DOCTOR_SUMMARY_URL" "$GO_DOCTOR_SUMMARY_CMD" "vless-go-doctor-summary" || return 0; }
+refresh_privacy_check() { fetch_script_to "$GO_PRIVACY_CHECK_URL" "$GO_PRIVACY_CHECK_CMD" "vless-go-privacy-check" || return 0; }
+refresh_safety_check() { fetch_script_to "$GO_SAFETY_CHECK_URL" "$GO_SAFETY_CHECK_CMD" "xray-go-safety-check" || return 0; }
+refresh_xray_core_update() { fetch_script_to "$XRAY_CORE_UPDATE_URL" "$XRAY_CORE_UPDATE_CMD" "vless-go-xray-core-update" || return 0; }
 
 show_recovery_summary() {
     echo
@@ -195,9 +187,7 @@ show_status() {
     show_recovery_summary
 }
 
-json_escape() {
-    sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\n/\\n/g;s/\r//g;s/\t/  /g'
-}
+json_escape() { sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\n/\\n/g;s/\r//g;s/\t/  /g'; }
 
 counter_from_summary() {
     name="$1"
@@ -211,9 +201,7 @@ active_slot_from_output() {
     sed -n 's/.*active slot:[[:space:]]*//p; s/.*active:[[:space:]]*//p; s/.*активный слот:[[:space:]]*//p' "$1" 2>/dev/null | tail -n 1 | json_escape
 }
 
-summary_seen() {
-    grep -Eq 'OK=[0-9]+[[:space:]]+WARN=[0-9]+[[:space:]]+FAIL=[0-9]+' "$1" 2>/dev/null
-}
+summary_seen() { grep -Eq 'OK=[0-9]+[[:space:]]+WARN=[0-9]+[[:space:]]+FAIL=[0-9]+' "$1" 2>/dev/null; }
 
 sha256_file() {
     file="$1"
@@ -239,6 +227,13 @@ run_privacy_check() {
     refresh_privacy_check
     need_exec "$GO_PRIVACY_CHECK_CMD"
     "$GO_PRIVACY_CHECK_CMD"
+}
+
+run_safety_check() {
+    [ "$#" -eq 0 ] || { echo "Использование: xray-go safety-check" >&2; exit 2; }
+    refresh_safety_check
+    need_exec "$GO_SAFETY_CHECK_CMD"
+    "$GO_SAFETY_CHECK_CMD"
 }
 
 run_doctor_json() {
@@ -285,26 +280,17 @@ run_doctor() {
     case "${1:-}" in
         --json|json)
             shift || true
-            if [ "$#" -gt 0 ]; then
-                echo "ОШИБКА: xray-go doctor --json не принимает дополнительные аргументы." >&2
-                exit 2
-            fi
+            [ "$#" -eq 0 ] || { echo "ОШИБКА: xray-go doctor --json не принимает дополнительные аргументы." >&2; exit 2; }
             run_doctor_json
             ;;
         --summary|summary)
             shift || true
-            if [ "$#" -gt 0 ]; then
-                echo "ОШИБКА: xray-go doctor --summary не принимает дополнительные аргументы." >&2
-                exit 2
-            fi
+            [ "$#" -eq 0 ] || { echo "ОШИБКА: xray-go doctor --summary не принимает дополнительные аргументы." >&2; exit 2; }
             run_summary
             ;;
         --support|support)
             shift || true
-            if [ "$#" -gt 0 ]; then
-                echo "ОШИБКА: xray-go doctor --support не принимает дополнительные аргументы." >&2
-                exit 2
-            fi
+            [ "$#" -eq 0 ] || { echo "ОШИБКА: xray-go doctor --support не принимает дополнительные аргументы." >&2; exit 2; }
             echo "[INFO] Support mode: detail log не выводится; raw VLESS/subscription sources не печатаются."
             DOCTOR_RC="0"
             "$GO_DOCTOR_CMD" || DOCTOR_RC="$?"
@@ -330,7 +316,6 @@ show_history() {
 show_logs() {
     KIND="${1:-}"
     FOLLOW="${2:-}"
-
     case "$KIND" in
         watchdog)
             if [ "$FOLLOW" = "--follow" ] || [ "$FOLLOW" = "-f" ] || [ "$FOLLOW" = "follow" ]; then
@@ -347,10 +332,7 @@ show_logs() {
                 show_history
             fi
             ;;
-        *)
-            echo "Использование: xray-go logs watchdog|history [--follow]" >&2
-            exit 2
-            ;;
+        *) echo "Использование: xray-go logs watchdog|history [--follow]" >&2; exit 2 ;;
     esac
 }
 
@@ -361,10 +343,7 @@ run_recover() {
         status|enable-hourly|disable-hourly|proxy0|refresh-proxy0|xray|restart-xray|watchdog|restart-watchdog|run|check)
             "$GO_RECOVER_CMD" "$@"
             ;;
-        *)
-            echo "Использование: xray-go recover [status|enable-hourly|disable-hourly|proxy0|xray|watchdog]" >&2
-            exit 2
-            ;;
+        *) echo "Использование: xray-go recover [status|enable-hourly|disable-hourly|proxy0|xray|watchdog]" >&2; exit 2 ;;
     esac
 }
 
@@ -411,10 +390,7 @@ run_manifest() {
         path)
             if [ -x "$GO_MANIFEST_CMD" ]; then "$GO_MANIFEST_CMD" path; else echo "$MANIFEST_FILE"; fi
             ;;
-        *)
-            echo "Использование: xray-go manifest [summary|show|path]" >&2
-            exit 2
-            ;;
+        *) echo "Использование: xray-go manifest [summary|show|path]" >&2; exit 2 ;;
     esac
 }
 
@@ -467,6 +443,7 @@ run_version() {
         "$GO_DOCTOR_CMD" \
         "$GO_DOCTOR_SUMMARY_CMD" \
         "$GO_PRIVACY_CHECK_CMD" \
+        "$GO_SAFETY_CHECK_CMD" \
         "$GO_RECOVER_CMD" \
         "$GO_WATCHDOG_CMD" \
         "$DIRECT_FULL_UPDATE_CMD" \
@@ -591,6 +568,7 @@ run_direct_go_update() {
         "$DIRECT_FULL_UPDATE_CMD" --apply --yes --no-commands
         refresh_doctor_summary
         refresh_privacy_check
+        refresh_safety_check
     fi
 }
 
@@ -617,10 +595,7 @@ run_update() {
             shift || true
             run_xray_core_update "$@"
             ;;
-        *)
-            echo "Использование: xray-go update [go|xray-core]" >&2
-            exit 2
-            ;;
+        *) echo "Использование: xray-go update [go|xray-core]" >&2; exit 2 ;;
     esac
 }
 
@@ -655,6 +630,10 @@ case "${1:-help}" in
     privacy-check|privacy)
         shift
         run_privacy_check "$@"
+        ;;
+    safety-check|safety)
+        shift
+        run_safety_check "$@"
         ;;
     doctor)
         shift
