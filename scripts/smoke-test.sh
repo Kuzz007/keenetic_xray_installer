@@ -35,6 +35,7 @@ check_repo_plain_target install.sh scripts/xray-go-direct-install.sh "install.sh
 check_repo_plain_target install.sh scripts/xray-go-direct-init.sh "install.sh direct-init entrypoint"
 check_repo_plain_target install.sh scripts/xray-go-direct-full.sh "install.sh direct-full entrypoint"
 check_repo_plain_target install.sh scripts/xray-go-direct-uninstall.sh "install.sh direct-uninstall entrypoint"
+check_repo_plain_target install.sh scripts/xray-go-direct-setup.sh "install.sh direct-setup entrypoint"
 check_repo_plain_target xray_vless_failover_go.sh scripts/install-entware-feed.sh "Go/Entware entrypoint"
 check_repo_plain_target xray_vless_failover_minimal_go.sh xray_vless_failover_minimal.sh "Minimal Go entrypoint"
 check_contains install.sh 'AUTO_LATEST_URL' "install.sh keeps Auto Latest URL override"
@@ -42,10 +43,12 @@ check_contains install.sh 'DIRECT_INSTALL_URL' "install.sh keeps direct-install 
 check_contains install.sh 'DIRECT_INIT_URL' "install.sh keeps direct-init URL override"
 check_contains install.sh 'DIRECT_FULL_URL' "install.sh keeps direct-full URL override"
 check_contains install.sh 'DIRECT_UNINSTALL_URL' "install.sh keeps direct-uninstall URL override"
+check_contains install.sh 'DIRECT_SETUP_URL' "install.sh keeps direct-setup URL override"
 check_contains install.sh '--direct-plan' "install.sh exposes public direct plan alias"
 check_contains install.sh '--direct-apply' "install.sh exposes public direct apply alias"
 check_contains install.sh '--direct-check' "install.sh exposes public direct post-check alias"
 check_contains install.sh '--direct-init-check' "install.sh exposes public direct-init check alias"
+check_contains install.sh '--direct-setup-plan' "install.sh exposes public direct setup plan alias"
 check_contains install.sh '--direct-uninstall-plan' "install.sh exposes public direct uninstall plan alias"
 check_contains install.sh '--direct-uninstall-guarded' "install.sh exposes public guarded uninstall alias"
 check_contains install.sh '--direct-experimental' "install.sh keeps direct experimental compatibility alias"
@@ -125,6 +128,17 @@ check_contains scripts/xray-go-safety-check.sh 'SNAP_BEFORE' "safety checker sna
 check_contains scripts/xray-go-safety-check.sh 'isolated bad download failed' "safety checker simulates bad download"
 check_contains scripts/xray-go-safety-check.sh 'broken shell helper rejected by sh -n' "safety checker verifies broken helper rejection"
 check_contains scripts/xray-go-safety-check.sh 'working direct-install files unchanged' "safety checker verifies unchanged working files"
+
+info ""
+info "== Direct setup planner guardrails =="
+check_file_exists scripts/xray-go-direct-setup.sh
+check_syntax scripts/xray-go-direct-setup.sh
+check_contains scripts/xray-go-direct-setup.sh 'This is read-only' "direct setup planner documents read-only boundary"
+check_contains scripts/xray-go-direct-setup.sh 'Raw VLESS/subscription values are not printed' "direct setup planner avoids raw source output"
+check_contains scripts/xray-go-direct-setup.sh 'vless-go.primary' "direct setup planner checks primary source store"
+check_contains scripts/xray-go-direct-setup.sh 'vless-go.backup' "direct setup planner checks backup source store"
+check_contains scripts/xray-go-direct-setup.sh 'Setup plan classification' "direct setup planner classifies setup state"
+check_contains scripts/xray-go-direct-setup.sh 'No changes made.' "direct setup planner exits without changes"
 
 info ""
 info "== Doctor manifest guardrails =="
@@ -229,6 +243,7 @@ for path in \
     scripts/xray-go-direct-init.sh \
     scripts/xray-go-direct-full.sh \
     scripts/xray-go-direct-uninstall.sh \
+    scripts/xray-go-direct-setup.sh \
     scripts/xray-go-installer-update.sh \
     scripts/failover-go.sh \
     scripts/vless-go-update.sh \
