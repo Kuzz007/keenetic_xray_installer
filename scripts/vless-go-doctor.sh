@@ -10,6 +10,7 @@ PRIMARY_SELECTOR="$XRAY_DIR/vless-go.primary.selector"
 BACKUP_SELECTOR="$XRAY_DIR/vless-go.backup.selector"
 WATCHDOG_CONF="$XRAY_DIR/vless-go-watchdog.conf"
 XRAY_BACKUP_DIR="$XRAY_DIR/backups"
+MANIFEST_FILE="$XRAY_DIR/xray-go.manifest"
 XRAY_INIT="/opt/etc/init.d/S24xray"
 WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
 WATCHDOG_LOG="/opt/var/log/vless-go-watchdog.log"
@@ -127,6 +128,23 @@ asset_name_for_arch() {
         mips|mipsel|mipsel-*|mipsel_*|mipselsf-*|mipselsf_*|mipsel-3.4|mipsel-3.4_kn|mipselsf-k3.4|mipselsf-k3.4_kn) echo "xray-failover-go-linux-mipsle" ;;
         *) echo "" ;;
     esac
+}
+
+manifest_value() {
+    key="$1"
+    sed -n 's/^'"$key"'="\(.*\)"$/\1/p' "$MANIFEST_FILE" 2>/dev/null | tail -n 1
+}
+
+sha256_file() {
+    file="$1"
+    [ -s "$file" ] || { echo ""; return 0; }
+    if has_cmd sha256sum; then
+        sha256sum "$file" 2>/dev/null | awk '{print $1}'
+    elif has_cmd openssl; then
+        openssl dgst -sha256 "$file" 2>/dev/null | awk '{print $NF}'
+    else
+        echo ""
+    fi
 }
 
 create_xray_init() {
@@ -288,6 +306,59 @@ check_go_resolver() {
     done
 }
 
+check_manifest() {
+    if [ ! -s "$MANIFEST_FILE" ]; then
+        warn "direct manifest не найден: $MANIFEST_FILE"
+        return 0
+    fi
+
+    INSTALL_MODE="$(manifest_value INSTALL_MODE)"
+    EDITION="$(manifest_value EDITION)"
+    VERSION="$(manifest_value VERSION)"
+    ARCH="$(manifest_value ARCH)"
+    CHANNEL="$(manifest_value CHANNEL)"
+    BINARY_PATH="$(manifest_value BINARY_PATH)"
+    BINARY_SHA256="$(manifest_value BINARY_SHA256)"
+    MODULES="$(manifest_value MODULES)"
+
+    ok "manifest найден: $MANIFEST_FILE"
+    [ -n "$INSTALL_MODE" ] && ok "manifest install mode: $INSTALL_MODE" || warn "manifest install mode не задан"
+    [ -n "$EDITION" ] && ok "manifest edition: $EDITION" || warn "manifest edition не задан"
+    [ -n "$VERSION" ] && ok "manifest version: $VERSION" || warn "manifest version не задан"
+    [ -n "$ARCH" ] && ok "manifest arch: $ARCH" || warn "manifest arch не задан"
+    [ -n "$CHANNEL" ] && echo "  channel: $CHANNEL"
+    [ -n "$MODULES" ] && echo "  modules: $MODULES"
+
+    if [ -n "$BINARY_PATH" ]; then
+        if [ -x "$BINARY_PATH" ]; then
+            ok "manifest binary executable: $BINARY_PATH"
+        elif [ -e "$BINARY_PATH" ]; then
+            warn "manifest binary найден, но не executable: $BINARY_PATH"
+        else
+            warn "manifest binary отсутствует: $BINARY_PATH"
+        fi
+    else
+        warn "manifest binary path не задан"
+    fi
+
+    if [ -n "$BINARY_PATH" ] && [ -s "$BINARY_PATH" ]; then
+        ACTUAL_SHA="$(sha256_file "$BINARY_PATH")"
+        if [ -n "$ACTUAL_SHA" ] && [ -n "$BINARY_SHA256" ]; then
+            if [ "$ACTUAL_SHA" = "$BINARY_SHA256" ]; then
+                ok "manifest binary sha256 matches target"
+            else
+                fail "manifest binary sha256 mismatch"
+                echo "  manifest: $BINARY_SHA256"
+                echo "  actual:   $ACTUAL_SHA"
+            fi
+        elif [ -n "$BINARY_SHA256" ]; then
+            warn "не удалось посчитать sha256 для manifest binary"
+        else
+            warn "manifest binary sha256 не задан"
+        fi
+    fi
+}
+
 check_init_status() {
     INIT="$1"
     LABEL="$2"
@@ -394,6 +465,9 @@ check_architecture
 
 section "Go resolver"
 check_go_resolver
+
+section "Manifest"
+check_manifest
 
 section "Зависимости updater"
 for CMD in python3 unzip; do
