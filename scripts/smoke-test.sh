@@ -34,18 +34,21 @@ info "== Downloader entrypoint target guardrails =="
 check_repo_plain_target install.sh scripts/xray-go-direct-install.sh "install.sh direct-install entrypoint"
 check_repo_plain_target install.sh scripts/xray-go-direct-init.sh "install.sh direct-init entrypoint"
 check_repo_plain_target install.sh scripts/xray-go-direct-full.sh "install.sh direct-full entrypoint"
+check_repo_plain_target install.sh scripts/xray-go-direct-uninstall.sh "install.sh direct-uninstall entrypoint"
 check_repo_plain_target xray_vless_failover_go.sh scripts/install-entware-feed.sh "Go/Entware entrypoint"
 check_repo_plain_target xray_vless_failover_minimal_go.sh xray_vless_failover_minimal.sh "Minimal Go entrypoint"
 check_contains install.sh 'AUTO_LATEST_URL' "install.sh keeps Auto Latest URL override"
 check_contains install.sh 'DIRECT_INSTALL_URL' "install.sh keeps direct-install URL override"
 check_contains install.sh 'DIRECT_INIT_URL' "install.sh keeps direct-init URL override"
 check_contains install.sh 'DIRECT_FULL_URL' "install.sh keeps direct-full URL override"
+check_contains install.sh 'DIRECT_UNINSTALL_URL' "install.sh keeps direct-uninstall URL override"
 check_contains install.sh '--direct-experimental' "install.sh keeps direct experimental mode"
 check_contains install.sh '--direct-detect-only' "install.sh keeps direct detect-only mode"
 check_contains install.sh '--direct-init-experimental' "install.sh keeps direct-init experimental mode"
 check_contains install.sh '--direct-init-post-check' "install.sh keeps direct-init post-check mode"
 check_contains install.sh '--direct-full-dry-run' "install.sh keeps direct-full dry-run mode"
 check_contains install.sh '--direct-full-experimental' "install.sh keeps direct-full apply mode"
+check_contains install.sh '--direct-uninstall-dry-run' "install.sh keeps direct-uninstall dry-run mode"
 check_contains xray_vless_failover_go.sh 'GO_PLAIN_URL' "Go/Entware entrypoint keeps URL override"
 check_contains xray_vless_failover_minimal_go.sh 'MINIMAL_GO_PLAIN_URL' "Minimal Go entrypoint keeps URL override"
 check_not_contains xray_vless_failover_go.sh 'xray_vless_failover_old_go.sh' "Go/Entware entrypoint does not point at removed old_go path"
@@ -55,12 +58,16 @@ info ""
 info "== xray-go wrapper guardrails =="
 check_contains scripts/xray-go.sh 'DIRECT_FULL_UPDATE_URL' "xray-go has direct full update URL"
 check_contains scripts/xray-go.sh 'refresh_direct_full_update' "xray-go can refresh direct full updater"
+check_contains scripts/xray-go.sh 'DIRECT_UNINSTALL_URL' "xray-go has direct uninstall URL"
+check_contains scripts/xray-go.sh 'refresh_direct_uninstall' "xray-go can refresh direct uninstall planner"
 check_contains scripts/xray-go.sh 'manifest_get_value INSTALL_MODE' "xray-go reads manifest install mode"
 check_contains scripts/xray-go.sh 'run_direct_go_update' "xray-go has direct go update path"
 check_contains scripts/xray-go.sh 'run_opkg_go_update' "xray-go preserves opkg-compatible update path"
+check_contains scripts/xray-go.sh 'run_uninstall' "xray-go has uninstall command path"
 check_contains scripts/xray-go.sh 'Direct install mode detected' "xray-go announces direct update mode"
-check_contains scripts/xray-go.sh '--dry-run' "xray-go exposes update go dry-run"
+check_contains scripts/xray-go.sh '--dry-run' "xray-go exposes update/uninstall dry-run"
 check_contains scripts/xray-go.sh 'xray-go update go --dry-run' "xray-go usage documents update dry-run"
+check_contains scripts/xray-go.sh 'xray-go uninstall --dry-run' "xray-go usage documents uninstall dry-run"
 
 info ""
 info "== Direct-install skeleton guardrails =="
@@ -99,6 +106,17 @@ check_contains scripts/xray-go-direct-full.sh 'Planned full direct-install seque
 check_contains scripts/xray-go-direct-full.sh 'Direct full dry-run complete. No changes made.' "direct-full documents dry-run read-only behavior"
 check_contains scripts/xray-go-direct-full.sh 'No first-run setup was executed. VLESS sources were not edited.' "direct-full documents apply safety boundary"
 check_contains scripts/xray-go-direct-full.sh 'SHOW_COMMANDS' "direct-full can hide command examples"
+
+info ""
+info "== Direct-uninstall guardrails =="
+check_file_exists scripts/xray-go-direct-uninstall.sh
+check_syntax scripts/xray-go-direct-uninstall.sh
+check_contains scripts/xray-go-direct-uninstall.sh '--dry-run' "direct-uninstall keeps dry-run mode"
+check_contains scripts/xray-go-direct-uninstall.sh 'No changes made.' "direct-uninstall documents read-only behavior"
+check_contains scripts/xray-go-direct-uninstall.sh 'does not stop services, delete files, edit cron, or modify VLESS sources' "direct-uninstall documents safety boundary"
+check_contains scripts/xray-go-direct-uninstall.sh 'Would remove direct code files' "direct-uninstall lists code files"
+check_contains scripts/xray-go-direct-uninstall.sh 'Would preserve user/runtime data by default' "direct-uninstall preserves user data by default"
+check_contains scripts/xray-go-direct-uninstall.sh 'RECOVERY_CRON_MARKER' "direct-uninstall plans cron by marker"
 
 info ""
 info "== Embedded payload guardrails for public entrypoints =="
@@ -140,6 +158,7 @@ for path in \
     scripts/xray-go-direct-install.sh \
     scripts/xray-go-direct-init.sh \
     scripts/xray-go-direct-full.sh \
+    scripts/xray-go-direct-uninstall.sh \
     scripts/xray-go-installer-update.sh \
     scripts/failover-go.sh \
     scripts/vless-go-update.sh \
