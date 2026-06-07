@@ -3,12 +3,11 @@ set -e
 
 # xray-go-direct-uninstall - direct-install uninstall/cleanup planner.
 #
-# First stage is dry-run only. It prints what belongs to the direct-install layer
-# and what would be removed or preserved by a future explicit uninstall/apply
-# command. It does not delete files, edit cron, stop services, or modify VLESS
-# sources/configs.
+# Default mode is dry-run and read-only. Guarded apply scaffold requires
+# --apply --yes but still does not remove anything in this build. This keeps the
+# command surface stable while we validate safety boundaries before real removal.
 
-XRAY_GO_DIRECT_UNINSTALL_VERSION="${XRAY_GO_DIRECT_UNINSTALL_VERSION:-0.1.0-direct-uninstall-dry-run}"
+XRAY_GO_DIRECT_UNINSTALL_VERSION="${XRAY_GO_DIRECT_UNINSTALL_VERSION:-0.1.0-direct-uninstall-guarded}"
 XRAY_DIR="${XRAY_DIR:-/opt/etc/xray}"
 MANIFEST_FILE="${XRAY_GO_MANIFEST:-${XRAY_DIR}/xray-go.manifest}"
 DIRECT_INSTALL_PLAN="${DIRECT_INSTALL_PLAN:-${XRAY_DIR}/xray-go.direct-install.plan}"
@@ -23,6 +22,7 @@ GO_RESOLVER="${GO_RESOLVER:-/opt/bin/xray-failover-go}"
 GO_RESOLVER_BACKUP="${GO_RESOLVER_BACKUP:-${GO_RESOLVER}.bak.direct}"
 
 MODE="dry-run"
+ASSUME_YES="0"
 SHOW_EXISTING_ONLY="0"
 
 usage() {
@@ -31,21 +31,27 @@ xray-go-direct-uninstall - direct-install uninstall planner
 
 Usage:
   xray-go-direct-uninstall --dry-run [options]
+  xray-go-direct-uninstall --apply --yes
 
 Options:
   --dry-run              Print uninstall/cleanup plan; make no changes (default)
+  --apply                Guarded apply scaffold; requires --yes; no removal yet
+  -y, --yes              Required for --apply
   --existing-only        Print only entries that currently exist
   -h, --help             Show help
 
-Notes:
-  This helper is read-only at this stage. It does not delete files, edit cron,
-  stop services, or modify VLESS sources/configs.
+Safety:
+  This build is read-only even in --apply mode. It does not stop services, delete
+  files, edit cron, or modify VLESS sources/configs. Future real removal must keep
+  --dry-run as default and require explicit --apply --yes.
 USAGE
 }
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --dry-run|--plan|dry-run|plan) MODE="dry-run"; shift ;;
+        --apply|apply) MODE="apply"; shift ;;
+        -y|--yes) ASSUME_YES="1"; shift ;;
         --existing-only) SHOW_EXISTING_ONLY="1"; shift ;;
         -h|--help|help) usage; exit 0 ;;
         *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -162,6 +168,28 @@ print_manifest_summary() {
     fi
 }
 
+require_apply_confirmation() {
+    if [ "$MODE" = "apply" ] && [ "$ASSUME_YES" != "1" ]; then
+        echo "ERROR: --apply requires --yes." >&2
+        echo "Run dry-run first: xray-go uninstall --dry-run" >&2
+        exit 2
+    fi
+}
+
+print_apply_scaffold() {
+    print_header "Guarded apply scaffold"
+    require_apply_confirmation
+    install_mode="$(manifest_get_value INSTALL_MODE)"
+    if [ "$install_mode" != "direct" ]; then
+        echo "ERROR: refusing apply because manifest INSTALL_MODE is not direct." >&2
+        echo "Current INSTALL_MODE: ${install_mode:-unknown}" >&2
+        exit 2
+    fi
+    echo "Confirmation accepted: --apply --yes"
+    echo "No changes made in this build. Real removal is intentionally disabled."
+    echo "Validated safety boundary: dry-run remains default; user/runtime data would be preserved."
+}
+
 cat <<EOF_INTRO
 Keenetic Xray Go direct uninstall planner
 Mode: $MODE
@@ -203,6 +231,10 @@ state_preserve_targets | while IFS='|' read -r path note; do
 done
 
 print_header "Safety boundary"
-echo "No changes made."
-echo "This dry-run does not stop services, delete files, edit cron, or modify VLESS sources."
-echo "A future explicit uninstall/apply mode must require --yes and should keep --dry-run as the default."
+if [ "$MODE" = "apply" ]; then
+    print_apply_scaffold
+else
+    echo "No changes made."
+    echo "This dry-run does not stop services, delete files, edit cron, or modify VLESS sources."
+    echo "Guarded apply scaffold requires: --apply --yes"
+fi
