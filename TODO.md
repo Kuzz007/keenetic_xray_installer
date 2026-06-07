@@ -78,6 +78,7 @@
 - [x] Подтвердить на роутере: `xray-go update go --dry-run` запускает direct full dry-run и не меняет систему.
 - [x] Подтвердить на роутере: `xray-go update go` запускает direct full apply и завершается успешно.
 - [x] Подтвердить на роутере: после `xray-go update go` manifest direct, recovery `health: OK`, doctor `FAIL=0`.
+- [x] Подтвердить на роутере: direct update пропускает скачивание Go resolver, если installed binary уже совпадает с manifest sha256.
 - [x] Добавить direct-uninstall dry-run planner.
 - [x] Добавить `xray-go uninstall --dry-run` для direct manifest.
 - [x] Подтвердить на роутере: `xray-go uninstall --dry-run` печатает план и не меняет систему.
@@ -208,7 +209,7 @@ Agent / Control Server:
 - [x] Добавить CLI path `xray-go summary` / `xray-go doctor --summary`.
 - [x] Подтвердить CLI path `xray-go summary` / `xray-go doctor --summary` на роутере после `xray-go update go`: `OK=12 WARN=0 FAIL=0`.
 - [x] Добавить read-only `xray-go privacy-check` для проверки diagnostic/support output.
-- [ ] Подтвердить на роутере: `xray-go privacy-check` завершает `FAIL=0`.
+- [x] Подтвердить на роутере: `xray-go privacy-check` завершает `OK=24 WARN=0 FAIL=0`.
 
 ---
 
@@ -224,6 +225,7 @@ Agent / Control Server:
 - [x] Добавить `xray-go update go --dry-run`.
 - [x] Подтвердить на роутере: `xray-go update go --dry-run` работает через direct full dry-run.
 - [x] Подтвердить на роутере: `xray-go update go` работает через direct full apply.
+- [x] Подтвердить на роутере: direct update умеет reuse установленного Go resolver при совпадении manifest sha256.
 - [ ] Добавить:
   - [ ] `xray-go update xray-core`.
   - [ ] `xray-go update web-ui`.
@@ -257,6 +259,7 @@ Agent / Control Server:
 - [x] Зафиксировать router validation для direct uninstall dry-run.
 - [x] Зафиксировать router validation для guarded uninstall apply scaffold.
 - [x] Зафиксировать router validation для doctor summary CLI path.
+- [x] Зафиксировать router validation для privacy-check.
 - [x] Добавить `docs/legacy.md`.
 - [x] Добавить `docs/opkg-feed-v1.md`.
 
@@ -277,5 +280,6 @@ Agent / Control Server:
 - [x] Watchdog init reinstall подтверждён без поломки recovery health.
 - [x] Full direct apply подтверждён без редактирования VLESS sources и без first-run setup.
 - [x] Direct-aware `xray-go update go` подтверждён без редактирования VLESS sources и без first-run setup.
+- [x] При недоступности release host direct update может не трогать рабочий binary и продолжить helpers update, если установленный binary совпадает с manifest sha256.
 - [ ] При ошибке скачивания или проверки рабочие файлы не должны меняться.
 - [ ] Direct-install update не должен оставлять систему в полуобновлённом состоянии.
