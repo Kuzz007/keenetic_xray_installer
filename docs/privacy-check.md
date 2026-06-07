@@ -61,6 +61,29 @@ OK=... WARN=0 FAIL=0
 Privacy check passed. Captured outputs are removed automatically.
 ```
 
+## Router validation
+
+Подтверждено на Keenetic `aarch64-3.10_kn` после direct-aware update.
+
+Перед проверкой сработал fallback direct update: Go resolver binary download был пропущен, потому что установленный `/opt/bin/xray-failover-go` уже совпадал с manifest sha256. Это позволило обновить shell helpers и `xray-go` даже при временной проблеме резолва `github.com` для release asset.
+
+Результат:
+
+```text
+xray-go update go:
+  Skipping Go resolver download: installed binary already matches manifest sha256.
+  Post-check summary: OK=12 WARN=0 FAIL=0
+  Direct-init post-check summary: OK=8 WARN=0 FAIL=0
+
+xray-go privacy-check:
+  xray-go summary captured
+  xray-go version captured
+  xray-go doctor --support captured
+  vless-go-doctor captured
+  OK=24 WARN=0 FAIL=0
+  Privacy check passed. Captured outputs are removed automatically.
+```
+
 ## Если есть FAIL
 
 Если проверка нашла риск:
