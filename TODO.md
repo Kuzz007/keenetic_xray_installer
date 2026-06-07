@@ -8,6 +8,7 @@
 - v2 строится вокруг `install.sh`, `auto_latest`, Full Go, Minimal Go и `xray-go`.
 - Для v2 целевой путь — direct-install без обязательного `.ipk`/Entware feed.
 - IPK/feed остаётся только как v1 compatibility mode для существующих установок.
+- Web UI, Agent и Control Server не входят в core CLI: Web UI остаётся редким manual addon, Agent ставится отдельным bot-link сценарием.
 
 ---
 
@@ -131,15 +132,13 @@ Manifest не должен хранить приватные источники,
 - [x] `xray-go manifest`
 - [x] `xray-go uninstall --dry-run`
 
-Нужно добавить:
+Не добавляем в core CLI:
 
-- [ ] `xray-go module list`
-- [ ] `xray-go module enable web-ui`
-- [ ] `xray-go module disable web-ui`
-- [ ] `xray-go module enable agent`
-- [ ] `xray-go module disable agent`
-- [ ] `xray-go agent status`
-- [ ] `xray-go web status`
+- [x] `xray-go module list` — не нужен сейчас.
+- [x] `xray-go module enable/disable web-ui` — Web UI остаётся manual addon.
+- [x] `xray-go module enable/disable agent` — Agent ставится отдельной ссылкой из бота.
+- [x] `xray-go agent status` — не нужен в router core.
+- [x] `xray-go web status` — не нужен в router core.
 
 ---
 
@@ -172,26 +171,26 @@ full    = minimal + subscriptions + cron + watchdog + recovery + doctor + histor
 - [ ] Проверить primary/backup profiles.
 - [ ] Проверить Minimal Go state.
 - [ ] Проверить recovery/watchdog state.
-- [ ] Проверить agent/web/control-server state.
 - [ ] Связать manifest с config/state.
+- [x] Agent/Web UI/Control Server не включать в router core state.
 
 ---
 
-## 7. Optional modules
+## 7. Out-of-core extras
 
 Web UI:
 
-- [ ] Не включать по умолчанию.
-- [ ] Управлять через `xray-go module`.
-- [ ] Добавить `xray-go web status`.
-- [ ] Документировать доступ только из доверенной локальной сети.
+- [x] Не включать по умолчанию.
+- [x] Не добавлять `xray-go module` управление в core CLI.
+- [x] Оставить как manual addon для редких случаев.
+- [x] Документировать доступ только из доверенной локальной сети.
 
 Agent / Control Server:
 
-- [ ] Не включать по умолчанию.
-- [ ] Описать как расширенный режим.
-- [ ] Добавить `xray-go agent status`.
-- [ ] Не смешивать router installer и внешний control-server.
+- [x] Не включать по умолчанию.
+- [x] Agent ставится отдельной ссылкой/сценарием из бота, не через router installer core.
+- [x] Control Server не смешивать с router installer.
+- [x] Не добавлять `xray-go agent status` в core CLI.
 
 ---
 
@@ -218,9 +217,9 @@ Agent / Control Server:
 - [ ] Разделить update targets:
   - [x] Go edition direct-install files.
   - [ ] Xray-core.
-  - [ ] Web UI.
-  - [ ] Agent.
-  - [ ] Control Server.
+- [x] Web UI update не включать в router core update path.
+- [x] Agent update не включать в router core update path.
+- [x] Control Server update не включать в router core update path.
 - [x] Добавить direct-aware `xray-go update go`.
 - [x] Добавить `xray-go update go --dry-run`.
 - [x] Подтвердить на роутере: `xray-go update go --dry-run` работает через direct full dry-run.
@@ -228,8 +227,6 @@ Agent / Control Server:
 - [x] Подтвердить на роутере: direct update умеет reuse установленного Go resolver при совпадении manifest sha256.
 - [ ] Добавить:
   - [ ] `xray-go update xray-core`.
-  - [ ] `xray-go update web-ui`.
-  - [ ] `xray-go update agent`.
 - [x] Не менять пользовательские профили при safe update direct path.
 - [x] Не перезаписывать primary/backup sources при direct update.
 - [x] Обновлять manifest после успешного `xray-go update go`.
