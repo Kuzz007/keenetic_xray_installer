@@ -34,9 +34,9 @@ install.sh
   -> print post-install checks
 ```
 
-## Экспериментальный skeleton
+## Experimental direct-install skeleton
 
-Первый безопасный v2-шаг уже добавлен:
+Основной skeleton:
 
 ```text
 scripts/xray-go-direct-install.sh
@@ -48,14 +48,15 @@ scripts/xray-go-direct-install.sh
 - определить Entware architecture;
 - выбрать release asset для Go resolver;
 - показать direct-install plan;
-- при необходимости скачать Go binary в staging directory;
+- скачать Go binary в staging directory;
 - проверить sha256;
-- опционально установить Go binary в target path;
+- явно установить Go binary в target path;
 - установить manifest helper;
 - скачать и проверить shell helpers в staging directory;
-- опционально установить shell helpers в /opt/bin и /opt/libexec;
+- явно установить shell helpers в /opt/bin и /opt/libexec;
 - записать informational plan file;
-- опционально записать manifest как direct-install.
+- записать manifest как direct-install;
+- выполнить read-only post-check.
 ```
 
 Команды через публичный `install.sh`:
@@ -82,6 +83,9 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 # Важно: first-run setup всё ещё не выполняется.
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --install-helpers
 
+# Записать direct manifest
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --write-manifest -y
+
 # Read-only проверка установленного direct слоя
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --post-check
 ```
@@ -94,7 +98,7 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 scripts/xray-go-direct-init.sh
 ```
 
-Он отвечает только за service/init.d слой. Он не переписывает VLESS sources, не запускает first-run setup и не рестартует сервисы сам по себе.
+Он отвечает только за service/init.d/cron слой. Он не переписывает VLESS sources, не запускает first-run setup и не рестартует сервисы сам по себе.
 
 Команды:
 
@@ -106,7 +110,13 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 # Важно: VLESS sources и first-run setup не трогаются.
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-experimental --install-watchdog-init -y
 
-# Read-only проверка service/init.d слоя
+# Включить hourly recovery cron через marker vless-go-hourly-recover
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-experimental --enable-recovery-cron --schedule '7 * * * *' -y
+
+# Отключить hourly recovery cron, удалив только строку с marker vless-go-hourly-recover
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-experimental --disable-recovery-cron -y
+
+# Read-only проверка service/init.d/cron слоя
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-post-check
 ```
 
@@ -120,6 +130,29 @@ Staging directory для init:
 
 ```text
 /opt/tmp/xray-go-direct-install/init
+```
+
+## Проверенные результаты на роутере
+
+На реальном Keenetic с архитектурой `aarch64-3.10_kn` подтверждено:
+
+```text
+--direct-detect-only                          OK
+--direct-experimental --stage-helpers         OK
+--direct-experimental --install-binary        OK
+--direct-experimental --write-manifest -y     OK
+--direct-experimental --install-helpers       OK
+--direct-experimental --post-check            OK=12 WARN=0 FAIL=0
+--direct-init-post-check                      OK=8 WARN=0 FAIL=0
+--direct-init-experimental --enable-recovery-cron --schedule '7 * * * *' -y OK
+```
+
+Также подтверждено:
+
+```text
+xray-go manifest                              OK
+xray-go recover status                        health: OK
+xray-go doctor --support                      SOCKS health-check OK, FAIL=0
 ```
 
 ## Файлы direct-install
@@ -217,36 +250,6 @@ passwords
 private keys
 ```
 
-## Helper
-
-Для manifest добавлен shell helper:
-
-```sh
-scripts/xray-go-manifest.sh
-```
-
-После установки он должен попадать в:
-
-```text
-/opt/bin/xray-go-manifest
-```
-
-Примеры:
-
-```sh
-xray-go-manifest init \
-  --install-mode direct \
-  --edition full \
-  --version 0.2.0 \
-  --arch mipsle \
-  --channel main \
-  --source main
-
-xray-go-manifest summary
-xray-go-manifest set VERSION 0.2.1
-xray-go-manifest touch-update
-```
-
 ## Связь с `xray-go`
 
 `xray-go` уже умеет показывать manifest:
@@ -295,6 +298,7 @@ Direct-install update должен быть атомарным наскольк�
 - skeleton умеет явно устанавливать shell helpers через `--install-helpers`;
 - skeleton умеет read-only post-check через `--post-check`;
 - direct-init умеет stage/install watchdog init через `--stage-watchdog-init` и `--install-watchdog-init`;
+- direct-init умеет enable/disable recovery cron через marker `vless-go-hourly-recover`;
 - direct-init умеет read-only service checks через `--direct-init-post-check`;
 - direct-install flow ещё не заменяет текущую Full Go установку;
 - IPK/feed пока остаётся рабочей v1-схемой совместимости.
