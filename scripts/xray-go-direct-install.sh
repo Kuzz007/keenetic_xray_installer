@@ -4,9 +4,9 @@ set -e
 # xray-go-direct-install - experimental direct-install v2 skeleton.
 #
 # This script is intentionally conservative. It can detect architecture, stage the
-# Go resolver binary, stage/install shell helpers, install the manifest helper and
-# write an experimental manifest. It does not run first setup and does not replace
-# the stable auto_latest/IPK flow yet.
+# Go resolver binary, install the staged binary on explicit request, stage/install
+# shell helpers, install the manifest helper and write an experimental manifest.
+# It does not run first setup and does not replace the stable auto_latest/IPK flow yet.
 
 XRAY_GO_DIRECT_VERSION="${XRAY_GO_DIRECT_VERSION:-0.1.0-direct-skeleton}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
@@ -20,6 +20,7 @@ STAGE_DIR="${XRAY_GO_DIRECT_STAGE_DIR:-${TMP_DIR}/xray-go-direct-install}"
 HELPER_STAGE_DIR="${HELPER_STAGE_DIR:-${STAGE_DIR}/helpers}"
 HELPER_INDEX="${HELPER_INDEX:-${STAGE_DIR}/xray-go.helpers.index}"
 GO_RESOLVER="${GO_RESOLVER:-/opt/bin/xray-failover-go}"
+GO_RESOLVER_BACKUP="${GO_RESOLVER_BACKUP:-${GO_RESOLVER}.bak.direct}"
 MANIFEST_CMD="${MANIFEST_CMD:-/opt/bin/xray-go-manifest}"
 MANIFEST_URL="${MANIFEST_URL:-${RAW_BASE}/scripts/xray-go-manifest.sh}"
 PLAN_FILE="${PLAN_FILE:-${XRAY_DIR}/xray-go.direct-install.plan}"
@@ -51,6 +52,7 @@ LOCK_HELPER_URL="${LOCK_HELPER_URL:-${RAW_BASE}/scripts/vless-go-lock.sh}"
 
 MODE="prepare"
 DOWNLOAD_BINARY="0"
+INSTALL_BINARY="0"
 STAGE_HELPERS="0"
 INSTALL_HELPERS="0"
 INSTALL_MANIFEST_HELPER="1"
@@ -71,6 +73,7 @@ Modes:
 
 Options:
   --download-binary      Download and verify the Go resolver into staging dir
+  --install-binary       Download, verify and install Go resolver into target path
   --stage-helpers        Download and syntax-check shell helpers into staging dir
   --install-helpers      Stage shell helpers and install them into /opt/bin,/opt/libexec
   --no-helper            Do not install /opt/bin/xray-go-manifest
@@ -94,6 +97,7 @@ while [ "$#" -gt 0 ]; do
         --prepare-only|--prepare) MODE="prepare"; shift ;;
         --write-manifest) WRITE_MANIFEST="1"; shift ;;
         --download-binary) DOWNLOAD_BINARY="1"; shift ;;
+        --install-binary) DOWNLOAD_BINARY="1"; INSTALL_BINARY="1"; shift ;;
         --stage-helpers) STAGE_HELPERS="1"; shift ;;
         --install-helpers) STAGE_HELPERS="1"; INSTALL_HELPERS="1"; shift ;;
         --no-helper|--no-manifest-helper) INSTALL_MANIFEST_HELPER="0"; shift ;;
@@ -222,10 +226,12 @@ Stage dir: $STAGE_DIR
 Helper stage dir: $HELPER_STAGE_DIR
 Helper index: $HELPER_INDEX
 Target binary path: $GO_RESOLVER
+Target binary backup: $GO_RESOLVER_BACKUP
 Manifest helper: $MANIFEST_CMD
 Manifest helper URL: $MANIFEST_URL
 Plan file: $PLAN_FILE
 Download binary: $DOWNLOAD_BINARY
+Install binary: $INSTALL_BINARY
 Stage helpers: $STAGE_HELPERS
 Install helpers: $INSTALL_HELPERS
 Install manifest helper: $INSTALL_MANIFEST_HELPER
@@ -269,8 +275,10 @@ write_plan_file() {
         echo "HELPER_STAGE_DIR=\"$HELPER_STAGE_DIR\""
         echo "HELPER_INDEX=\"$HELPER_INDEX\""
         echo "TARGET_BINARY=\"$GO_RESOLVER\""
+        echo "TARGET_BINARY_BACKUP=\"$GO_RESOLVER_BACKUP\""
         echo "MANIFEST_HELPER=\"$MANIFEST_CMD\""
         echo "DOWNLOAD_BINARY=\"$DOWNLOAD_BINARY\""
+        echo "INSTALL_BINARY=\"$INSTALL_BINARY\""
         echo "STAGE_HELPERS=\"$STAGE_HELPERS\""
         echo "INSTALL_HELPERS=\"$INSTALL_HELPERS\""
         echo "CREATED_AT=\"$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S%z')\""
@@ -324,6 +332,30 @@ download_binary_to_stage() {
     fi
 
     echo "Staged Go resolver sha256 OK: $BINARY_SHA256"
+}
+
+install_binary_from_stage() {
+    [ "$INSTALL_BINARY" = "1" ] || return 0
+    [ -s "$STAGED_BINARY" ] || { echo "ERROR: staged Go resolver is missing: $STAGED_BINARY" >&2; exit 1; }
+    [ -n "$BINARY_SHA256" ] || BINARY_SHA256="$(sha256_file "$STAGED_BINARY")"
+    [ -n "$BINARY_SHA256" ] || { echo "ERROR: cannot calculate sha256 for staged Go resolver." >&2; exit 1; }
+
+    mkdir -p "$(dirname "$GO_RESOLVER")"
+    tmp_dest="$(dirname "$GO_RESOLVER")/.$(basename "$GO_RESOLVER").$$"
+    echo "Installing Go resolver: $GO_RESOLVER"
+
+    cp "$STAGED_BINARY" "$tmp_dest"
+    chmod +x "$tmp_dest"
+
+    if [ -s "$GO_RESOLVER" ]; then
+        cp "$GO_RESOLVER" "$GO_RESOLVER_BACKUP" 2>/dev/null || true
+        chmod +x "$GO_RESOLVER_BACKUP" 2>/dev/null || true
+        echo "Previous Go resolver backup: $GO_RESOLVER_BACKUP"
+    fi
+
+    mv "$tmp_dest" "$GO_RESOLVER"
+    chmod +x "$GO_RESOLVER"
+    echo "Go resolver installed. sha256=$BINARY_SHA256"
 }
 
 stage_shell_helpers() {
@@ -398,6 +430,7 @@ install_shell_helpers() {
 manifest_modules() {
     modules="manifest,direct-experimental"
     [ "$DOWNLOAD_BINARY" = "1" ] && modules="$modules,binary-staged"
+    [ "$INSTALL_BINARY" = "1" ] && modules="$modules,binary-installed"
     [ "$STAGE_HELPERS" = "1" ] && modules="$modules,helpers-staged"
     [ "$INSTALL_HELPERS" = "1" ] && modules="$modules,helpers-installed"
     printf '%s' "$modules"
@@ -430,6 +463,7 @@ fi
 mkdir -p "$STAGE_DIR" "$XRAY_DIR"
 install_manifest_helper
 download_binary_to_stage
+install_binary_from_stage
 stage_shell_helpers
 install_shell_helpers
 write_plan_file
