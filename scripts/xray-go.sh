@@ -15,6 +15,8 @@ GO_MANIFEST_CMD="/opt/bin/xray-go-manifest"
 MANIFEST_FILE="${XRAY_GO_MANIFEST:-/opt/etc/xray/xray-go.manifest}"
 GO_INSTALLER_UPDATE_CMD="/opt/bin/xray-go-installer-update"
 GO_INSTALLER_UPDATE_URL="${GO_INSTALLER_UPDATE_URL:-${RAW_BASE}/scripts/xray-go-installer-update.sh}"
+DIRECT_FULL_UPDATE_CMD="/opt/bin/xray-go-direct-full"
+DIRECT_FULL_UPDATE_URL="${DIRECT_FULL_UPDATE_URL:-${RAW_BASE}/scripts/xray-go-direct-full.sh}"
 XRAY_CORE_UPDATE_CMD="/opt/bin/vless-go-xray-core-update"
 MENU_CMD="/opt/bin/failover-go"
 WATCHDOG_LOG="/opt/var/log/vless-go-watchdog.log"
@@ -33,6 +35,7 @@ xray-go - единая команда управления Keenetic Xray Go edit
   xray-go recover [status|enable-hourly|disable-hourly|proxy0|xray|watchdog]
   xray-go manifest [summary|show|path]
   xray-go update [go|xray-core]
+  xray-go update go --dry-run
   xray-go update-core
   xray-go switch primary|backup
   xray-go cleanup [--dry-run]
@@ -62,6 +65,13 @@ Manifest mode:
   xray-go manifest show
     Показывает raw manifest без VLESS/subscription secrets.
 
+Update mode:
+  xray-go update go
+    Если manifest INSTALL_MODE=direct — выполняет direct full update.
+    Иначе использует старый opkg/IPK-compatible update path.
+  xray-go update go --dry-run
+    Для direct mode показывает план без изменений.
+
 Низкоуровневые команды остаются доступны:
   failover-go
   vless-go-doctor
@@ -72,6 +82,7 @@ Manifest mode:
   xray-go-manifest
   vless-go-xray-core-update
   xray-go-installer-update
+  xray-go-direct-full
 EOF
 }
 
@@ -82,20 +93,32 @@ need_exec() {
     fi
 }
 
-refresh_installer_update() {
-    command -v curl >/dev/null 2>&1 || return 0
-    mkdir -p /opt/bin /opt/tmp
-    tmp="/opt/tmp/xray-go-installer-update.$$"
-    echo "Refreshing xray-go-installer-update..."
-    if curl -fsSL -H 'Cache-Control: no-cache' -o "$tmp" "$GO_INSTALLER_UPDATE_URL" && sh -n "$tmp"; then
+fetch_script_to() {
+    url="$1"
+    dest="$2"
+    label="$3"
+
+    command -v curl >/dev/null 2>&1 || return 1
+    mkdir -p "$(dirname "$dest")" /opt/tmp
+    tmp="${dest}.$$"
+    echo "Refreshing $label..."
+    if curl -fsSL -H 'Cache-Control: no-cache' -o "$tmp" "$url" && sh -n "$tmp"; then
         chmod +x "$tmp"
-        mv "$tmp" "$GO_INSTALLER_UPDATE_CMD"
-        chmod +x "$GO_INSTALLER_UPDATE_CMD"
+        mv "$tmp" "$dest"
+        chmod +x "$dest"
         return 0
     fi
     rm -f "$tmp" 2>/dev/null || true
-    echo "WARN: failed to refresh xray-go-installer-update from $GO_INSTALLER_UPDATE_URL" >&2
-    return 0
+    echo "WARN: failed to refresh $label from $url" >&2
+    return 1
+}
+
+refresh_installer_update() {
+    fetch_script_to "$GO_INSTALLER_UPDATE_URL" "$GO_INSTALLER_UPDATE_CMD" "xray-go-installer-update" || return 0
+}
+
+refresh_direct_full_update() {
+    fetch_script_to "$DIRECT_FULL_UPDATE_URL" "$DIRECT_FULL_UPDATE_CMD" "xray-go-direct-full" || return 0
 }
 
 show_recovery_summary() {
@@ -310,15 +333,49 @@ run_manifest() {
     esac
 }
 
+run_direct_go_update() {
+    MODE="apply"
+    case "${1:-}" in
+        "") ;;
+        --dry-run|--plan|dry-run|plan) MODE="dry-run"; shift ;;
+        --apply|apply) MODE="apply"; shift ;;
+        *) echo "Использование: xray-go update go [--dry-run]" >&2; exit 2 ;;
+    esac
+    [ "$#" -eq 0 ] || { echo "Использование: xray-go update go [--dry-run]" >&2; exit 2; }
+
+    refresh_direct_full_update
+    need_exec "$DIRECT_FULL_UPDATE_CMD"
+
+    if [ "$MODE" = "dry-run" ]; then
+        "$DIRECT_FULL_UPDATE_CMD" --dry-run --no-commands
+    else
+        echo "Direct install mode detected. Running direct full update."
+        "$DIRECT_FULL_UPDATE_CMD" --apply --yes --no-commands
+    fi
+}
+
+run_opkg_go_update() {
+    refresh_installer_update
+    need_exec "$GO_INSTALLER_UPDATE_CMD"
+    "$GO_INSTALLER_UPDATE_CMD" --first
+}
+
 run_update() {
     TARGET="${1:-go}"
     case "$TARGET" in
         go|installer|edition)
-            refresh_installer_update
-            need_exec "$GO_INSTALLER_UPDATE_CMD"
-            "$GO_INSTALLER_UPDATE_CMD" --first
+            shift || true
+            INSTALL_MODE="$(manifest_get_value INSTALL_MODE)"
+            if [ "$INSTALL_MODE" = "direct" ]; then
+                run_direct_go_update "$@"
+            else
+                [ "$#" -eq 0 ] || { echo "Использование: xray-go update go" >&2; exit 2; }
+                run_opkg_go_update
+            fi
             ;;
         xray-core|core|xray)
+            shift || true
+            [ "$#" -eq 0 ] || { echo "Использование: xray-go update xray-core" >&2; exit 2; }
             need_exec "$XRAY_CORE_UPDATE_CMD"
             "$XRAY_CORE_UPDATE_CMD"
             ;;
