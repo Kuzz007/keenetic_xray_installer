@@ -36,7 +36,7 @@
 - [ ] `xray_vless_failover_auto_latest.sh`
 - [ ] `xray_vless_failover_go.sh`
 - [ ] `xray_vless_failover_minimal_go.sh`
-- [ ] `scripts/xray-go.sh`
+- [x] `scripts/xray-go.sh`
 - [ ] Full Go edition
 - [ ] Minimal Go edition
 - [x] direct-install v2
@@ -154,12 +154,14 @@ Direct-install убирает лишний упаковочный слой. Фу
 ### Нужно сделать
 
 - [x] Добавить helper `scripts/xray-go-manifest.sh`.
-- [ ] Создать manifest-файл на роутере во время установки:
+- [x] Устанавливать helper как `/opt/bin/xray-go-manifest` при `xray-go update go` / repair Full Go линии.
+- [x] Создавать manifest-файл на роутере при `xray-go update go` / repair Full Go линии:
 
 ```text
 /opt/etc/xray/xray-go.manifest
 ```
 
+- [ ] Создавать manifest-файл на роутере во время будущего direct-install.
 - [x] Определить безопасный формат manifest без raw VLESS/subscription secrets.
 - [ ] Хранить в manifest:
   - [x] install mode: `direct` или `opkg`;
@@ -172,9 +174,11 @@ Direct-install убирает лишний упаковочный слой. Фу
   - [x] binary sha256;
   - [x] enabled modules;
   - [x] last update time.
-- [ ] Научить `doctor` читать manifest.
+- [x] Добавить `xray-go manifest`.
+- [x] Добавить manifest summary в `xray-go doctor --support`.
+- [ ] Научить `vless-go-doctor` читать manifest напрямую.
 - [ ] Научить `xray-go version` показывать manifest summary.
-- [ ] Научить `xray-go update go` обновлять manifest.
+- [x] Научить `xray-go update go` обновлять manifest через `xray-go-installer-update`.
 
 ### Описание
 
@@ -217,17 +221,18 @@ README должен помогать быстро установить и про
 
 ### Уже есть
 
-- [ ] `xray-go status`
-- [ ] `xray-go doctor`
-- [ ] `xray-go menu`
-- [ ] `xray-go history`
-- [ ] `xray-go logs`
-- [ ] `xray-go recover`
-- [ ] `xray-go update`
-- [ ] `xray-go update-core`
-- [ ] `xray-go switch`
-- [ ] `xray-go cleanup`
-- [ ] `xray-go version`
+- [x] `xray-go status`
+- [x] `xray-go doctor`
+- [x] `xray-go menu`
+- [x] `xray-go history`
+- [x] `xray-go logs`
+- [x] `xray-go recover`
+- [x] `xray-go update`
+- [x] `xray-go update-core`
+- [x] `xray-go switch`
+- [x] `xray-go cleanup`
+- [x] `xray-go version`
+- [x] `xray-go manifest`
 
 ### Нужно добавить или улучшить
 
@@ -238,7 +243,6 @@ README должен помогать быстро установить и про
 - [ ] `xray-go module disable agent`
 - [ ] `xray-go agent status`
 - [ ] `xray-go web status`
-- [ ] `xray-go manifest`
 - [ ] `xray-go uninstall --dry-run`
 
 ### Описание
@@ -387,7 +391,7 @@ Cron:
 - [ ] Проверить, что в support output не попадают raw VLESS links.
 - [ ] Проверить, что в support output не попадают subscription URLs.
 - [ ] Проверить, что JSON summary стабилен для Web UI / Agent / Control Server.
-- [ ] Добавить manifest summary без приватных данных.
+- [x] Добавить manifest summary без приватных данных в `xray-go doctor --support`.
 
 ### Описание
 
@@ -419,7 +423,7 @@ xray-go update agent
 - [ ] Не менять пользовательские профили при safe update.
 - [ ] Не перезаписывать primary/backup sources без явного действия пользователя.
 - [ ] Сохранить `--no-cron` и `--no-restart` для аккуратного обновления.
-- [ ] Обновлять manifest после успешного direct-update.
+- [x] Обновлять manifest после успешного `xray-go update go` / Full Go repair.
 - [ ] Для старых opkg/IPK установок показывать совместимый upgrade path.
 
 ### Описание
