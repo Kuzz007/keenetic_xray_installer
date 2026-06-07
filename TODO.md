@@ -39,7 +39,7 @@
 - [ ] `scripts/xray-go.sh`
 - [ ] Full Go edition
 - [ ] Minimal Go edition
-- [ ] direct-install v2
+- [x] direct-install v2
 - [ ] recovery
 - [ ] watchdog
 - [ ] doctor
@@ -101,7 +101,7 @@ opkg update && opkg install curl && curl -fsSL https://raw.githubusercontent.com
 
 ### Нужно сделать
 
-- [ ] Считать direct-install целевой схемой v2.
+- [x] Считать direct-install целевой схемой v2.
 - [ ] Оставить IPK/feed как v1 compatibility mode, но не развивать его как основную архитектуру.
 - [ ] Не удалять текущую IPK/feed-схему сразу, чтобы не сломать старые Full Go установки.
 - [ ] Подготовить direct-install flow:
@@ -111,7 +111,7 @@ opkg update && opkg install curl && curl -fsSL https://raw.githubusercontent.com
   - [ ] установить shell helpers;
   - [ ] установить init.d scripts;
   - [ ] настроить cron при необходимости;
-  - [ ] создать/обновить manifest;
+  - [x] создать/обновить manifest helper;
   - [ ] выполнить first-run setup;
   - [ ] показать post-install checks.
 - [ ] Подготовить direct-update flow через `xray-go update go`.
@@ -153,24 +153,25 @@ Direct-install убирает лишний упаковочный слой. Фу
 
 ### Нужно сделать
 
-- [ ] Создать manifest-файл:
+- [x] Добавить helper `scripts/xray-go-manifest.sh`.
+- [ ] Создать manifest-файл на роутере во время установки:
 
 ```text
 /opt/etc/xray/xray-go.manifest
 ```
 
+- [x] Определить безопасный формат manifest без raw VLESS/subscription secrets.
 - [ ] Хранить в manifest:
-  - [ ] install mode: `direct` или `opkg`;
-  - [ ] edition: `full` или `minimal`;
-  - [ ] version;
-  - [ ] architecture;
-  - [ ] installed_at;
-  - [ ] source commit/tag/channel;
-  - [ ] binary path;
-  - [ ] binary sha256;
-  - [ ] installed files;
-  - [ ] enabled modules;
-  - [ ] last update time.
+  - [x] install mode: `direct` или `opkg`;
+  - [x] edition: `full` или `minimal`;
+  - [x] version;
+  - [x] architecture;
+  - [x] installed_at;
+  - [x] source commit/tag/channel;
+  - [x] binary path;
+  - [x] binary sha256;
+  - [x] enabled modules;
+  - [x] last update time.
 - [ ] Научить `doctor` читать manifest.
 - [ ] Научить `xray-go version` показывать manifest summary.
 - [ ] Научить `xray-go update go` обновлять manifest.
@@ -193,7 +194,7 @@ README должен быть коротким входом для пользов
 - [ ] Убрать перегруз legacy-инструкциями из основной части.
 - [ ] Создать отдельный документ `docs/legacy.md`.
 - [ ] Перенести подробности по legacy/old_go в `docs/legacy.md`.
-- [ ] Добавить отдельный документ `docs/direct-install.md`.
+- [x] Добавить отдельный документ `docs/direct-install.md`.
 - [ ] Добавить короткую архитектурную схему:
 
 ```text
@@ -482,7 +483,7 @@ xray-go update agent
 ### Нужно сделать
 
 - [ ] `docs/install.md` — установка и первый запуск.
-- [ ] `docs/direct-install.md` — новая v2-схема без обязательного IPK/feed.
+- [x] `docs/direct-install.md` — новая v2-схема без обязательного IPK/feed.
 - [ ] `docs/modes.md` — Full Go vs Minimal Go.
 - [ ] `docs/recovery.md` — recovery/watchdog/failover.
 - [ ] `docs/web-ui.md` — Web UI.
@@ -519,16 +520,6 @@ xray-go recover status
 xray-go update
 ```
 
-### Внутренняя архитектура
-
-```text
-install.sh
-  -> direct-install
-  -> manifest
-  -> xray-go
-  -> optional modules
-```
-
 ### Описание
 
-Пользователь не должен выбирать между множеством старых скриптов. Проект должен оставаться мощным, но выглядеть компактно и понятно.
+В финальной v2 пользователь не должен выбирать между множеством старых скриптов. Основной путь — `install.sh` для установки и `xray-go` для управления.
