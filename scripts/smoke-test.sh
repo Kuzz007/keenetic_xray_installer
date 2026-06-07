@@ -74,6 +74,16 @@ check_contains scripts/xray-go.sh 'xray-go update go --dry-run' "xray-go usage d
 check_contains scripts/xray-go.sh 'xray-go uninstall --dry-run' "xray-go usage documents uninstall dry-run"
 
 info ""
+info "== Doctor manifest guardrails =="
+check_contains scripts/vless-go-doctor.sh 'MANIFEST_FILE="$XRAY_DIR/xray-go.manifest"' "doctor knows direct manifest path"
+check_contains scripts/vless-go-doctor.sh 'check_manifest' "doctor has manifest check"
+check_contains scripts/vless-go-doctor.sh 'manifest install mode' "doctor reports install mode"
+check_contains scripts/vless-go-doctor.sh 'manifest binary sha256 matches target' "doctor verifies manifest binary sha256"
+check_contains scripts/vless-go-doctor.sh 'manifest binary executable' "doctor checks manifest binary executable"
+check_contains scripts/vless-go-doctor.sh 'section "Manifest"' "doctor prints dedicated manifest section"
+check_not_contains scripts/vless-go-doctor.sh 'manifest source' "doctor manifest section should not print raw source"
+
+info ""
 info "== Direct-install skeleton guardrails =="
 check_contains scripts/xray-go-direct-install.sh '--download-binary' "direct-install keeps binary staging mode"
 check_contains scripts/xray-go-direct-install.sh '--install-binary' "direct-install keeps explicit binary install mode"
