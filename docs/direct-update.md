@@ -186,6 +186,19 @@ xray-go update go
   -> direct-init post-check: OK=8 WARN=0 FAIL=0
 ```
 
+### Xray-core dry-run
+
+```text
+xray-go update xray-core --dry-run
+  -> No changes made. No downloads, no service restart, no direct-install files modified.
+  -> Xray binary: /opt/sbin/xray
+  -> Xray 26.6.1 linux/arm64
+  -> Xray config valid: /opt/etc/xray/config.json
+  -> Xray init status: alive
+  -> Xray-core updater helper: /opt/bin/vless-go-xray-core-update
+  -> Scope boundary: this target updates only Xray-core.
+```
+
 Финальная проверка после apply:
 
 ```text
