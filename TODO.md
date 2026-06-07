@@ -118,6 +118,7 @@ Manifest не должен хранить приватные источники,
 - [x] `xray-go doctor`
 - [x] `xray-go doctor --summary`
 - [x] `xray-go privacy-check`
+- [x] `xray-go safety-check`
 - [x] `xray-go menu`
 - [x] `xray-go history`
 - [x] `xray-go logs`
@@ -250,6 +251,7 @@ Agent / Control Server:
 - [x] Добавить `docs/direct-uninstall-validation.md`.
 - [x] Добавить `docs/doctor-summary.md`.
 - [x] Добавить `docs/privacy-check.md`.
+- [x] Добавить `docs/safety-check.md`.
 - [x] Описать direct full dry-run/apply orchestrator.
 - [x] Описать direct-aware `xray-go update go`.
 - [x] Описать direct uninstall dry-run planner.
@@ -262,6 +264,7 @@ Agent / Control Server:
 - [x] Зафиксировать router validation для guarded uninstall apply scaffold.
 - [x] Зафиксировать router validation для doctor summary CLI path.
 - [x] Зафиксировать router validation для privacy-check.
+- [x] Зафиксировать router validation для safety-check.
 - [x] Зафиксировать router validation для Xray-core dry-run target.
 - [x] Зафиксировать router validation для Xray-core apply target.
 - [x] Добавить `docs/legacy.md`.
@@ -287,5 +290,5 @@ Agent / Control Server:
 - [x] При недоступности release host direct update может не трогать рабочий binary и продолжить helpers update, если установленный binary совпадает с manifest sha256.
 - [x] `xray-go update xray-core --dry-run` подтверждён как read-only: без downloads, restart и изменений direct-install layer.
 - [x] `xray-go update xray-core --channel latest --yes` подтверждён с backup старого Xray binary и успешной post-apply проверкой.
-- [ ] При ошибке скачивания или проверки рабочие файлы не должны меняться.
-- [ ] Direct-install update не должен оставлять систему в полуобновлённом состоянии.
+- [x] При ошибке скачивания или проверки рабочие файлы не меняются: подтверждено `xray-go safety-check`.
+- [x] Direct-install update не оставляет систему в полуобновлённом состоянии: failure simulations и snapshot unchanged подтверждены `xray-go safety-check`.
