@@ -60,6 +60,9 @@ Examples:
   install.sh --direct-experimental --post-check
   install.sh --direct-init-experimental --stage-watchdog-init
   install.sh --direct-init-experimental --install-watchdog-init -y
+  install.sh --direct-init-experimental --enable-recovery-cron -y
+  install.sh --direct-init-experimental --enable-recovery-cron --schedule '7 * * * *' -y
+  install.sh --direct-init-experimental --disable-recovery-cron -y
   install.sh --direct-init-post-check
 USAGE
 }
