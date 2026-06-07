@@ -67,7 +67,9 @@ doctor --support: FAIL=0
 
 ## Router validation
 
-Подтверждено на Keenetic / Entware `aarch64-3.10_kn`:
+Подтверждено на Keenetic / Entware `aarch64-3.10_kn`.
+
+### Dry-run
 
 ```text
 xray-go update go --dry-run
@@ -77,6 +79,34 @@ xray-go update go --dry-run
   -> manifest binary sha256 matches target
   -> recovery cron marker present
   -> Direct full dry-run complete. No changes made.
+```
+
+### Apply
+
+```text
+xray-go update go
+  -> Refreshing xray-go-direct-full...
+  -> Direct install mode detected. Running direct full update.
+  -> direct post-check: OK=12 WARN=0 FAIL=0
+  -> direct-init post-check: OK=8 WARN=0 FAIL=0
+  -> Direct full apply complete.
+  -> No first-run setup was executed.
+  -> VLESS sources were not edited.
+```
+
+Финальная проверка после apply:
+
+```text
+xray-go manifest
+  -> Install mode: direct
+  -> Modules: manifest,direct-experimental,binary-present
+
+xray-go recover status
+  -> health: OK
+
+xray-go doctor --support
+  -> SOCKS health-check OK
+  -> OK=50 WARN=2 FAIL=0
 ```
 
 Также подтверждено до этого:
