@@ -27,6 +27,8 @@
 - [x] Сохранить pass-through текущих опций `auto_latest`.
 - [x] Добавить скрытый `--direct-experimental`.
 - [x] Добавить безопасный `--direct-detect-only`.
+- [x] Добавить `--direct-init-experimental`.
+- [x] Добавить `--direct-init-post-check`.
 - [x] Пробросить direct options:
   - [x] `--prepare-only`
   - [x] `--download-binary`
@@ -34,6 +36,11 @@
   - [x] `--stage-helpers`
   - [x] `--install-helpers`
   - [x] `--write-manifest`
+  - [x] `--post-check`
+  - [x] `--stage-watchdog-init`
+  - [x] `--install-watchdog-init`
+  - [x] `--enable-recovery-cron`
+  - [x] `--disable-recovery-cron`
 - [ ] Позже перенести полноценную v2-логику direct-install в основной путь.
 - [ ] После проверки на реальном роутере сделать direct-install не скрытым режимом.
 - [ ] Позже сделать `xray_vless_failover_auto_latest.sh` тонким wrapper на `install.sh`.
@@ -61,10 +68,15 @@
 - [x] Патчить staged doctor/recovery helpers для SOCKS auth-aware health-check.
 - [x] Подтвердить на роутере: `xray-go recover status` показывает `health: OK`.
 - [x] Подтвердить на роутере: `xray-go doctor --support` показывает `SOCKS health-check OK` и `FAIL=0`.
-- [ ] Установить init.d scripts.
-- [ ] Настроить cron при необходимости.
+- [x] Добавить read-only `--post-check`.
+- [x] Подтвердить на роутере: direct post-check показывает `OK=12 WARN=0 FAIL=0`.
+- [x] Добавить отдельный direct-init helper для service/init слоя.
+- [x] Добавить direct-init read-only post-check.
+- [x] Настроить recovery cron через direct-init helper.
+- [x] Подтвердить на роутере: direct-init post-check показывает `OK=8 WARN=0 FAIL=0`.
+- [ ] Установить init.d scripts через `--install-watchdog-init` на чистом сценарии.
 - [ ] Выполнить first-run setup.
-- [ ] Показать post-install checks.
+- [ ] Показать финальные post-install checks после полного direct-install.
 - [ ] Подготовить direct-update через `xray-go update go`.
 - [ ] Подготовить direct-uninstall/cleanup без `opkg remove failover-go`.
 
@@ -207,6 +219,7 @@ Agent / Control Server:
 - [ ] Обновить README под `install.sh`.
 - [x] Добавить `docs/direct-install.md`.
 - [x] Описать `--stage-helpers` и `--install-helpers`.
+- [x] Описать direct-init helper и recovery cron management.
 - [ ] Добавить `docs/install.md`.
 - [ ] Добавить `docs/modes.md`.
 - [ ] Добавить `docs/recovery.md`.
@@ -222,6 +235,7 @@ Agent / Control Server:
 - [x] Go resolver binary не устанавливается без явного `--install-binary`.
 - [x] При установке Go resolver сохраняется backup.
 - [x] Recovery health-check с SOCKS auth подтверждён как OK.
+- [x] Direct-init post-check подтверждает watchdog/recovery/cron без ошибок.
 - [ ] При ошибке скачивания или проверки рабочие файлы не должны меняться.
 - [ ] Direct-install update не должен оставлять систему в полуобновлённом состоянии.
 - [ ] Recovery не должен создавать reboot loop.
