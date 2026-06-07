@@ -108,6 +108,15 @@ fetch_url() {
     return 127
 }
 
+cache_bust_url() {
+    url="$1"
+    cb="$(date +%s 2>/dev/null || echo $$)"
+    case "$url" in
+        *\?*) printf '%s&cb=%s\n' "$url" "$cb" ;;
+        *) printf '%s?cb=%s\n' "$url" "$cb" ;;
+    esac
+}
+
 looks_like_shell_script() {
     head -n 1 "$1" 2>/dev/null | grep -Eq '^#!/bin/sh|^#!/opt/bin/sh|^#!/usr/bin/env[[:space:]]+sh'
 }
@@ -204,7 +213,7 @@ case "${1:-}" in
         echo "Keenetic Xray Go installer"
         echo "Entrypoint: install.sh"
         echo "Mode: direct setup plan"
-        run_downloaded_script "$DIRECT_SETUP_URL" "$DIRECT_SETUP_TMP_FILE" "direct setup planner" "$@"
+        run_downloaded_script "$(cache_bust_url "$DIRECT_SETUP_URL")" "$DIRECT_SETUP_TMP_FILE" "direct setup planner" "$@"
         ;;
     --direct-uninstall-plan|--direct-uninstall-dry-run)
         shift
