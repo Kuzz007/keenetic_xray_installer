@@ -143,8 +143,11 @@ Staging directory для init:
 --direct-experimental --write-manifest -y     OK
 --direct-experimental --install-helpers       OK
 --direct-experimental --post-check            OK=12 WARN=0 FAIL=0
+--direct-init-experimental --stage-watchdog-init OK
+--direct-init-experimental --install-watchdog-init -y OK
 --direct-init-post-check                      OK=8 WARN=0 FAIL=0
 --direct-init-experimental --enable-recovery-cron --schedule '7 * * * *' -y OK
+watchdog restart after direct-init            OK
 ```
 
 Также подтверждено:
@@ -270,35 +273,3 @@ xray-go version
 xray-go update go
 xray-go uninstall --dry-run
 ```
-
-## Безопасность обновления
-
-Direct-install update должен быть атомарным насколько это возможно:
-
-1. скачать файлы во временную директорию;
-2. проверить shell syntax для helper-скриптов;
-3. проверить sha256 для бинарников, если checksum доступен;
-4. не трогать рабочие файлы при ошибке скачивания или проверки;
-5. заменять файлы только после успешной проверки;
-6. обновлять manifest только после успешной установки.
-
-## Статус
-
-На текущем этапе:
-
-- `install.sh` существует как безопасный wrapper на `auto_latest` по умолчанию;
-- `install.sh --direct-experimental` умеет запускать experimental skeleton;
-- `install.sh --direct-detect-only` умеет проверять direct-install detection без изменений;
-- `scripts/xray-go-direct-install.sh` добавлен;
-- `scripts/xray-go-direct-init.sh` добавлен;
-- `scripts/xray-go-manifest.sh` добавлен;
-- skeleton умеет staging download + sha256 verification через `--download-binary`;
-- skeleton умеет явно устанавливать Go resolver через `--install-binary`;
-- skeleton умеет скачивать и проверять shell helpers через `--stage-helpers`;
-- skeleton умеет явно устанавливать shell helpers через `--install-helpers`;
-- skeleton умеет read-only post-check через `--post-check`;
-- direct-init умеет stage/install watchdog init через `--stage-watchdog-init` и `--install-watchdog-init`;
-- direct-init умеет enable/disable recovery cron через marker `vless-go-hourly-recover`;
-- direct-init умеет read-only service checks через `--direct-init-post-check`;
-- direct-install flow ещё не заменяет текущую Full Go установку;
-- IPK/feed пока остаётся рабочей v1-схемой совместимости.
