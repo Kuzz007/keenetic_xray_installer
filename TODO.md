@@ -231,6 +231,7 @@ Agent / Control Server:
 - [x] Обновить README под `install.sh`.
 - [x] Добавить `docs/install.md`.
 - [x] Добавить `docs/modes.md`.
+- [x] Добавить `docs/recovery.md`.
 - [x] Добавить `docs/direct-install.md`.
 - [x] Добавить `docs/direct-update.md`.
 - [x] Добавить `docs/direct-uninstall.md`.
@@ -245,7 +246,6 @@ Agent / Control Server:
 - [x] Зафиксировать router validation для direct-aware update.
 - [x] Зафиксировать router validation для direct uninstall dry-run.
 - [x] Зафиксировать router validation для guarded uninstall apply scaffold.
-- [ ] Добавить `docs/recovery.md`.
 - [x] Добавить `docs/legacy.md`.
 - [x] Добавить `docs/opkg-feed-v1.md`.
 
