@@ -67,7 +67,7 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-post-check
 ```
 
-Подробности: `docs/install.md`, `docs/modes.md`, `docs/direct-install.md`, `docs/direct-update.md`, `docs/direct-uninstall.md`, `docs/direct-uninstall-validation.md`.
+Подробности: `docs/install.md`, `docs/modes.md`, `docs/recovery.md`, `docs/direct-install.md`, `docs/direct-update.md`, `docs/direct-uninstall.md`, `docs/direct-uninstall-validation.md`.
 
 ---
 
@@ -99,6 +99,8 @@ xray-go recover disable-hourly
 xray-go logs watchdog
 xray-go history
 ```
+
+Подробнее: `docs/recovery.md`.
 
 Обновление Xray-core и очистка:
 
