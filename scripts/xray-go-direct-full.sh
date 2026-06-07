@@ -3,11 +3,11 @@ set -e
 
 # xray-go-direct-full - experimental full direct-install orchestrator.
 #
-# Current stage is intentionally read-only. It prints the intended v2 direct full
-# install sequence and checks already-installed direct components. It does not
-# download, install, write config, modify cron, run first setup or restart services.
+# Default mode is read-only dry-run. Apply mode is explicit and requires --yes.
+# The orchestrator runs already validated direct-install/direct-init helpers in a
+# safe order. It does not run first setup and does not edit VLESS sources.
 
-XRAY_GO_DIRECT_FULL_VERSION="${XRAY_GO_DIRECT_FULL_VERSION:-0.1.0-direct-full-dry-run}"
+XRAY_GO_DIRECT_FULL_VERSION="${XRAY_GO_DIRECT_FULL_VERSION:-0.1.0-direct-full}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
 DIRECT_INSTALL_URL="${DIRECT_INSTALL_URL:-${REPO_BASE}/scripts/xray-go-direct-install.sh}"
@@ -23,9 +23,11 @@ RECOVERY_CMD="${RECOVERY_CMD:-/opt/bin/vless-go-recover}"
 CRON_FILE="${CRON_FILE:-/opt/var/spool/cron/crontabs/root}"
 RECOVERY_CRON_SCHEDULE="${RECOVERY_CRON_SCHEDULE:-7 * * * *}"
 RECOVERY_CRON_MARKER="${RECOVERY_CRON_MARKER:-vless-go-hourly-recover}"
+TMP_DIR="${TMPDIR:-/opt/tmp}"
 
 MODE="dry-run"
 SHOW_COMMANDS="1"
+ASSUME_YES="0"
 
 usage() {
     cat <<'USAGE'
@@ -33,24 +35,36 @@ xray-go-direct-full - experimental full direct-install orchestrator
 
 Usage:
   xray-go-direct-full --dry-run
+  xray-go-direct-full --apply --yes
 
 Modes:
   --dry-run              Print full v2 direct-install plan; make no changes
+  --apply                Run the verified direct full sequence; requires --yes
 
 Options:
+  --schedule '7 * * * *' Recovery cron schedule
   --no-commands          Hide exact curl/install.sh command examples
-  -h, --help            Show help
+  -y, --yes              Required for --apply
+  -h, --help             Show help
 
 Notes:
-  This tool is read-only at this stage. It does not install binary/helpers,
-  write manifest, modify cron, run first setup or restart services.
+  Apply mode installs/updates direct binary, helpers, manifest, watchdog init and
+  recovery cron using the smaller direct helpers. It does not run first setup,
+  does not edit VLESS sources and does not restart services by itself.
 USAGE
 }
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --dry-run|--plan|--check) MODE="dry-run"; shift ;;
+        --apply|--run|--install) MODE="apply"; shift ;;
+        --schedule)
+            [ "$#" -ge 2 ] || { echo "ERROR: --schedule requires a value" >&2; exit 2; }
+            RECOVERY_CRON_SCHEDULE="$2"
+            shift 2
+            ;;
         --no-commands) SHOW_COMMANDS="0"; shift ;;
+        -y|--yes) ASSUME_YES="1"; shift ;;
         -h|--help|help) usage; exit 0 ;;
         *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -107,6 +121,46 @@ check_line() {
     else
         echo "[WARN] missing $label: $path"
     fi
+}
+
+fetch_url() {
+    url="$1"
+    output="$2"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL -H 'Cache-Control: no-cache' -o "$output" "$url"
+        return $?
+    fi
+
+    if command -v wget >/dev/null 2>&1; then
+        wget -q -O "$output" "$url"
+        return $?
+    fi
+
+    echo "ERROR: curl or wget is required." >&2
+    return 127
+}
+
+looks_like_shell_script() {
+    head -n 1 "$1" 2>/dev/null | grep -Eq '^#!/bin/sh|^#!/opt/bin/sh|^#!/usr/bin/env[[:space:]]+sh'
+}
+
+run_remote_helper() {
+    label="$1"
+    url="$2"
+    shift 2
+
+    mkdir -p "$TMP_DIR"
+    tmp="${TMP_DIR}/xray-go-direct-full-$(echo "$label" | tr ' /' '__').$$.sh"
+    echo
+    echo "== $label =="
+    echo "Downloading: $url"
+    fetch_url "$url" "$tmp"
+    looks_like_shell_script "$tmp" || { echo "ERROR: downloaded $label is not a shell script" >&2; rm -f "$tmp" 2>/dev/null || true; exit 1; }
+    sh -n "$tmp" || { echo "ERROR: downloaded $label failed sh -n" >&2; rm -f "$tmp" 2>/dev/null || true; exit 1; }
+    chmod +x "$tmp"
+    sh "$tmp" "$@"
+    rm -f "$tmp" 2>/dev/null || true
 }
 
 ENTWARE_ARCH="${ENTWARE_ARCH:-$(detect_entware_arch)}"
@@ -173,7 +227,7 @@ EOF_STEPS
 
 if [ "$SHOW_COMMANDS" = "1" ]; then
     echo
-    echo "== Equivalent commands, not executed by dry-run =="
+    echo "== Equivalent commands =="
     cat <<EOF_CMDS
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-detect-only
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --install-binary
@@ -186,5 +240,40 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 EOF_CMDS
 fi
 
+if [ "$MODE" = "dry-run" ]; then
+    echo
+    echo "Direct full dry-run complete. No changes made."
+    exit 0
+fi
+
+if [ "$MODE" != "apply" ]; then
+    echo "ERROR: unsupported mode: $MODE" >&2
+    exit 2
+fi
+
+if [ "$ASSUME_YES" != "1" ]; then
+    echo "ERROR: --apply requires --yes." >&2
+    echo "This prevents accidental full direct changes." >&2
+    exit 2
+fi
+
+[ -n "$GO_ASSET_NAME" ] || { echo "ERROR: unsupported architecture for Go resolver: $ENTWARE_ARCH" >&2; exit 1; }
+
 echo
-echo "Direct full dry-run complete. No changes made."
+echo "== Applying full direct-install sequence =="
+run_remote_helper "direct detect-only" "$DIRECT_INSTALL_URL" --detect-only
+run_remote_helper "direct install binary" "$DIRECT_INSTALL_URL" --install-binary
+run_remote_helper "direct install helpers" "$DIRECT_INSTALL_URL" --install-helpers
+run_remote_helper "direct write manifest" "$DIRECT_INSTALL_URL" --write-manifest -y
+run_remote_helper "direct post-check" "$DIRECT_INSTALL_URL" --post-check
+run_remote_helper "direct init install watchdog" "$DIRECT_INIT_URL" --install-watchdog-init -y
+run_remote_helper "direct init enable recovery cron" "$DIRECT_INIT_URL" --enable-recovery-cron --schedule "$RECOVERY_CRON_SCHEDULE" -y
+run_remote_helper "direct init post-check" "$DIRECT_INIT_URL" --post-check
+
+echo
+echo "Direct full apply complete."
+echo "No first-run setup was executed. VLESS sources were not edited."
+echo "Final validation commands:"
+echo "  xray-go manifest"
+echo "  xray-go recover status"
+echo "  xray-go doctor --support"
