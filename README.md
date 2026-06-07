@@ -67,7 +67,7 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-post-check
 ```
 
-Подробности: `docs/install.md`, `docs/direct-install.md`, `docs/direct-update.md`, `docs/direct-uninstall.md`, `docs/direct-uninstall-validation.md`.
+Подробности: `docs/install.md`, `docs/modes.md`, `docs/direct-install.md`, `docs/direct-update.md`, `docs/direct-uninstall.md`, `docs/direct-uninstall-validation.md`.
 
 ---
 
@@ -140,6 +140,8 @@ Full Go подходит для обычной установки на USB/SSD �
 - единый wrapper `xray-go`.
 
 Minimal Go остаётся лёгким профилем для роутеров с малым `/opt`: без тяжёлых зависимостей, без `python3`, без подписок и без cron, но с primary/backup, failover, Proxy0 и SOCKS5.
+
+Подробнее о профилях: `docs/modes.md`.
 
 ---
 
