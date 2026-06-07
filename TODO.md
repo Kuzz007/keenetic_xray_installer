@@ -115,6 +115,7 @@ Manifest не должен хранить приватные источники,
 - [x] `xray-go summary`
 - [x] `xray-go doctor`
 - [x] `xray-go doctor --summary`
+- [x] `xray-go privacy-check`
 - [x] `xray-go menu`
 - [x] `xray-go history`
 - [x] `xray-go logs`
@@ -206,7 +207,8 @@ Agent / Control Server:
 - [x] Подтвердить compact summary helper на роутере: `OK=12 WARN=0 FAIL=0`.
 - [x] Добавить CLI path `xray-go summary` / `xray-go doctor --summary`.
 - [x] Подтвердить CLI path `xray-go summary` / `xray-go doctor --summary` на роутере после `xray-go update go`: `OK=12 WARN=0 FAIL=0`.
-- [ ] Проверить, что support output не раскрывает приватные данные.
+- [x] Добавить read-only `xray-go privacy-check` для проверки diagnostic/support output.
+- [ ] Подтвердить на роутере: `xray-go privacy-check` завершает `FAIL=0`.
 
 ---
 
@@ -243,6 +245,7 @@ Agent / Control Server:
 - [x] Добавить `docs/direct-uninstall.md`.
 - [x] Добавить `docs/direct-uninstall-validation.md`.
 - [x] Добавить `docs/doctor-summary.md`.
+- [x] Добавить `docs/privacy-check.md`.
 - [x] Описать direct full dry-run/apply orchestrator.
 - [x] Описать direct-aware `xray-go update go`.
 - [x] Описать direct uninstall dry-run planner.
