@@ -27,25 +27,26 @@ OK/WARN/FAIL
 
 ## Безопасность
 
-Helper не печатает:
+Helper не выводит raw VLESS/subscription values и использует SOCKS auth config только для health-check.
 
-```text
-raw vless:// links
-subscription URLs
-tokens
-passwords
-private keys
-```
-
-SOCKS auth учитывается через:
+SOCKS auth config:
 
 ```text
 /opt/etc/xray/vless-go-socks-auth.conf
 ```
 
-Credentials используются только для health-check и не выводятся в stdout.
+## Команды
 
-## Проверка без установки
+После обновления direct-mode установки helper доступен через `xray-go`:
+
+```sh
+xray-go summary
+xray-go doctor --summary
+```
+
+Эти команды refresh'ят `/opt/bin/vless-go-doctor-summary` из репозитория перед запуском, если доступен `curl`.
+
+Проверка без установки wrapper'а:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/vless-go-doctor-summary.sh | sh
@@ -96,7 +97,7 @@ Validation notes:
 - helper работает без установки через `curl | sh`;
 - SOCKS auth health-check проходит;
 - manifest sha256 совпадает с текущим Go resolver binary;
-- приватные VLESS/subscription данные не выводятся.
+- sensitive connection values не выводятся.
 
 ## Связь с полным doctor
 
@@ -109,4 +110,11 @@ xray-go doctor --support
 
 Summary helper полезен как быстрый pre-check перед полным выводом.
 
-Будущий шаг: встроить этот summary в начало `vless-go-doctor` / `xray-go doctor --support`, если формат подтвердится на роутере.
+Текущий CLI path:
+
+```text
+xray-go summary
+xray-go doctor --summary
+```
+
+Будущий шаг: при желании встроить summary прямо в начало полного `vless-go-doctor` / `xray-go doctor --support`, если компактный CLI path стабилен на роутере.
