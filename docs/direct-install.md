@@ -34,23 +34,29 @@ install.sh
   -> print post-install checks
 ```
 
-## Direct full dry-run orchestrator
+## Direct full orchestrator
 
-Для сборки всех уже проверенных direct-install шагов в один понятный план добавлен read-only оркестратор:
+Для сборки всех уже проверенных direct-install шагов в один понятный поток добавлен оркестратор:
 
 ```text
 scripts/xray-go-direct-full.sh
 ```
 
-Публичный запуск:
+Read-only dry-run:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-full-dry-run
 ```
 
-На текущем этапе это только dry-run. Он ничего не скачивает, не устанавливает, не пишет manifest, не меняет cron, не запускает first-run setup и не рестартует сервисы. Он показывает текущий direct state и последовательность команд, из которых позже можно будет собрать полный direct full install.
+Apply mode:
 
-План dry-run:
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-full-experimental --yes
+```
+
+Apply mode требует явный `--yes`. Это защита от случайного запуска полного direct sequence.
+
+В apply mode оркестратор запускает уже проверенные маленькие helpers в таком порядке:
 
 ```text
 1. direct-install detect-only
@@ -64,6 +70,8 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 9. print final xray-go commands for user validation
 ```
 
+Важно: apply mode не выполняет first-run setup, не редактирует VLESS sources и не рестартует сервисы сам по себе.
+
 ## Experimental direct-install skeleton
 
 Основной skeleton:
@@ -72,7 +80,7 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 scripts/xray-go-direct-install.sh
 ```
 
-Он пока не заменяет рабочую установку. Его задача — проверить основу direct-install:
+Он отвечает за binary/helper/manifest слой:
 
 ```text
 - определить Entware architecture;
@@ -177,6 +185,7 @@ Staging directory для init:
 --direct-init-experimental --install-watchdog-init -y OK
 --direct-init-post-check                      OK=8 WARN=0 FAIL=0
 --direct-init-experimental --enable-recovery-cron --schedule '7 * * * *' -y OK
+--direct-full-dry-run                         OK, No changes made
 watchdog restart after direct-init            OK
 ```
 
@@ -281,25 +290,4 @@ subscription URLs
 tokens
 passwords
 private keys
-```
-
-## Связь с `xray-go`
-
-`xray-go` уже умеет показывать manifest:
-
-```sh
-xray-go manifest
-xray-go manifest summary
-xray-go manifest show
-xray-go manifest path
-```
-
-Также `xray-go doctor --support` показывает безопасный manifest summary, если helper доступен.
-
-В дальнейшем `xray-go` должен уметь:
-
-```sh
-xray-go version
-xray-go update go
-xray-go uninstall --dry-run
 ```
