@@ -96,12 +96,16 @@ for path in \
 info ""
 info "== Downloader entrypoint target guardrails =="
 check_repo_plain_target install.sh scripts/xray-go-direct-install.sh "install.sh direct-install entrypoint"
+check_repo_plain_target install.sh scripts/xray-go-direct-init.sh "install.sh direct-init entrypoint"
 check_repo_plain_target xray_vless_failover_go.sh scripts/install-entware-feed.sh "Go/Entware entrypoint"
 check_repo_plain_target xray_vless_failover_minimal_go.sh xray_vless_failover_minimal.sh "Minimal Go entrypoint"
 check_contains install.sh 'AUTO_LATEST_URL' "install.sh keeps Auto Latest URL override"
 check_contains install.sh 'DIRECT_INSTALL_URL' "install.sh keeps direct-install URL override"
+check_contains install.sh 'DIRECT_INIT_URL' "install.sh keeps direct-init URL override"
 check_contains install.sh '--direct-experimental' "install.sh keeps direct experimental mode"
 check_contains install.sh '--direct-detect-only' "install.sh keeps direct detect-only mode"
+check_contains install.sh '--direct-init-experimental' "install.sh keeps direct-init experimental mode"
+check_contains install.sh '--direct-init-post-check' "install.sh keeps direct-init post-check mode"
 check_contains xray_vless_failover_go.sh 'GO_PLAIN_URL' "Go/Entware entrypoint keeps URL override"
 check_contains xray_vless_failover_minimal_go.sh 'MINIMAL_GO_PLAIN_URL' "Minimal Go entrypoint keeps URL override"
 check_not_contains xray_vless_failover_go.sh 'xray_vless_failover_old_go.sh' "Go/Entware entrypoint does not point at removed old_go path"
@@ -118,6 +122,14 @@ check_contains scripts/xray-go-direct-install.sh '--install-helpers' "direct-ins
 check_contains scripts/xray-go-direct-install.sh 'HELPER_INDEX' "direct-install tracks staged helper index"
 check_contains scripts/xray-go-direct-install.sh 'verify_shell_helper' "direct-install checks helper shell syntax"
 check_contains scripts/xray-go-direct-install.sh 'No first-run setup was executed' "direct-install skeleton documents no first-run setup"
+
+info ""
+info "== Direct-init guardrails =="
+check_contains scripts/xray-go-direct-init.sh '--stage-watchdog-init' "direct-init keeps watchdog init staging mode"
+check_contains scripts/xray-go-direct-init.sh '--install-watchdog-init' "direct-init keeps explicit watchdog init install mode"
+check_contains scripts/xray-go-direct-init.sh '--post-check' "direct-init keeps read-only post-check mode"
+check_contains scripts/xray-go-direct-init.sh 'WATCHDOG_INSTALLER_STAGE' "direct-init stages watchdog installer before running"
+check_contains scripts/xray-go-direct-init.sh 'No first-run setup was executed' "direct-init documents no first-run setup"
 
 info ""
 info "== Embedded payload guardrails for public entrypoints =="
@@ -172,6 +184,7 @@ for path in \
     install.sh \
     scripts/xray-go.sh \
     scripts/xray-go-direct-install.sh \
+    scripts/xray-go-direct-init.sh \
     scripts/xray-go-installer-update.sh \
     scripts/failover-go.sh \
     scripts/vless-go-update.sh \
