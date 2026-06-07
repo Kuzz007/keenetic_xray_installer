@@ -15,6 +15,7 @@ DIRECT_INSTALL_URL="${DIRECT_INSTALL_URL:-${REPO_BASE}/scripts/xray-go-direct-in
 DIRECT_INIT_URL="${DIRECT_INIT_URL:-${REPO_BASE}/scripts/xray-go-direct-init.sh}"
 DIRECT_FULL_URL="${DIRECT_FULL_URL:-${REPO_BASE}/scripts/xray-go-direct-full.sh}"
 DIRECT_UNINSTALL_URL="${DIRECT_UNINSTALL_URL:-${REPO_BASE}/scripts/xray-go-direct-uninstall.sh}"
+DIRECT_SETUP_URL="${DIRECT_SETUP_URL:-${REPO_BASE}/scripts/xray-go-direct-setup.sh}"
 
 if [ -d /opt ]; then
     TMP_DIR="${TMPDIR:-/opt/tmp}"
@@ -27,9 +28,10 @@ DIRECT_TMP_FILE="${TMP_DIR}/xray_go_direct_install.$$"
 DIRECT_INIT_TMP_FILE="${TMP_DIR}/xray_go_direct_init.$$"
 DIRECT_FULL_TMP_FILE="${TMP_DIR}/xray_go_direct_full.$$"
 DIRECT_UNINSTALL_TMP_FILE="${TMP_DIR}/xray_go_direct_uninstall.$$"
+DIRECT_SETUP_TMP_FILE="${TMP_DIR}/xray_go_direct_setup.$$"
 
 cleanup() {
-    rm -f "$TMP_FILE" "$DIRECT_TMP_FILE" "$DIRECT_INIT_TMP_FILE" "$DIRECT_FULL_TMP_FILE" "$DIRECT_UNINSTALL_TMP_FILE" 2>/dev/null || true
+    rm -f "$TMP_FILE" "$DIRECT_TMP_FILE" "$DIRECT_INIT_TMP_FILE" "$DIRECT_FULL_TMP_FILE" "$DIRECT_UNINSTALL_TMP_FILE" "$DIRECT_SETUP_TMP_FILE" 2>/dev/null || true
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -43,6 +45,7 @@ Usage:
   install.sh --direct-apply --yes
   install.sh --direct-check
   install.sh --direct-init-check
+  install.sh --direct-setup-plan
   install.sh --direct-uninstall-plan
   install.sh --direct-uninstall-guarded --yes
 
@@ -55,6 +58,7 @@ Direct-install v2 public aliases:
   --direct-apply                 Apply full direct sequence; requires --yes
   --direct-check                 Run direct-install read-only post-check
   --direct-init-check            Run direct init/service read-only checks
+  --direct-setup-plan            Analyze first-run/setup state; make no changes
   --direct-uninstall-plan        Print direct uninstall/cleanup plan; make no changes
   --direct-uninstall-guarded     Run guarded uninstall apply scaffold; requires --yes
 
@@ -74,6 +78,7 @@ Examples:
   install.sh --direct-apply --yes
   install.sh --direct-check
   install.sh --direct-init-check
+  install.sh --direct-setup-plan
   install.sh --direct-uninstall-plan
   install.sh --direct-experimental --post-check
   install.sh --direct-experimental --install-binary
@@ -193,6 +198,13 @@ case "${1:-}" in
         echo "Entrypoint: install.sh"
         echo "Mode: direct-install post-check"
         run_downloaded_script "$DIRECT_INSTALL_URL" "$DIRECT_TMP_FILE" "direct-install skeleton" --post-check "$@"
+        ;;
+    --direct-setup-plan)
+        shift
+        echo "Keenetic Xray Go installer"
+        echo "Entrypoint: install.sh"
+        echo "Mode: direct setup plan"
+        run_downloaded_script "$DIRECT_SETUP_URL" "$DIRECT_SETUP_TMP_FILE" "direct setup planner" "$@"
         ;;
     --direct-uninstall-plan|--direct-uninstall-dry-run)
         shift
