@@ -57,6 +57,26 @@ OK=... WARN=0 FAIL=0
 
 Допустимы warning-и только для дополнительных файлов, которые отсутствуют на неполной установке. На подтверждённой direct full установке ожидается `FAIL=0`.
 
+## Router validation
+
+Подтверждено на Keenetic `aarch64-3.10_kn` после direct full/update/Xray-core validation:
+
+```text
+[OK] manifest present: /opt/etc/xray/xray-go.manifest
+[OK] manifest install mode: direct
+[OK] manifest binary executable: /opt/bin/xray-failover-go
+[OK] manifest binary sha256 matches current binary
+[OK] direct-install plan present: /opt/etc/xray/xray-go.direct-install.plan
+[OK] direct-init plan present: /opt/etc/xray/xray-go.direct-init.plan
+[OK] helper index present: /opt/tmp/xray-go-direct-install/xray-go.helpers.index
+[OK] direct full update supports binary reuse fallback
+[OK] isolated bad download failed before touching working files
+[OK] isolated broken shell helper rejected by sh -n
+[OK] isolated failed install leaves previous target content unchanged
+[OK] working direct-install files unchanged after failure simulations
+OK=12 WARN=0 FAIL=0
+```
+
 ## Связанные проверки
 
 ```sh
