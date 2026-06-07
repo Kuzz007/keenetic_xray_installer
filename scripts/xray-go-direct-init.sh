@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# xray-go-direct-init - experimental direct-install init.d helper.
+# xray-go-direct-init - experimental direct-install init.d/cron helper.
 #
 # This helper handles init.d/service pieces separately from the main direct-install
 # skeleton. It is intentionally explicit: staging is read-only, install requires a
@@ -21,17 +21,21 @@ WATCHDOG_INIT="${WATCHDOG_INIT:-/opt/etc/init.d/S26vless-go-watchdog}"
 WATCHDOG_CONF="${WATCHDOG_CONF:-/opt/etc/xray/vless-go-watchdog.conf}"
 RECOVER_CMD="${RECOVER_CMD:-/opt/bin/vless-go-recover}"
 CRON_FILE="${CRON_FILE:-/opt/var/spool/cron/crontabs/root}"
+RECOVERY_CRON_SCHEDULE="${RECOVERY_CRON_SCHEDULE:-7 * * * *}"
+RECOVERY_CRON_MARKER="${RECOVERY_CRON_MARKER:-vless-go-hourly-recover}"
 PLAN_FILE="${PLAN_FILE:-/opt/etc/xray/xray-go.direct-init.plan}"
 
 MODE="prepare"
 STAGE_WATCHDOG_INIT="0"
 INSTALL_WATCHDOG_INIT="0"
+ENABLE_RECOVERY_CRON="0"
+DISABLE_RECOVERY_CRON="0"
 POST_CHECK="0"
 ASSUME_YES="0"
 
 usage() {
     cat <<'USAGE'
-xray-go-direct-init - experimental direct-install init.d helper
+xray-go-direct-init - experimental direct-install init.d/cron helper
 
 Usage:
   xray-go-direct-init [options]
@@ -43,13 +47,15 @@ Modes:
 Options:
   --stage-watchdog-init      Download and syntax-check watchdog installer into staging dir
   --install-watchdog-init    Stage and run watchdog installer; no first-run setup is executed
-  -y, --yes                  Do not ask confirmation before install-watchdog-init
+  --enable-recovery-cron     Enable hourly recovery cron entry
+  --disable-recovery-cron    Disable hourly recovery cron entry
+  --schedule '7 * * * *'     Recovery cron schedule for --enable-recovery-cron
+  -y, --yes                  Do not ask confirmation before write actions
   -h, --help                 Show help
 
 Notes:
-  This helper does not rewrite VLESS sources, does not run first setup and does not
-  restart services by itself. The existing watchdog installer writes/updates the
-  watchdog helper, init.d script and config.
+  This helper does not rewrite VLESS sources and does not run first setup. The
+  watchdog installer writes/updates the watchdog helper, init.d script and config.
 USAGE
 }
 
@@ -59,11 +65,23 @@ while [ "$#" -gt 0 ]; do
         --post-check|--check-installed|--verify-installed) POST_CHECK="1"; shift ;;
         --stage-watchdog-init) STAGE_WATCHDOG_INIT="1"; shift ;;
         --install-watchdog-init) STAGE_WATCHDOG_INIT="1"; INSTALL_WATCHDOG_INIT="1"; shift ;;
+        --enable-recovery-cron|--enable-hourly-recovery) ENABLE_RECOVERY_CRON="1"; shift ;;
+        --disable-recovery-cron|--disable-hourly-recovery) DISABLE_RECOVERY_CRON="1"; shift ;;
+        --schedule)
+            [ "$#" -ge 2 ] || { echo "ERROR: --schedule requires value" >&2; exit 2; }
+            RECOVERY_CRON_SCHEDULE="$2"
+            shift 2
+            ;;
         -y|--yes) ASSUME_YES="1"; shift ;;
         -h|--help|help) usage; exit 0 ;;
         *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
 done
+
+[ "$ENABLE_RECOVERY_CRON" = "1" ] && [ "$DISABLE_RECOVERY_CRON" = "1" ] && {
+    echo "ERROR: --enable-recovery-cron and --disable-recovery-cron cannot be used together." >&2
+    exit 2
+}
 
 fetch_url() {
     url="$1"
@@ -88,15 +106,15 @@ looks_like_shell_script() {
     head -n 1 "$1" 2>/dev/null | grep -Eq '^#!/bin/sh|^#!/opt/bin/sh|^#!/usr/bin/env[[:space:]]+sh'
 }
 
-confirm_install() {
-    [ "$INSTALL_WATCHDOG_INIT" = "1" ] || return 0
+confirm_action() {
+    prompt="$1"
     [ "$ASSUME_YES" = "1" ] && return 0
 
     if [ -r /dev/tty ]; then
-        printf '%s' "Install/update watchdog init.d files? [y/N]: " >/dev/tty
+        printf '%s' "$prompt [y/N]: " >/dev/tty
         IFS= read -r reply </dev/tty
     else
-        printf '%s' "Install/update watchdog init.d files? [y/N]: " >&2
+        printf '%s' "$prompt [y/N]: " >&2
         IFS= read -r reply
     fi
 
@@ -118,9 +136,13 @@ Watchdog init: $WATCHDOG_INIT
 Watchdog config: $WATCHDOG_CONF
 Recovery command: $RECOVER_CMD
 Cron file: $CRON_FILE
+Recovery cron schedule: $RECOVERY_CRON_SCHEDULE
+Recovery cron marker: $RECOVERY_CRON_MARKER
 Plan file: $PLAN_FILE
 Stage watchdog init: $STAGE_WATCHDOG_INIT
 Install watchdog init: $INSTALL_WATCHDOG_INIT
+Enable recovery cron: $ENABLE_RECOVERY_CRON
+Disable recovery cron: $DISABLE_RECOVERY_CRON
 Post-check: $POST_CHECK
 EOF_PLAN
 }
@@ -142,8 +164,12 @@ write_plan_file() {
         echo "WATCHDOG_CONF=\"$WATCHDOG_CONF\""
         echo "RECOVER_CMD=\"$RECOVER_CMD\""
         echo "CRON_FILE=\"$CRON_FILE\""
+        echo "RECOVERY_CRON_SCHEDULE=\"$RECOVERY_CRON_SCHEDULE\""
+        echo "RECOVERY_CRON_MARKER=\"$RECOVERY_CRON_MARKER\""
         echo "STAGE_WATCHDOG_INIT=\"$STAGE_WATCHDOG_INIT\""
         echo "INSTALL_WATCHDOG_INIT=\"$INSTALL_WATCHDOG_INIT\""
+        echo "ENABLE_RECOVERY_CRON=\"$ENABLE_RECOVERY_CRON\""
+        echo "DISABLE_RECOVERY_CRON=\"$DISABLE_RECOVERY_CRON\""
         echo "CREATED_AT=\"$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S%z')\""
     } >"$tmp"
     chmod 600 "$tmp" 2>/dev/null || true
@@ -165,10 +191,62 @@ stage_watchdog_init() {
 install_watchdog_init() {
     [ "$INSTALL_WATCHDOG_INIT" = "1" ] || return 0
     [ -x "$WATCHDOG_INSTALLER_STAGE" ] || { echo "ERROR: watchdog installer is not staged: $WATCHDOG_INSTALLER_STAGE" >&2; exit 1; }
-    confirm_install
+    confirm_action "Install/update watchdog init.d files?"
     echo "Running watchdog init installer..."
     WATCHDOG_BRANCH="$REPO_BRANCH" sh "$WATCHDOG_INSTALLER_STAGE"
     echo "Watchdog init installer complete."
+}
+
+remove_recovery_cron_lines() {
+    input="$1"
+    output="$2"
+    if [ -s "$input" ]; then
+        grep -v "# ${RECOVERY_CRON_MARKER}" "$input" >"$output" || true
+    else
+        : >"$output"
+    fi
+}
+
+reload_cron_daemon() {
+    if command -v crond >/dev/null 2>&1; then
+        killall -HUP crond 2>/dev/null || true
+    elif command -v cron >/dev/null 2>&1; then
+        killall -HUP cron 2>/dev/null || true
+    fi
+}
+
+enable_recovery_cron() {
+    [ "$ENABLE_RECOVERY_CRON" = "1" ] || return 0
+    [ -x "$RECOVER_CMD" ] || { echo "ERROR: recovery helper is not executable: $RECOVER_CMD" >&2; exit 1; }
+    confirm_action "Enable hourly recovery cron?"
+
+    mkdir -p "$(dirname "$CRON_FILE")"
+    touch "$CRON_FILE"
+    chmod 600 "$CRON_FILE" 2>/dev/null || true
+
+    tmp="${CRON_FILE}.$$"
+    remove_recovery_cron_lines "$CRON_FILE" "$tmp"
+    printf '%s %s --quiet --mode full run # %s\n' "$RECOVERY_CRON_SCHEDULE" "$RECOVER_CMD" "$RECOVERY_CRON_MARKER" >>"$tmp"
+    chmod 600 "$tmp" 2>/dev/null || true
+    mv "$tmp" "$CRON_FILE"
+    reload_cron_daemon
+    echo "Recovery cron enabled: $RECOVERY_CRON_SCHEDULE $RECOVER_CMD --quiet --mode full run # $RECOVERY_CRON_MARKER"
+}
+
+disable_recovery_cron() {
+    [ "$DISABLE_RECOVERY_CRON" = "1" ] || return 0
+    confirm_action "Disable hourly recovery cron?"
+
+    mkdir -p "$(dirname "$CRON_FILE")"
+    touch "$CRON_FILE"
+    chmod 600 "$CRON_FILE" 2>/dev/null || true
+
+    tmp="${CRON_FILE}.$$"
+    remove_recovery_cron_lines "$CRON_FILE" "$tmp"
+    chmod 600 "$tmp" 2>/dev/null || true
+    mv "$tmp" "$CRON_FILE"
+    reload_cron_daemon
+    echo "Recovery cron disabled for marker: $RECOVERY_CRON_MARKER"
 }
 
 check_ok=0
@@ -187,6 +265,15 @@ run_post_check() {
     [ -s "$WATCHDOG_CONF" ] && pc_ok "watchdog config present: $WATCHDOG_CONF" || pc_warn "watchdog config missing: $WATCHDOG_CONF"
     [ -x "$RECOVER_CMD" ] && pc_ok "recovery helper executable: $RECOVER_CMD" || pc_warn "recovery helper missing/not executable: $RECOVER_CMD"
     [ -s "$CRON_FILE" ] && pc_ok "cron file present: $CRON_FILE" || pc_warn "cron file missing: $CRON_FILE"
+
+    if [ -s "$CRON_FILE" ]; then
+        if grep -q "# ${RECOVERY_CRON_MARKER}" "$CRON_FILE"; then
+            pc_ok "recovery cron entry present"
+            grep "# ${RECOVERY_CRON_MARKER}" "$CRON_FILE" | sed 's/^/  /'
+        else
+            pc_warn "recovery cron entry not present"
+        fi
+    fi
 
     if [ -x "$WATCHDOG_INIT" ]; then
         if "$WATCHDOG_INIT" status >/tmp/xray-go-direct-init-watchdog.$$ 2>&1; then
@@ -232,6 +319,8 @@ fi
 mkdir -p "$STAGE_DIR" "$INIT_STAGE_DIR"
 stage_watchdog_init
 install_watchdog_init
+enable_recovery_cron
+disable_recovery_cron
 write_plan_file
 
 echo
