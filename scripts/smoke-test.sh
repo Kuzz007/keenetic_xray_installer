@@ -62,7 +62,11 @@ check_contains scripts/xray-go.sh 'run_summary' "xray-go has summary command pat
 check_contains scripts/xray-go.sh 'xray-go summary' "xray-go usage documents summary command"
 check_contains scripts/xray-go.sh 'xray-go doctor --summary' "xray-go usage documents doctor summary mode"
 check_contains scripts/xray-go.sh '--summary|summary' "xray-go doctor accepts summary mode"
-check_contains scripts/xray-go.sh 'refresh_doctor_summary' "xray-go refreshes summary helper"
+check_contains scripts/xray-go.sh 'GO_PRIVACY_CHECK_URL' "xray-go has privacy check URL"
+check_contains scripts/xray-go.sh 'refresh_privacy_check' "xray-go can refresh privacy checker"
+check_contains scripts/xray-go.sh 'run_privacy_check' "xray-go has privacy-check command path"
+check_contains scripts/xray-go.sh 'xray-go privacy-check' "xray-go usage documents privacy-check command"
+check_contains scripts/xray-go.sh 'privacy-check|privacy' "xray-go accepts privacy-check command"
 check_contains scripts/xray-go.sh 'DIRECT_FULL_UPDATE_URL' "xray-go has direct full update URL"
 check_contains scripts/xray-go.sh 'refresh_direct_full_update' "xray-go can refresh direct full updater"
 check_contains scripts/xray-go.sh 'DIRECT_UNINSTALL_URL' "xray-go has direct uninstall URL"
@@ -89,6 +93,17 @@ check_contains scripts/vless-go-doctor-summary.sh 'Manifest sha256' "doctor summ
 check_contains scripts/vless-go-doctor-summary.sh 'SOCKS health' "doctor summary reports SOCKS health"
 check_contains scripts/vless-go-doctor-summary.sh 'OK=' "doctor summary prints OK/WARN/FAIL result"
 check_not_contains scripts/vless-go-doctor-summary.sh 'subscription URL' "doctor summary should not print subscription URL label"
+
+info ""
+info "== Privacy checker guardrails =="
+check_file_exists scripts/vless-go-privacy-check.sh
+check_syntax scripts/vless-go-privacy-check.sh
+check_contains scripts/vless-go-privacy-check.sh 'This checker does not print captured diagnostic output.' "privacy checker does not print captured output"
+check_contains scripts/vless-go-privacy-check.sh 'raw proxy URL' "privacy checker scans raw proxy URLs"
+check_contains scripts/vless-go-privacy-check.sh 'UUID-like value' "privacy checker scans UUID-like values"
+check_contains scripts/vless-go-privacy-check.sh 'SOCKS password variable' "privacy checker scans SOCKS password variables"
+check_contains scripts/vless-go-privacy-check.sh 'proxy credentials in URL' "privacy checker scans URL credentials"
+check_contains scripts/vless-go-privacy-check.sh 'Captured outputs are removed automatically' "privacy checker removes captured output"
 
 info ""
 info "== Doctor manifest guardrails =="
@@ -201,6 +216,7 @@ for path in \
     scripts/vless-go-recover.sh \
     scripts/vless-go-doctor.sh \
     scripts/vless-go-doctor-summary.sh \
+    scripts/vless-go-privacy-check.sh \
     scripts/vless-go-xray-core-update.sh \
     scripts/vless-go-web-install.sh \
     scripts/build-entware-ipk.sh
