@@ -60,9 +60,11 @@
 - [x] Добавить direct full dry-run orchestrator.
 - [x] Подтвердить на роутере: direct full dry-run показывает готовый state и `No changes made`.
 - [x] Добавить explicit direct full apply orchestrator, требующий `--yes`.
-- [ ] Подтвердить на роутере: direct full apply завершается успешно.
-- [x] Подтвердить на роутере: `xray-go recover status` показывает `health: OK`.
-- [x] Подтвердить на роутере: `xray-go doctor --support` показывает `SOCKS health-check OK` и `FAIL=0`.
+- [x] Подтвердить на роутере: direct full apply завершается успешно.
+- [x] Подтвердить на роутере: direct full apply сохраняет `Post-check summary: OK=12 WARN=0 FAIL=0`.
+- [x] Подтвердить на роутере: direct full apply сохраняет `Direct-init post-check summary: OK=8 WARN=0 FAIL=0`.
+- [x] Подтвердить на роутере: `xray-go recover status` показывает `health: OK` после full apply.
+- [x] Подтвердить на роутере: `xray-go doctor --support` показывает `SOCKS health-check OK` и `FAIL=0` после full apply.
 - [x] Подтвердить на роутере: direct post-check показывает `OK=12 WARN=0 FAIL=0`.
 - [x] Добавить отдельный direct-init helper для service/init слоя.
 - [x] Добавить direct-init read-only post-check.
@@ -71,7 +73,7 @@
 - [x] Установить/обновить watchdog init layer через `--install-watchdog-init -y`.
 - [x] Подтвердить на роутере: watchdog restart после direct-init сохраняет recovery `health: OK`.
 - [ ] Выполнить first-run setup.
-- [ ] Показать финальные post-install checks после полного direct-install.
+- [ ] Показать финальные post-install checks после полного direct-install как default flow.
 - [ ] Подготовить direct-update через `xray-go update go`.
 - [ ] Подготовить direct-uninstall/cleanup без `opkg remove failover-go`.
 
@@ -87,7 +89,7 @@
 - [x] Добавить manifest summary в `xray-go doctor --support`.
 - [x] Обновлять manifest при `xray-go update go` / Full Go repair.
 - [x] Подтвердить manifest на роутере в direct mode.
-- [ ] Создавать manifest во время полноценного direct-install.
+- [x] Создавать manifest во время full direct apply.
 - [ ] Научить `vless-go-doctor` читать manifest напрямую.
 - [ ] Научить `xray-go version` показывать manifest summary.
 
@@ -216,6 +218,7 @@ Agent / Control Server:
 - [x] Описать direct full dry-run/apply orchestrator.
 - [x] Описать `--stage-helpers` и `--install-helpers`.
 - [x] Описать direct-init helper и recovery cron management.
+- [x] Зафиксировать router validation для full direct apply.
 - [ ] Добавить `docs/install.md`.
 - [ ] Добавить `docs/modes.md`.
 - [ ] Добавить `docs/recovery.md`.
@@ -234,6 +237,7 @@ Agent / Control Server:
 - [x] Recovery health-check с SOCKS auth подтверждён как OK.
 - [x] Direct-init post-check подтверждает watchdog/recovery/cron без ошибок.
 - [x] Watchdog init reinstall подтверждён без поломки recovery health.
+- [x] Full direct apply подтверждён без редактирования VLESS sources и без first-run setup.
 - [ ] При ошибке скачивания или проверки рабочие файлы не должны меняться.
 - [ ] Direct-install update не должен оставлять систему в полуобновлённом состоянии.
 - [ ] Recovery не должен создавать reboot loop.
