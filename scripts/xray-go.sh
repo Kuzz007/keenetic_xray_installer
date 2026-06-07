@@ -8,6 +8,8 @@ RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_in
 GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
 GO_WATCHDOG_CMD="/opt/bin/vless-go-watchdog"
 GO_DOCTOR_CMD="/opt/bin/vless-go-doctor"
+GO_DOCTOR_SUMMARY_CMD="/opt/bin/vless-go-doctor-summary"
+GO_DOCTOR_SUMMARY_URL="${GO_DOCTOR_SUMMARY_URL:-${RAW_BASE}/scripts/vless-go-doctor-summary.sh}"
 GO_HISTORY_CMD="/opt/bin/vless-go-history"
 GO_CLEANUP_CMD="/opt/bin/vless-go-cleanup"
 GO_RECOVER_CMD="/opt/bin/vless-go-recover"
@@ -29,7 +31,8 @@ xray-go - единая команда управления Keenetic Xray Go edit
 
 Использование:
   xray-go status
-  xray-go doctor [--support|--verbose|--json]
+  xray-go summary
+  xray-go doctor [--support|--summary|--verbose|--json]
   xray-go menu
   xray-go history [--follow]
   xray-go logs watchdog [--follow]
@@ -44,6 +47,11 @@ xray-go - единая команда управления Keenetic Xray Go edit
   xray-go uninstall --dry-run
   xray-go version
   xray-go help
+
+Summary mode:
+  xray-go summary
+  xray-go doctor --summary
+    Компактный read-only summary без raw VLESS/subscription sources.
 
 Support mode:
   xray-go doctor --support
@@ -87,6 +95,7 @@ Version mode:
 Низкоуровневые команды остаются доступны:
   failover-go
   vless-go-doctor
+  vless-go-doctor-summary
   vless-go-failover
   vless-go-history
   vless-go-cleanup
@@ -136,6 +145,10 @@ refresh_direct_full_update() {
 
 refresh_direct_uninstall() {
     fetch_script_to "$DIRECT_UNINSTALL_URL" "$DIRECT_UNINSTALL_CMD" "xray-go-direct-uninstall" || return 0
+}
+
+refresh_doctor_summary() {
+    fetch_script_to "$GO_DOCTOR_SUMMARY_URL" "$GO_DOCTOR_SUMMARY_CMD" "vless-go-doctor-summary" || return 0
 }
 
 show_recovery_summary() {
@@ -192,6 +205,13 @@ sha256_file() {
     fi
 }
 
+run_summary() {
+    [ "$#" -eq 0 ] || { echo "Использование: xray-go summary" >&2; exit 2; }
+    refresh_doctor_summary
+    need_exec "$GO_DOCTOR_SUMMARY_CMD"
+    "$GO_DOCTOR_SUMMARY_CMD"
+}
+
 run_doctor_json() {
     need_exec "$GO_DOCTOR_CMD"
     tmp="/tmp/xray-go-doctor-json.$$"
@@ -226,8 +246,7 @@ run_doctor_json() {
     printf ',"active_slot":"%s"' "$active_slot"
     printf ',"support_safe":true'
     printf ',"raw_output_included":false'
-    printf '}
-'
+    printf '}\n'
     rm -f "$tmp" 2>/dev/null || true
     exit "$exit_code"
 }
@@ -242,6 +261,14 @@ run_doctor() {
                 exit 2
             fi
             run_doctor_json
+            ;;
+        --summary|summary)
+            shift || true
+            if [ "$#" -gt 0 ]; then
+                echo "ОШИБКА: xray-go doctor --summary не принимает дополнительные аргументы." >&2
+                exit 2
+            fi
+            run_summary
             ;;
         --support|support)
             shift || true
@@ -409,6 +436,7 @@ run_version() {
     for helper in \
         "$GO_FAILOVER_CMD" \
         "$GO_DOCTOR_CMD" \
+        "$GO_DOCTOR_SUMMARY_CMD" \
         "$GO_RECOVER_CMD" \
         "$GO_WATCHDOG_CMD" \
         "$DIRECT_FULL_UPDATE_CMD" \
@@ -442,6 +470,7 @@ run_direct_go_update() {
     else
         echo "Direct install mode detected. Running direct full update."
         "$DIRECT_FULL_UPDATE_CMD" --apply --yes --no-commands
+        refresh_doctor_summary
     fi
 }
 
@@ -478,9 +507,8 @@ run_update() {
 }
 
 run_uninstall() {
-    MODE="dry-run"
     case "${1:-}" in
-        ""|--dry-run|--plan|dry-run|plan) MODE="dry-run"; [ "$#" -gt 0 ] && shift ;;
+        ""|--dry-run|--plan|dry-run|plan) [ "$#" -gt 0 ] && shift ;;
         *) echo "Использование: xray-go uninstall --dry-run" >&2; exit 2 ;;
     esac
     [ "$#" -eq 0 ] || { echo "Использование: xray-go uninstall --dry-run" >&2; exit 2; }
@@ -501,6 +529,10 @@ case "${1:-help}" in
     status)
         shift
         show_status "$@"
+        ;;
+    summary)
+        shift
+        run_summary "$@"
         ;;
     doctor)
         shift
