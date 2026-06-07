@@ -34,8 +34,12 @@
 - [x] Добавить `--direct-full-experimental --yes`.
 - [x] Добавить `--direct-uninstall-dry-run`.
 - [x] Добавить guarded scaffold `--direct-uninstall-experimental --yes` без реального удаления.
-- [ ] Позже перенести полноценную v2-логику direct-install в основной путь.
-- [ ] После проверки на реальном роутере сделать direct-install не скрытым режимом.
+- [x] Добавить публичный alias `--direct-plan` для full direct dry-run.
+- [x] Добавить публичный alias `--direct-apply --yes` для full direct apply.
+- [x] Добавить публичные проверки `--direct-check` и `--direct-init-check`.
+- [x] Добавить публичные uninstall aliases `--direct-uninstall-plan` и `--direct-uninstall-guarded --yes`.
+- [x] Сделать direct-install не скрытым режимом в интерфейсе через public aliases; experimental flags оставить compatibility aliases.
+- [ ] Позже перенести полноценную v2-логику direct-install в основной default path.
 - [ ] Позже сделать `xray_vless_failover_auto_latest.sh` тонким wrapper на `install.sh`.
 
 ---
@@ -242,7 +246,9 @@ Agent / Control Server:
 ## 10. Документация
 
 - [x] Обновить README под `install.sh`.
+- [x] Обновить README под public direct aliases.
 - [x] Добавить `docs/install.md`.
+- [x] Обновить `docs/install.md` под public direct aliases.
 - [x] Добавить `docs/modes.md`.
 - [x] Добавить `docs/recovery.md`.
 - [x] Добавить `docs/direct-install.md`.
