@@ -56,6 +56,13 @@ check_not_contains xray_vless_failover_minimal_go.sh 'xray_vless_failover_minima
 
 info ""
 info "== xray-go wrapper guardrails =="
+check_contains scripts/xray-go.sh 'GO_DOCTOR_SUMMARY_URL' "xray-go has doctor summary URL"
+check_contains scripts/xray-go.sh 'refresh_doctor_summary' "xray-go can refresh doctor summary helper"
+check_contains scripts/xray-go.sh 'run_summary' "xray-go has summary command path"
+check_contains scripts/xray-go.sh 'xray-go summary' "xray-go usage documents summary command"
+check_contains scripts/xray-go.sh 'xray-go doctor --summary' "xray-go usage documents doctor summary mode"
+check_contains scripts/xray-go.sh '--summary|summary' "xray-go doctor accepts summary mode"
+check_contains scripts/xray-go.sh 'refresh_doctor_summary' "xray-go refreshes summary helper"
 check_contains scripts/xray-go.sh 'DIRECT_FULL_UPDATE_URL' "xray-go has direct full update URL"
 check_contains scripts/xray-go.sh 'refresh_direct_full_update' "xray-go can refresh direct full updater"
 check_contains scripts/xray-go.sh 'DIRECT_UNINSTALL_URL' "xray-go has direct uninstall URL"
@@ -72,6 +79,16 @@ check_contains scripts/xray-go.sh 'Direct install mode detected' "xray-go announ
 check_contains scripts/xray-go.sh '--dry-run' "xray-go exposes update/uninstall dry-run"
 check_contains scripts/xray-go.sh 'xray-go update go --dry-run' "xray-go usage documents update dry-run"
 check_contains scripts/xray-go.sh 'xray-go uninstall --dry-run' "xray-go usage documents uninstall dry-run"
+
+info ""
+info "== Doctor summary helper guardrails =="
+check_file_exists scripts/vless-go-doctor-summary.sh
+check_syntax scripts/vless-go-doctor-summary.sh
+check_contains scripts/vless-go-doctor-summary.sh '== Summary ==' "doctor summary prints Summary section"
+check_contains scripts/vless-go-doctor-summary.sh 'Manifest sha256' "doctor summary reports manifest sha256 state"
+check_contains scripts/vless-go-doctor-summary.sh 'SOCKS health' "doctor summary reports SOCKS health"
+check_contains scripts/vless-go-doctor-summary.sh 'OK=' "doctor summary prints OK/WARN/FAIL result"
+check_not_contains scripts/vless-go-doctor-summary.sh 'subscription URL' "doctor summary should not print subscription URL label"
 
 info ""
 info "== Doctor manifest guardrails =="
@@ -183,6 +200,7 @@ for path in \
     scripts/vless-go-cleanup.sh \
     scripts/vless-go-recover.sh \
     scripts/vless-go-doctor.sh \
+    scripts/vless-go-doctor-summary.sh \
     scripts/vless-go-xray-core-update.sh \
     scripts/vless-go-web-install.sh \
     scripts/build-entware-ipk.sh
