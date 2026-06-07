@@ -163,9 +163,31 @@ run_remote_helper() {
     rm -f "$tmp" 2>/dev/null || true
 }
 
+current_binary_matches_manifest() {
+    [ -x "$GO_RESOLVER" ] || return 1
+    [ -n "$MANIFEST_SHA" ] || return 1
+    [ -n "$GO_SHA256" ] || return 1
+    [ "$GO_SHA256" = "$MANIFEST_SHA" ] || return 1
+    return 0
+}
+
+maybe_install_binary() {
+    if current_binary_matches_manifest; then
+        echo
+        echo "== direct install binary =="
+        echo "Skipping Go resolver download: installed binary already matches manifest sha256."
+        echo "  Binary: $GO_RESOLVER"
+        echo "  Sha256: $GO_SHA256"
+        return 0
+    fi
+
+    run_remote_helper "direct install binary" "$DIRECT_INSTALL_URL" --install-binary
+}
+
 ENTWARE_ARCH="${ENTWARE_ARCH:-$(detect_entware_arch)}"
 [ -n "$ENTWARE_ARCH" ] || ENTWARE_ARCH="$(uname -m 2>/dev/null || echo unknown)"
-GO_ASSET_NAME="${GO_ASSET_NAME:-$(asset_name_for_arch "$ENTWARE_ARCH")}"
+GO_ASSET_NAME="${GO_ASSET_NAME:-$(asset_name_for_arch "$ENTWARE_ARCH") }"
+GO_ASSET_NAME="$(printf '%s' "$GO_ASSET_NAME" | sed 's/[[:space:]]*$//')"
 GO_SHA256="$(sha256_file "$GO_RESOLVER")"
 MANIFEST_MODE="$(manifest_value INSTALL_MODE)"
 MANIFEST_SHA="$(manifest_value BINARY_SHA256)"
@@ -215,7 +237,7 @@ echo
 echo "== Planned full direct-install sequence =="
 cat <<'EOF_STEPS'
 1. direct-install detect-only
-2. install Go resolver binary from GitHub release asset with sha256 verification
+2. install Go resolver binary only when current binary does not match manifest sha256
 3. install shell helpers after staging + sh -n verification
 4. write direct manifest
 5. run direct post-check
@@ -262,7 +284,7 @@ fi
 echo
 echo "== Applying full direct-install sequence =="
 run_remote_helper "direct detect-only" "$DIRECT_INSTALL_URL" --detect-only
-run_remote_helper "direct install binary" "$DIRECT_INSTALL_URL" --install-binary
+maybe_install_binary
 run_remote_helper "direct install helpers" "$DIRECT_INSTALL_URL" --install-helpers
 run_remote_helper "direct write manifest" "$DIRECT_INSTALL_URL" --write-manifest -y
 run_remote_helper "direct post-check" "$DIRECT_INSTALL_URL" --post-check
