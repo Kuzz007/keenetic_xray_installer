@@ -147,6 +147,26 @@ Xray config valid
 Scope boundary: this target updates only Xray-core.
 ```
 
+После настоящего Xray-core apply:
+
+```sh
+xray-go update xray-core --dry-run
+xray-go summary
+xray-go doctor --support
+xray-go privacy-check
+```
+
+Ожидаемый результат:
+
+```text
+Xray config valid
+Xray init status: alive
+SOCKS health: OK
+Manifest sha256: match
+FAIL=0
+Privacy check passed
+```
+
 ## Router validation
 
 Подтверждено на Keenetic / Entware `aarch64-3.10_kn`.
@@ -192,14 +212,54 @@ xray-go update go
 xray-go update xray-core --dry-run
   -> No changes made. No downloads, no service restart, no direct-install files modified.
   -> Xray binary: /opt/sbin/xray
-  -> Xray 26.6.1 linux/arm64
   -> Xray config valid: /opt/etc/xray/config.json
   -> Xray init status: alive
   -> Xray-core updater helper: /opt/bin/vless-go-xray-core-update
   -> Scope boundary: this target updates only Xray-core.
 ```
 
-Финальная проверка после apply:
+### Xray-core apply
+
+```text
+xray-go update xray-core --channel latest --yes
+  -> Current Xray binary: /opt/sbin/xray
+  -> old version: Xray 26.6.1 linux/arm64
+  -> Selected release: Xray-core v26.3.27
+  -> Selected asset: Xray-linux-arm64-v8a.zip
+  -> New Xray version: Xray 26.3.27 linux/arm64
+  -> Testing new Xray with current config before replacing
+  -> Backing up current binary to /opt/etc/xray/backups/xray.20260608-000549.bak
+  -> Stopping services
+  -> Starting services
+  -> Xray-core update completed successfully
+```
+
+Post-apply validation:
+
+```text
+xray-go update xray-core --dry-run
+  -> Xray 26.3.27 linux/arm64
+  -> Xray config valid
+  -> Xray init status: alive
+
+xray-go summary
+  -> SOCKS health: OK
+  -> Watchdog init: alive
+  -> Manifest sha256: match
+  -> OK=12 WARN=0 FAIL=0
+
+xray-go doctor --support
+  -> version Xray: Xray 26.3.27 linux/arm64
+  -> backup binaries found: 1
+  -> SOCKS health-check OK
+  -> OK=58 WARN=1 FAIL=0
+
+xray-go privacy-check
+  -> OK=24 WARN=0 FAIL=0
+  -> Privacy check passed
+```
+
+Финальная проверка после Go edition apply:
 
 ```text
 xray-go manifest
@@ -211,7 +271,7 @@ xray-go recover status
 
 xray-go doctor --support
   -> SOCKS health-check OK
-  -> OK=50 WARN=2 FAIL=0
+  -> FAIL=0
 ```
 
 Также подтверждено до этого:
