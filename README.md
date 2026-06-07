@@ -1,242 +1,221 @@
-# Keenetic Xray VLESS Auto Installer
+# Keenetic Xray Go
 
-Автоматический установщик Xray/VLESS Failover для роутеров Keenetic с Entware.
+Компактный installer и набор helper-команд для Xray/VLESS failover на роутерах Keenetic с Entware.
 
-## Рекомендуемая установка: Auto Latest
+Главная цель v2: один понятный вход установки (`install.sh`) и одна основная команда управления (`xray-go`), без обязательного IPK/feed слоя для новой direct-install линии.
 
-Если ставишь впервые — используй **Auto Latest**. Он сам выбирает подходящую Go-линию установки:
+---
 
-- если места в `/opt` достаточно — ставит Full Go/Entware через latest feed;
-- если места мало — ставит Minimal Go без `python3` и без Entware feed package;
-- legacy-скрипты сохранены ниже для старых установок и ручного fallback.
+## Рекомендуемая установка
 
-Рекомендуемая команда:
+Новая рекомендуемая точка входа:
 
 ```sh
-opkg update && opkg install curl && curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh | sh
+opkg update && opkg install curl && curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh
 ```
 
-Принудительно Full Go/Entware:
+Пока `install.sh` по умолчанию сохраняет совместимость с текущим Auto Latest selector. Direct-install v2 уже доступен отдельными явными командами и постепенно становится основным путём развития.
+
+Проверить выбор installer без изменений:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh | sh -s -- --go
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --detect-only
 ```
 
-Принудительно Minimal Go для роутеров с малым `/opt`:
+Принудительно Full Go:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_auto_latest.sh | sh -s -- --minimal-go
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --go
 ```
 
-## Что делать после установки
+Принудительно Minimal Go:
 
-Для Full Go/Entware основной вход — единая команда `xray-go`:
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --minimal-go
+```
+
+Старый вход `xray_vless_failover_auto_latest.sh` остаётся рабочим для совместимости, но новая документация ведёт через `install.sh`.
+
+---
+
+## Direct-install v2
+
+Direct-install v2 ставит Go resolver, shell helpers, manifest, watchdog init и recovery cron напрямую, без обязательного `.ipk`, `Packages`, `Packages.gz` и Entware feed для `failover-go`.
+
+Безопасный preview полного direct-сценария:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-full-dry-run
+```
+
+Явный full direct apply:
+
+```sh
+curl -fsSL -H 'Cache-Control: no-cache' \
+  https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh \
+  | sh -s -- --direct-full-experimental --yes
+```
+
+Direct full apply не выполняет first-run setup и не редактирует VLESS sources. Он обновляет direct code layer и проверяет результат через post-check.
+
+Проверки direct-install слоя:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --post-check
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-post-check
+```
+
+Подробности: `docs/direct-install.md`, `docs/direct-update.md`, `docs/direct-uninstall.md`, `docs/direct-uninstall-validation.md`.
+
+---
+
+## Управление через `xray-go`
+
+Основной интерфейс управления:
 
 ```sh
 xray-go status
 xray-go doctor
+xray-go doctor --support
 xray-go menu
+xray-go manifest
 ```
 
-Полезные команды Full Go/Entware:
+Обновление direct-mode установки:
+
+```sh
+xray-go update go --dry-run
+xray-go update go
+```
+
+Recovery и watchdog:
 
 ```sh
 xray-go recover status
 xray-go recover enable-hourly
-xray-go history
+xray-go recover disable-hourly
 xray-go logs watchdog
-xray-go update
+xray-go history
+```
+
+Обновление Xray-core и очистка:
+
+```sh
 xray-go update-core
 xray-go cleanup --dry-run
+xray-go cleanup
 ```
 
-Низкоуровневые команды также остаются доступны:
+Безопасный preview удаления direct-install слоя:
 
 ```sh
-failover-go
-vless-go-doctor
-vless-go-failover
-vless-go-history
-vless-go-cleanup
-vless-go-recover
-vless-go-xray-core-update
-xray-go-installer-update
+xray-go uninstall --dry-run
 ```
 
-Для Minimal Go используются лёгкие команды:
+`xray-go uninstall --dry-run` ничего не удаляет: он показывает, какие direct code files, metadata, staging, cron marker и init hook были бы затронуты, а пользовательские VLESS/config/log data остаются preserve-by-default.
+
+---
+
+## Что установлено в Full Go
+
+Full Go подходит для обычной установки на USB/SSD или при достаточном месте во встроенной памяти.
+
+Поддерживает:
+
+- прямые `vless://` ссылки;
+- HTTP/HTTPS subscription sources;
+- выбор профиля из подписки;
+- основной и резервный профиль;
+- automatic failover;
+- watchdog;
+- quiet recovery для Proxy0/Xray/watchdog;
+- history;
+- cleanup;
+- doctor/support diagnostics;
+- update Go edition;
+- update Xray-core;
+- menu helper `failover-go`;
+- единый wrapper `xray-go`.
+
+Minimal Go остаётся лёгким профилем для роутеров с малым `/opt`: без тяжёлых зависимостей, без `python3`, без подписок и без cron, но с primary/backup, failover, Proxy0 и SOCKS5.
+
+---
+
+## Проверка работы
+
+Базовая проверка:
 
 ```sh
-minimal-go-status
-minimal-go-switch primary
-minimal-go-switch backup
-```
-
-Если неизвестно, какая линия установилась, проверь так:
-
-```sh
-if command -v xray-go >/dev/null 2>&1; then
-    xray-go status
-elif command -v minimal-go-status >/dev/null 2>&1; then
-    minimal-go-status
-else
-    echo "Go-команда статуса не найдена. Проверь вывод установщика."
-fi
-```
-
-## Тихое восстановление без SSH
-
-Full Go/Entware включает recovery helper для случаев, когда Proxy0, Xray или watchdog зависли, но к роутеру не хочется подключаться по SSH вручную.
-
-Включить ежечасную тихую проверку:
-
-```sh
-xray-go recover enable-hourly
-```
-
-Проверить статус:
-
-```sh
+xray-go manifest
 xray-go recover status
+xray-go doctor --support
 ```
 
-Отключить:
+Нормально, если итог doctor выглядит примерно так:
+
+```text
+FAIL=0
+SOCKS health-check OK
+Recovery health: OK
+Install mode: direct
+```
+
+Ручной SOCKS-check без авторизации:
 
 ```sh
-xray-go recover disable-hourly
+curl -k --socks5-hostname 192.168.1.1:10808 https://www.gstatic.com/generate_204 -o /dev/null -w 'http_code=%{http_code} time_total=%{time_total}\n'
 ```
 
-Поведение hourly recovery:
+Если SOCKS auth включён, используй данные из `/opt/etc/xray/vless-go-socks-auth.conf`:
 
-```text
-если SOCKS/Xray health OK:
-  ничего не делает и не шумит
-
-если health failed:
-  1. refresh Proxy0: interface Proxy0 down/up
-  2. restart Xray
-  3. restart watchdog
-  4. если active=primary и backup настроен — switch primary -> backup
-  5. если всё равно плохо — пишет в лог, но НЕ ребутит роутер автоматически
+```sh
+. /opt/etc/xray/vless-go-socks-auth.conf
+curl -fsS \
+  --socks5-hostname 127.0.0.1:10808 \
+  --proxy-user "$XRAY_SOCKS_USER:$XRAY_SOCKS_PASS" \
+  --connect-timeout 5 \
+  --max-time 10 \
+  http://cp.cloudflare.com/generate_204 \
+  -o /dev/null && echo "SOCKS auth health OK"
 ```
 
-Лог действий recovery:
-
-```text
-/opt/var/log/vless-go-recover.log
-```
-
-Router reboot намеренно не выполняется автоматически, чтобы не получить reboot loop при внешней проблеме у провайдера, DNS или upstream-сервера.
+---
 
 ## Optional Web UI
 
-Опциональный web-интерфейс для Full Go/Entware устанавливается отдельной командой:
+Web UI не входит в базовую установку и ставится отдельно:
 
 ```sh
 vless-go-web-install
 ```
 
-Для существующих установок можно запустить installer напрямую:
+Для существующих установок:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/vless-go-web-install.sh | sh
 ```
 
-Если нужно добавить helper-команду `vless-go-web-install` в `/opt/bin`, используй две отдельные команды:
+Web UI должен быть доступен только в доверенной локальной сети. Подробности: `docs/web-ui.md`.
 
-```sh
-curl -fsSL -o /opt/bin/vless-go-web-install https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/vless-go-web-install.sh
-chmod +x /opt/bin/vless-go-web-install
-```
+---
 
-После установки скрипт покажет готовый адрес для браузера, например:
+## Совместимость v1: IPK/feed и legacy
 
-```text
-Открой в браузере:
-  http://192.168.1.1:18088/
-```
+IPK/feed остаётся v1 compatibility mode для существующих Full Go установок. Новая v2-линия развивается вокруг direct-install.
 
-Web-интерфейс должен быть доступен только в доверенной локальной сети. Подробности: `docs/web-ui.md`.
+Legacy и old_go считаются frozen archive:
 
-## Legacy auto-установщик
+- не переписываются;
+- не оптимизируются;
+- не являются основным путём новой установки;
+- остаются как fallback для старых систем.
 
-Legacy-скрипты сохранены для старых установок и случаев, когда не нужна новая Go-линия.
+Подробности:
 
-Главный legacy-скрипт проекта:
+- `docs/opkg-feed-v1.md`
+- `docs/legacy.md`
 
-```text
-xray_vless_failover_auto.sh
-```
-
-Он сам проверяет доступное место в `/opt` и предлагает подходящий вариант установки:
-
-| Условие | Что предложит установщик |
-| --- | --- |
-| Места достаточно | `full`-версию с подписками, failover, обновлением ссылок и служебными командами |
-| Места мало | `minimal`-версию для прямых `vless://` ссылок без тяжёлых зависимостей |
-
-В корне репозитория оставлены три публичных legacy-скрипта:
-
-| Скрипт | Назначение |
-| --- | --- |
-| `xray_vless_failover_auto.sh` | Legacy автоустановщик. Сам выбирает full или minimal по доступной памяти |
-| `xray_vless_failover.sh` | Legacy full-установщик, который auto-скрипт использует при достаточном месте |
-| `xray_vless_failover_minimal.sh` | Legacy minimal-установщик, который auto-скрипт предлагает при малом объёме `/opt` |
-
-> Для новой установки обычно начинай с `xray_vless_failover_auto_latest.sh`. Legacy auto используй, если нужна старая линия без Go edition.
-
-## Возможности Auto Latest
-
-- проверяет Entware и базовые пакеты;
-- определяет свободное место в `/opt`;
-- выбирает Full Go/Entware или Minimal Go;
-- использует latest channel;
-- поддерживает dry-run/check mode;
-- показывает storage decision;
-- умеет bootstrap `curl`/`ca-bundle` на чистом Entware;
-- сохраняет legacy-скрипты доступными.
-
-## Чем отличаются режимы
-
-### Full Go/Entware
-
-Full Go/Entware подходит для обычной установки на USB/SSD или при достаточном месте во встроенной памяти.
-
-Поддерживает:
-
-- прямые `vless://` ссылки;
-- HTTP/HTTPS ссылки подписок;
-- выбор профиля из подписки;
-- основной и резервный профиль;
-- автоматический failover;
-- возврат на основной профиль после восстановления;
-- тихое ежечасное recovery-восстановление Proxy0/Xray/watchdog;
-- обновление VLESS-ссылок;
-- обновление подписок;
-- автообновление подписок через cron;
-- watchdog;
-- doctor;
-- history;
-- cleanup;
-- обновление Go edition;
-- обновление Xray-core;
-- меню `failover-go`;
-- единый wrapper `xray-go`;
-- расширенный health-check.
-
-### Minimal Go
-
-Minimal Go предназначен для роутеров, где мало места в `/opt`.
-
-Особенности:
-
-- меньше зависимостей;
-- без `python3`;
-- без подписок;
-- без cron;
-- только прямые `vless://` ссылки;
-- основной и резервный профиль сохраняются;
-- failover работает;
-- Proxy0 и SOCKS5 также настраиваются.
+---
 
 ## Требования
 
@@ -246,46 +225,21 @@ Minimal Go предназначен для роутеров, где мало м�
 - SSH-доступ к роутеру;
 - доступ в интернет с роутера.
 
-## Проверка работы
-
-Для Full Go/Entware:
-
-```sh
-xray-go status
-xray-go doctor
-xray-go recover status
-```
-
-Ручной SOCKS-check:
-
-```sh
-curl -k --socks5-hostname 192.168.1.1:10808 https://www.gstatic.com/generate_204 -o /dev/null -w 'http_code=%{http_code} time_total=%{time_total}\n'
-```
-
-Нормальный результат:
-
-```text
-http_code=204
-```
+---
 
 ## Логи и история
-
-Для Full Go/Entware:
 
 ```sh
 xray-go logs watchdog
 xray-go logs watchdog --follow
 xray-go history
 xray-go history --follow
-```
-
-Recovery log:
-
-```sh
 tail -n 80 /opt/var/log/vless-go-recover.log
 ```
 
-History не должен хранить raw VLESS URL, UUID, server address или subscription URL.
+History и support diagnostics не должны хранить raw VLESS URL, UUID, server address или subscription URL.
+
+---
 
 ## Если мало места в `/opt`
 
@@ -295,23 +249,16 @@ History не должен хранить raw VLESS URL, UUID, server address и�
 df -h /opt
 ```
 
-Для Full Go/Entware сначала посмотри безопасный preview очистки:
+Безопасный preview очистки:
 
 ```sh
 xray-go cleanup --dry-run
 ```
 
-Затем выполни очистку:
+Очистка:
 
 ```sh
 xray-go cleanup
 ```
 
-Для legacy/manual cleanup:
-
-```sh
-rm -rf /opt/tmp/* /opt/var/opkg-lists/* /opt/var/cache/*
-opkg update
-```
-
-После очистки снова запусти Auto Latest. Он выберет Full Go/Entware или Minimal Go по текущему состоянию памяти.
+После очистки можно снова запустить installer через `install.sh`. Auto Latest выберет Full Go или Minimal Go по текущему состоянию `/opt`.
