@@ -67,7 +67,7 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-post-check
 ```
 
-Подробности: `docs/install.md`, `docs/modes.md`, `docs/recovery.md`, `docs/doctor-summary.md`, `docs/direct-install.md`, `docs/direct-update.md`, `docs/direct-uninstall.md`, `docs/direct-uninstall-validation.md`.
+Подробности: `docs/install.md`, `docs/modes.md`, `docs/recovery.md`, `docs/doctor-summary.md`, `docs/privacy-check.md`, `docs/direct-install.md`, `docs/direct-update.md`, `docs/direct-uninstall.md`, `docs/direct-uninstall-validation.md`.
 
 ---
 
@@ -81,12 +81,15 @@ xray-go summary
 xray-go doctor
 xray-go doctor --summary
 xray-go doctor --support
+xray-go privacy-check
 xray-go menu
 xray-go manifest
 xray-go version
 ```
 
 `xray-go summary` и `xray-go doctor --summary` показывают компактный read-only snapshot: install mode, active slot, Xray, Proxy0, SOCKS, watchdog, cron и manifest sha256.
+
+`xray-go privacy-check` проверяет diagnostic/support output на опасные паттерны и не печатает найденные значения. Подробности: `docs/privacy-check.md`.
 
 `xray-go version` показывает wrapper version, direct manifest summary, Go resolver version/sha256 и helper paths без raw VLESS/subscription data.
 
@@ -161,6 +164,7 @@ xray-go summary
 xray-go manifest
 xray-go recover status
 xray-go doctor --support
+xray-go privacy-check
 ```
 
 Нормально, если итог doctor выглядит примерно так:
