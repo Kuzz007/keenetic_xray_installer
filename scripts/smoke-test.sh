@@ -121,7 +121,7 @@ info "== Safety checker guardrails =="
 check_file_exists scripts/xray-go-safety-check.sh
 check_syntax scripts/xray-go-safety-check.sh
 check_contains scripts/xray-go-safety-check.sh 'This check is read-only for working files.' "safety checker documents read-only boundary"
-check_contains scripts/xray-go-safety-check.sh 'snapshot_before' "safety checker snapshots working files before simulations"
+check_contains scripts/xray-go-safety-check.sh 'SNAP_BEFORE' "safety checker snapshots working files before simulations"
 check_contains scripts/xray-go-safety-check.sh 'isolated bad download failed' "safety checker simulates bad download"
 check_contains scripts/xray-go-safety-check.sh 'broken shell helper rejected by sh -n' "safety checker verifies broken helper rejection"
 check_contains scripts/xray-go-safety-check.sh 'working direct-install files unchanged' "safety checker verifies unchanged working files"
