@@ -116,6 +116,7 @@ xray-go version
 xray-go manifest
 xray-go recover status
 xray-go doctor --support
+vless-go-doctor
 ```
 
 Ожидаемый результат:
@@ -128,6 +129,20 @@ FAIL=0
 ```
 
 `xray-go version` показывает manifest summary, Go resolver version/sha256 и helper paths. `vless-go-doctor` также читает direct manifest напрямую и проверяет соответствие sha256 binary без raw VLESS/subscription data.
+
+Ожидаемая секция в прямом `vless-go-doctor`:
+
+```text
+== Manifest ==
+[OK] manifest найден: /opt/etc/xray/xray-go.manifest
+[OK] manifest install mode: direct
+[OK] manifest edition: full
+[OK] manifest arch: aarch64-3.10_kn
+[OK] manifest binary executable: /opt/bin/xray-failover-go
+[OK] manifest binary sha256 matches target
+```
+
+Подтверждено на Keenetic `aarch64-3.10_kn`: после `xray-go update go` прямой `vless-go-doctor` показал manifest section, проверил sha256 и завершился `OK=57 WARN=2 FAIL=0`.
 
 Проверка direct code layer:
 
@@ -173,6 +188,7 @@ xray-go version
 xray-go manifest
 xray-go recover status
 xray-go doctor --support
+vless-go-doctor
 ```
 
 ## 7. Recovery и watchdog
@@ -264,61 +280,35 @@ curl -fsSL -H 'Cache-Control: no-cache' \
 No changes made in this build. Real removal is intentionally disabled.
 ```
 
-## 10. Логи
+## 10. Troubleshooting
 
-Watchdog logs:
-
-```sh
-xray-go logs watchdog
-xray-go logs watchdog --follow
-```
-
-Switch history:
+Если direct helper не обновился из-за cache:
 
 ```sh
-xray-go history
-xray-go history --follow
+curl -fsSL -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-full-dry-run
 ```
 
-Recovery log:
-
-```sh
-tail -n 80 /opt/var/log/vless-go-recover.log
-```
-
-## 11. Если что-то пошло не так
-
-Сначала собрать безопасный support output:
-
-```sh
-xray-go doctor --support
-xray-go recover status
-xray-go manifest
-```
-
-Support output не должен печатать raw VLESS links, subscription URLs, tokens или private keys.
-
-Если проблема только с direct code layer, сначала проверить dry-run/update:
+Если нужно проверить direct state без изменений:
 
 ```sh
 xray-go update go --dry-run
-xray-go update go
+xray-go uninstall --dry-run
 ```
 
-Если мало места:
+Если doctor показывает SOCKS auth error, проверить вручную:
 
 ```sh
-xray-go cleanup --dry-run
-xray-go cleanup
+. /opt/etc/xray/vless-go-socks-auth.conf
+curl -fsS --socks5-hostname 127.0.0.1:10808 --proxy-user "$XRAY_SOCKS_USER:$XRAY_SOCKS_PASS" http://cp.cloudflare.com/generate_204 -o /dev/null && echo OK
 ```
 
-## 12. Где читать дальше
+## 11. Related docs
 
-- `docs/modes.md` — Full Go vs Minimal Go;
-- `docs/recovery.md` — watchdog, hourly recovery and health-check;
-- `docs/direct-install.md` — direct-install design and commands;
-- `docs/direct-update.md` — direct-aware update;
-- `docs/direct-uninstall.md` — uninstall dry-run planner;
-- `docs/direct-uninstall-validation.md` — router validation notes;
-- `docs/opkg-feed-v1.md` — old IPK/feed compatibility;
-- `docs/legacy.md` — legacy/old_go archive.
+- `docs/modes.md`
+- `docs/direct-install.md`
+- `docs/direct-update.md`
+- `docs/direct-uninstall.md`
+- `docs/direct-uninstall-validation.md`
+- `docs/recovery.md`
+- `docs/opkg-feed-v1.md`
+- `docs/legacy.md`
