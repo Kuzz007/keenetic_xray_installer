@@ -101,7 +101,7 @@
 - [x] Подтвердить manifest на роутере в direct mode.
 - [x] Создавать manifest во время full direct apply.
 - [ ] Научить `vless-go-doctor` читать manifest напрямую.
-- [ ] Научить `xray-go version` показывать manifest summary.
+- [x] Научить `xray-go version` показывать manifest summary.
 
 Manifest не должен хранить приватные источники, токены, пароли или ключи.
 
