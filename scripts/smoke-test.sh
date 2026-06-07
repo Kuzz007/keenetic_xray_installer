@@ -37,7 +37,7 @@ check_contains() {
     path="$1"
     pattern="$2"
     label="$3"
-    if grep -q "$pattern" "$ROOT_DIR/$path" 2>/dev/null; then
+    if grep -q -- "$pattern" "$ROOT_DIR/$path" 2>/dev/null; then
         ok "$label"
     else
         fail "$label"
@@ -48,7 +48,7 @@ check_not_contains() {
     path="$1"
     pattern="$2"
     label="$3"
-    if grep -q "$pattern" "$ROOT_DIR/$path" 2>/dev/null; then
+    if grep -q -- "$pattern" "$ROOT_DIR/$path" 2>/dev/null; then
         fail "$label"
     else
         ok "$label"
@@ -80,6 +80,7 @@ check_repo_plain_target() {
 
 info "== Required top-level installers =="
 for path in \
+    install.sh \
     xray_vless_failover_auto_latest.sh \
     xray_vless_failover_go.sh \
     xray_vless_failover_minimal_go.sh \
@@ -94,16 +95,31 @@ for path in \
 
 info ""
 info "== Downloader entrypoint target guardrails =="
+check_repo_plain_target install.sh scripts/xray-go-direct-install.sh "install.sh direct-install entrypoint"
 check_repo_plain_target xray_vless_failover_go.sh scripts/install-entware-feed.sh "Go/Entware entrypoint"
 check_repo_plain_target xray_vless_failover_minimal_go.sh xray_vless_failover_minimal.sh "Minimal Go entrypoint"
+check_contains install.sh 'AUTO_LATEST_URL' "install.sh keeps Auto Latest URL override"
+check_contains install.sh 'DIRECT_INSTALL_URL' "install.sh keeps direct-install URL override"
+check_contains install.sh '--direct-experimental' "install.sh keeps direct experimental mode"
+check_contains install.sh '--direct-detect-only' "install.sh keeps direct detect-only mode"
 check_contains xray_vless_failover_go.sh 'GO_PLAIN_URL' "Go/Entware entrypoint keeps URL override"
 check_contains xray_vless_failover_minimal_go.sh 'MINIMAL_GO_PLAIN_URL' "Minimal Go entrypoint keeps URL override"
 check_not_contains xray_vless_failover_go.sh 'xray_vless_failover_old_go.sh' "Go/Entware entrypoint does not point at removed old_go path"
 check_not_contains xray_vless_failover_minimal_go.sh 'xray_vless_failover_minimal_old_go.sh' "Minimal Go entrypoint does not point at removed minimal_old_go path"
 
 info ""
+info "== Direct-install skeleton guardrails =="
+check_contains scripts/xray-go-direct-install.sh '--download-binary' "direct-install keeps binary staging mode"
+check_contains scripts/xray-go-direct-install.sh '--stage-helpers' "direct-install keeps helper staging mode"
+check_contains scripts/xray-go-direct-install.sh '--install-helpers' "direct-install keeps explicit helper install mode"
+check_contains scripts/xray-go-direct-install.sh 'HELPER_INDEX' "direct-install tracks staged helper index"
+check_contains scripts/xray-go-direct-install.sh 'verify_shell_helper' "direct-install checks helper shell syntax"
+check_contains scripts/xray-go-direct-install.sh 'No first-run setup was executed' "direct-install skeleton documents no first-run setup"
+
+info ""
 info "== Embedded payload guardrails for public entrypoints =="
 for path in \
+    install.sh \
     xray_vless_failover_auto_latest.sh \
     xray_vless_failover_go.sh \
     xray_vless_failover_minimal_go.sh
@@ -150,7 +166,9 @@ info ""
 info "== Runtime helper executable bits =="
 info "Executable bits are warnings because install/update/package flows chmod helpers during deployment."
 for path in \
+    install.sh \
     scripts/xray-go.sh \
+    scripts/xray-go-direct-install.sh \
     scripts/xray-go-installer-update.sh \
     scripts/failover-go.sh \
     scripts/vless-go-update.sh \
