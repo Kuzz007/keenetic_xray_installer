@@ -47,7 +47,7 @@ Direct-install v2 ставит Go resolver, shell helpers, manifest, watchdog in
 Безопасный preview полного direct-сценария:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-full-dry-run
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-plan
 ```
 
 Явный full direct apply:
@@ -55,7 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 ```sh
 curl -fsSL -H 'Cache-Control: no-cache' \
   https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh \
-  | sh -s -- --direct-full-experimental --yes
+  | sh -s -- --direct-apply --yes
 ```
 
 Direct full apply не выполняет first-run setup и не редактирует VLESS sources. Он обновляет direct code layer и проверяет результат через post-check.
@@ -63,9 +63,11 @@ Direct full apply не выполняет first-run setup и не редакти
 Проверки direct-install слоя:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --post-check
-curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-post-check
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-check
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-check
 ```
+
+Старые `--direct-full-dry-run`, `--direct-full-experimental`, `--direct-experimental` и `--direct-init-post-check` остаются compatibility aliases.
 
 Подробности: `docs/install.md`, `docs/modes.md`, `docs/recovery.md`, `docs/doctor-summary.md`, `docs/privacy-check.md`, `docs/safety-check.md`, `docs/direct-install.md`, `docs/direct-update.md`, `docs/direct-uninstall.md`, `docs/direct-uninstall-validation.md`.
 
