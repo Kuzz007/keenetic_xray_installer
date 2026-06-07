@@ -5,8 +5,9 @@ set -e
 #
 # This script is intentionally conservative. It can detect architecture, stage the
 # Go resolver binary, install the staged binary on explicit request, stage/install
-# shell helpers, install the manifest helper and write an experimental manifest.
-# It does not run first setup and does not replace the stable auto_latest/IPK flow yet.
+# shell helpers, install the manifest helper, write an experimental manifest and
+# run read-only post-install checks. It does not run first setup and does not
+# replace the stable auto_latest/IPK flow yet.
 
 XRAY_GO_DIRECT_VERSION="${XRAY_GO_DIRECT_VERSION:-0.1.0-direct-skeleton}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
@@ -23,6 +24,7 @@ GO_RESOLVER="${GO_RESOLVER:-/opt/bin/xray-failover-go}"
 GO_RESOLVER_BACKUP="${GO_RESOLVER_BACKUP:-${GO_RESOLVER}.bak.direct}"
 MANIFEST_CMD="${MANIFEST_CMD:-/opt/bin/xray-go-manifest}"
 MANIFEST_URL="${MANIFEST_URL:-${RAW_BASE}/scripts/xray-go-manifest.sh}"
+MANIFEST_FILE="${MANIFEST_FILE:-${XRAY_DIR}/xray-go.manifest}"
 PLAN_FILE="${PLAN_FILE:-${XRAY_DIR}/xray-go.direct-install.plan}"
 
 XRAY_GO_CMD="${XRAY_GO_CMD:-/opt/bin/xray-go}"
@@ -55,6 +57,7 @@ DOWNLOAD_BINARY="0"
 INSTALL_BINARY="0"
 STAGE_HELPERS="0"
 INSTALL_HELPERS="0"
+POST_CHECK="0"
 INSTALL_MANIFEST_HELPER="1"
 WRITE_MANIFEST="0"
 ASSUME_YES="0"
@@ -69,6 +72,7 @@ Usage:
 Modes:
   --detect-only          Only print detection/plan; make no changes
   --prepare-only         Stage v2 direct-install metadata and plan (default)
+  --post-check           Read-only check of direct-install files and runtime status
   --write-manifest       Also write /opt/etc/xray/xray-go.manifest as direct
 
 Options:
@@ -95,6 +99,7 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --detect-only|--dry-run|--check) MODE="detect"; shift ;;
         --prepare-only|--prepare) MODE="prepare"; shift ;;
+        --post-check|--check-installed|--verify-installed) POST_CHECK="1"; shift ;;
         --write-manifest) WRITE_MANIFEST="1"; shift ;;
         --download-binary) DOWNLOAD_BINARY="1"; shift ;;
         --install-binary) DOWNLOAD_BINARY="1"; INSTALL_BINARY="1"; shift ;;
@@ -173,6 +178,12 @@ sha256_file() {
 sha256_from_file() {
     file="$1"
     sed -n '1s/[[:space:]].*$//p' "$file" 2>/dev/null
+}
+
+manifest_value() {
+    key="$1"
+    file="${2:-$MANIFEST_FILE}"
+    sed -n 's/^'"$key"'="\(.*\)"$/\1/p' "$file" 2>/dev/null | tail -n 1
 }
 
 looks_like_shell_script() {
@@ -339,11 +350,13 @@ Target binary path: $GO_RESOLVER
 Target binary backup: $GO_RESOLVER_BACKUP
 Manifest helper: $MANIFEST_CMD
 Manifest helper URL: $MANIFEST_URL
+Manifest file: $MANIFEST_FILE
 Plan file: $PLAN_FILE
 Download binary: $DOWNLOAD_BINARY
 Install binary: $INSTALL_BINARY
 Stage helpers: $STAGE_HELPERS
 Install helpers: $INSTALL_HELPERS
+Post-check: $POST_CHECK
 Install manifest helper: $INSTALL_MANIFEST_HELPER
 Write manifest: $WRITE_MANIFEST
 EOF_PLAN
@@ -388,6 +401,7 @@ write_plan_file() {
         echo "TARGET_BINARY=\"$GO_RESOLVER\""
         echo "TARGET_BINARY_BACKUP=\"$GO_RESOLVER_BACKUP\""
         echo "MANIFEST_HELPER=\"$MANIFEST_CMD\""
+        echo "MANIFEST_FILE=\"$MANIFEST_FILE\""
         echo "DOWNLOAD_BINARY=\"$DOWNLOAD_BINARY\""
         echo "INSTALL_BINARY=\"$INSTALL_BINARY\""
         echo "STAGE_HELPERS=\"$STAGE_HELPERS\""
@@ -498,16 +512,9 @@ stage_shell_helpers() {
         verify_shell_helper "$staged" "$label"
 
         case "$mode" in
-            exec)
-                chmod +x "$staged"
-                ;;
-            read)
-                chmod 644 "$staged"
-                ;;
-            *)
-                echo "ERROR: unsupported helper mode '$mode' for $label" >&2
-                exit 1
-                ;;
+            exec) chmod +x "$staged" ;;
+            read) chmod 644 "$staged" ;;
+            *) echo "ERROR: unsupported helper mode '$mode' for $label" >&2; exit 1 ;;
         esac
 
         helper_sha="$(sha256_file "$staged")"
@@ -533,17 +540,9 @@ install_shell_helpers() {
         cp "$staged" "$tmp_dest"
 
         case "$mode" in
-            exec)
-                chmod +x "$tmp_dest"
-                ;;
-            read)
-                chmod 644 "$tmp_dest"
-                ;;
-            *)
-                echo "ERROR: unsupported helper mode '$mode' for $label" >&2
-                rm -f "$tmp_dest" 2>/dev/null || true
-                exit 1
-                ;;
+            exec) chmod +x "$tmp_dest" ;;
+            read) chmod 644 "$tmp_dest" ;;
+            *) echo "ERROR: unsupported helper mode '$mode' for $label" >&2; rm -f "$tmp_dest" 2>/dev/null || true; exit 1 ;;
         esac
 
         mv "$tmp_dest" "$dest"
@@ -556,6 +555,7 @@ manifest_modules() {
     modules="manifest,direct-experimental"
     [ "$DOWNLOAD_BINARY" = "1" ] && modules="$modules,binary-staged"
     [ "$INSTALL_BINARY" = "1" ] && modules="$modules,binary-installed"
+    [ -s "$GO_RESOLVER" ] && modules="$modules,binary-present"
     [ "$STAGE_HELPERS" = "1" ] && modules="$modules,helpers-staged"
     [ "$INSTALL_HELPERS" = "1" ] && modules="$modules,helpers-installed"
     printf '%s' "$modules"
@@ -579,10 +579,123 @@ write_manifest() {
         --modules "$(manifest_modules)"
 }
 
+post_check_ok=0
+post_check_warn=0
+post_check_fail=0
+
+pc_ok() { echo "[OK] $*"; post_check_ok=$((post_check_ok + 1)); }
+pc_warn() { echo "[WARN] $*"; post_check_warn=$((post_check_warn + 1)); }
+pc_fail() { echo "[FAIL] $*"; post_check_fail=$((post_check_fail + 1)); }
+
+post_check_file_exec() {
+    path="$1"
+    label="$2"
+    if [ -x "$path" ]; then
+        pc_ok "$label: $path"
+    elif [ -e "$path" ]; then
+        pc_fail "$label exists but is not executable/readable as expected: $path"
+    else
+        pc_fail "$label missing: $path"
+    fi
+}
+
+run_post_check() {
+    echo
+    echo "== Direct-install post-check =="
+
+    echo
+    echo "-- Binary --"
+    post_check_file_exec "$GO_RESOLVER" "Go resolver"
+    if [ -s "$GO_RESOLVER" ]; then
+        target_sha="$(sha256_file "$GO_RESOLVER")"
+        [ -n "$target_sha" ] && pc_ok "Go resolver sha256: $target_sha" || pc_warn "Go resolver sha256 unavailable"
+        if "$GO_RESOLVER" -version >/tmp/xray-go-direct-version.$$ 2>&1; then
+            pc_ok "Go resolver version: $(sed -n '1p' /tmp/xray-go-direct-version.$$)"
+        else
+            pc_warn "Go resolver -version failed"
+        fi
+        rm -f /tmp/xray-go-direct-version.$$ 2>/dev/null || true
+    fi
+    [ -s "$GO_RESOLVER_BACKUP" ] && pc_ok "Go resolver backup present: $GO_RESOLVER_BACKUP" || pc_warn "Go resolver backup not found: $GO_RESOLVER_BACKUP"
+
+    echo
+    echo "-- Helpers --"
+    helper_specs | while IFS='|' read -r mode dest url label; do
+        [ -n "$dest" ] || continue
+        case "$mode" in
+            exec)
+                [ -x "$dest" ] && echo "[OK] $label installed: $dest" || echo "[FAIL] $label missing/not executable: $dest"
+                ;;
+            read)
+                [ -r "$dest" ] && echo "[OK] $label installed: $dest" || echo "[FAIL] $label missing/not readable: $dest"
+                ;;
+        esac
+    done
+
+    echo
+    echo "-- Auth-aware health helpers --"
+    if [ -s "$DOCTOR_CMD" ] && grep -q -- '--proxy-user' "$DOCTOR_CMD"; then pc_ok "doctor helper is SOCKS-auth aware"; else pc_warn "doctor helper does not show SOCKS auth patch"; fi
+    if [ -s "$GO_RECOVER_CMD" ] && grep -q -- '--proxy-user' "$GO_RECOVER_CMD"; then pc_ok "recovery helper is SOCKS-auth aware"; else pc_warn "recovery helper does not show SOCKS auth patch"; fi
+
+    echo
+    echo "-- Manifest and plan --"
+    [ -s "$PLAN_FILE" ] && pc_ok "plan file present: $PLAN_FILE" || pc_warn "plan file not found: $PLAN_FILE"
+    if [ -s "$MANIFEST_FILE" ]; then
+        pc_ok "manifest present: $MANIFEST_FILE"
+        manifest_mode="$(manifest_value INSTALL_MODE)"
+        manifest_sha="$(manifest_value BINARY_SHA256)"
+        [ "$manifest_mode" = "direct" ] && pc_ok "manifest install mode: direct" || pc_warn "manifest install mode is '${manifest_mode:-missing}'"
+        if [ -n "$target_sha" ] && [ -n "$manifest_sha" ]; then
+            [ "$target_sha" = "$manifest_sha" ] && pc_ok "manifest binary sha256 matches target" || pc_warn "manifest binary sha256 differs from target"
+        fi
+    else
+        pc_warn "manifest not found: $MANIFEST_FILE"
+    fi
+
+    echo
+    echo "-- Runtime status --"
+    if [ -x "$XRAY_GO_CMD" ]; then
+        if "$XRAY_GO_CMD" manifest summary >/tmp/xray-go-direct-manifest.$$ 2>&1; then
+            pc_ok "xray-go manifest summary works"
+            sed 's/^/  /' /tmp/xray-go-direct-manifest.$$
+        else
+            pc_warn "xray-go manifest summary failed"
+        fi
+        rm -f /tmp/xray-go-direct-manifest.$$ 2>/dev/null || true
+    else
+        pc_warn "xray-go wrapper not executable: $XRAY_GO_CMD"
+    fi
+
+    if [ -x "$GO_RECOVER_CMD" ]; then
+        if "$GO_RECOVER_CMD" --mode full status >/tmp/xray-go-direct-recover.$$ 2>&1; then
+            if grep -q 'health: OK' /tmp/xray-go-direct-recover.$$; then
+                pc_ok "recovery health: OK"
+            else
+                pc_warn "recovery status ran but health is not OK"
+            fi
+            sed 's/^/  /' /tmp/xray-go-direct-recover.$$
+        else
+            pc_warn "recovery status command failed"
+        fi
+        rm -f /tmp/xray-go-direct-recover.$$ 2>/dev/null || true
+    else
+        pc_warn "recovery helper not executable: $GO_RECOVER_CMD"
+    fi
+
+    echo
+    echo "Post-check summary: OK=$post_check_ok WARN=$post_check_warn FAIL=$post_check_fail"
+    [ "$post_check_fail" -eq 0 ] || exit 1
+}
+
 print_plan
 
 if [ "$MODE" = "detect" ]; then
     echo "Detect-only: no changes made."
+    exit 0
+fi
+
+if [ "$POST_CHECK" = "1" ]; then
+    run_post_check
     exit 0
 fi
 
@@ -600,4 +713,5 @@ echo "Direct-install skeleton complete."
 echo "No first-run setup was executed. Stable Full Go flow is unchanged."
 echo "Next checks:"
 echo "  xray-go manifest"
+echo "  xray-go recover status"
 echo "  cat $PLAN_FILE"
