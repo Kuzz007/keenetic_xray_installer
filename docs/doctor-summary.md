@@ -71,7 +71,7 @@ OK=... WARN=... FAIL=0
 
 ## Router validation
 
-Подтверждено на Keenetic `aarch64-3.10_kn`:
+Подтверждено на Keenetic `aarch64-3.10_kn` через прямой helper:
 
 ```text
 Install mode: direct
@@ -92,9 +92,20 @@ Manifest sha256: match
 OK=12 WARN=0 FAIL=0
 ```
 
+Подтверждено через CLI path после `xray-go update go`:
+
+```text
+xray-go summary              OK=12 WARN=0 FAIL=0
+xray-go doctor --summary     OK=12 WARN=0 FAIL=0
+xray-go version              helper path OK: /opt/bin/vless-go-doctor-summary
+```
+
 Validation notes:
 
 - helper работает без установки через `curl | sh`;
+- `xray-go summary` refresh'ит helper перед запуском;
+- `xray-go doctor --summary` использует тот же helper;
+- `xray-go version` показывает summary helper в списке helper paths;
 - SOCKS auth health-check проходит;
 - manifest sha256 совпадает с текущим Go resolver binary;
 - sensitive connection values не выводятся.
