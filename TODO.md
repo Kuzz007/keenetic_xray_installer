@@ -112,7 +112,9 @@ Manifest не должен хранить приватные источники,
 Уже есть:
 
 - [x] `xray-go status`
+- [x] `xray-go summary`
 - [x] `xray-go doctor`
+- [x] `xray-go doctor --summary`
 - [x] `xray-go menu`
 - [x] `xray-go history`
 - [x] `xray-go logs`
@@ -200,7 +202,10 @@ Agent / Control Server:
 - [x] Сделать SOCKS auth-aware health-check для doctor через direct staged helper patch.
 - [x] Подтвердить support output: `SOCKS health-check OK`, `FAIL=0`.
 - [x] Подтвердить прямой `vless-go-doctor`: manifest section, sha256 match, `OK=57 WARN=2 FAIL=0`.
-- [ ] Добавить summary: OK/WARN/FAIL, active slot, install mode, edition, version, recovery, watchdog, Proxy0, Xray, cron.
+- [x] Добавить compact summary helper: OK/WARN/FAIL, active slot, install mode, edition, version, recovery, watchdog, Proxy0, Xray, cron.
+- [x] Подтвердить compact summary helper на роутере: `OK=12 WARN=0 FAIL=0`.
+- [x] Добавить CLI path `xray-go summary` / `xray-go doctor --summary`.
+- [ ] Проверить CLI path `xray-go summary` / `xray-go doctor --summary` на роутере после `xray-go update go`.
 - [ ] Проверить, что support output не раскрывает приватные данные.
 
 ---
@@ -233,6 +238,7 @@ Agent / Control Server:
 - [x] Добавить `docs/install.md`.
 - [x] Добавить `docs/modes.md`.
 - [x] Добавить `docs/recovery.md`.
+- [x] Добавить `docs/doctor-summary.md`.
 - [x] Добавить `docs/direct-install.md`.
 - [x] Добавить `docs/direct-update.md`.
 - [x] Добавить `docs/direct-uninstall.md`.
@@ -247,6 +253,7 @@ Agent / Control Server:
 - [x] Зафиксировать router validation для direct-aware update.
 - [x] Зафиксировать router validation для direct uninstall dry-run.
 - [x] Зафиксировать router validation для guarded uninstall apply scaffold.
+- [x] Зафиксировать router validation для doctor summary helper.
 - [x] Добавить `docs/legacy.md`.
 - [x] Добавить `docs/opkg-feed-v1.md`.
 
