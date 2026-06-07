@@ -2,7 +2,9 @@
 
 Цель: переосмыслить проект так, чтобы он стал компактнее, понятнее и удобнее, но не потерял текущий функционал.
 
-Главный принцип: новая архитектура строится вокруг `auto_latest`, `Full Go`, `Minimal Go` и единой команды `xray-go`.
+Главный принцип: новая архитектура строится вокруг `install.sh`, `auto_latest`, `Full Go`, `Minimal Go` и единой команды `xray-go`.
+
+Новое архитектурное решение: для v2 целевая установка должна идти через direct-install без обязательного IPK/Entware feed слоя. IPK/feed остаются как старая v1-схема совместимости, но не являются направлением развития v2.
 
 ---
 
@@ -24,18 +26,20 @@
 
 ---
 
-## 1. Зафиксировать активную линию проекта
+## 1. Зафиксировать активную и замороженную линии проекта
 
-Активная линия — это всё, что относится к текущей Go-архитектуре.
+Активная линия — это всё, что относится к текущей и будущей Go-архитектуре.
 
 ### Активные компоненты
 
+- [ ] `install.sh`
 - [ ] `xray_vless_failover_auto_latest.sh`
 - [ ] `xray_vless_failover_go.sh`
 - [ ] `xray_vless_failover_minimal_go.sh`
 - [ ] `scripts/xray-go.sh`
-- [ ] Full Go/Entware edition
+- [ ] Full Go edition
 - [ ] Minimal Go edition
+- [ ] direct-install v2
 - [ ] recovery
 - [ ] watchdog
 - [ ] doctor
@@ -46,9 +50,15 @@
 - [ ] Agent
 - [ ] Control Server
 
+### Замороженные компоненты
+
+- [ ] legacy installers
+- [ ] old_go installers
+- [ ] старая IPK/feed v1-схема после появления direct-install v2
+
 ### Описание
 
-Все новые улучшения должны идти только в эту линию. Это уменьшает хаос и не даёт расползаться функционалу по нескольким старым установщикам.
+Все новые улучшения должны идти только в активную линию. Это уменьшает хаос и не даёт расползаться функционалу по нескольким старым установщикам. Legacy/old_go и старая IPK/feed схема остаются для совместимости, но не должны определять архитектуру v2.
 
 ---
 
@@ -59,7 +69,8 @@
 ### Нужно сделать
 
 - [ ] Создать `install.sh` в корне репозитория.
-- [ ] Перенести или переиспользовать внутри него логику `auto_latest`.
+- [ ] На первом этапе сделать `install.sh` безопасным wrapper на текущий `auto_latest`.
+- [ ] На втором этапе перенести в `install.sh` v2-логику direct-install.
 - [ ] Сохранить совместимость со старой командой `xray_vless_failover_auto_latest.sh`.
 - [ ] Позже сделать `xray_vless_failover_auto_latest.sh` тонким wrapper на `install.sh`.
 - [ ] Поддержать текущие параметры:
@@ -84,21 +95,110 @@ opkg update && opkg install curl && curl -fsSL https://raw.githubusercontent.com
 
 ---
 
-## 3. Упростить README
+## 3. Перейти к direct-install без обязательного IPK/feed
+
+Для v2 целевой путь установки должен быть проще: без обязательного `.ipk`, без `Packages`, без `Packages.gz` и без отдельного Entware feed для `failover-go`.
+
+### Нужно сделать
+
+- [ ] Считать direct-install целевой схемой v2.
+- [ ] Оставить IPK/feed как v1 compatibility mode, но не развивать его как основную архитектуру.
+- [ ] Не удалять текущую IPK/feed-схему сразу, чтобы не сломать старые Full Go установки.
+- [ ] Подготовить direct-install flow:
+  - [ ] определить архитектуру роутера;
+  - [ ] скачать нужный Go binary;
+  - [ ] проверить sha256;
+  - [ ] установить shell helpers;
+  - [ ] установить init.d scripts;
+  - [ ] настроить cron при необходимости;
+  - [ ] создать/обновить manifest;
+  - [ ] выполнить first-run setup;
+  - [ ] показать post-install checks.
+- [ ] Подготовить direct-update flow через `xray-go update go`.
+- [ ] Подготовить direct-uninstall/cleanup flow без `opkg remove failover-go`.
+
+### Целевая схема
+
+```text
+install.sh
+  -> detect arch
+  -> detect /opt space
+  -> choose full/minimal
+  -> download binary/helpers directly
+  -> install init.d/cron/config
+  -> write manifest
+  -> run first setup
+```
+
+### Что больше не должно быть обязательным для v2
+
+```text
+.ipk
+Packages
+Packages.gz
+Entware feed registration
+opkg install failover-go
+opkg remove failover-go
+```
+
+### Описание
+
+Direct-install убирает лишний упаковочный слой. Функционал остаётся, но установка и обновление становятся понятнее: всем управляет `install.sh` и `xray-go`, а не отдельный feed/opkg-пакет.
+
+---
+
+## 4. Добавить manifest установленной direct-install системы
+
+Если отказаться от IPK как основного слоя, нужен собственный manifest, который заменит `opkg status failover-go` для v2.
+
+### Нужно сделать
+
+- [ ] Создать manifest-файл:
+
+```text
+/opt/etc/xray/xray-go.manifest
+```
+
+- [ ] Хранить в manifest:
+  - [ ] install mode: `direct` или `opkg`;
+  - [ ] edition: `full` или `minimal`;
+  - [ ] version;
+  - [ ] architecture;
+  - [ ] installed_at;
+  - [ ] source commit/tag/channel;
+  - [ ] binary path;
+  - [ ] binary sha256;
+  - [ ] installed files;
+  - [ ] enabled modules;
+  - [ ] last update time.
+- [ ] Научить `doctor` читать manifest.
+- [ ] Научить `xray-go version` показывать manifest summary.
+- [ ] Научить `xray-go update go` обновлять manifest.
+
+### Описание
+
+Manifest нужен, чтобы direct-install оставался управляемым: можно понять, что установлено, откуда, какой версии и какие файлы принадлежат проекту.
+
+---
+
+## 5. Упростить README
 
 README должен быть коротким входом для пользователя, а не полным архивом всех старых вариантов.
 
 ### Нужно сделать
 
-- [ ] В начало README поставить только рекомендуемую установку.
-- [ ] Основной сценарий описывать через `install.sh` или `auto_latest`.
+- [ ] В начало README поставить только рекомендуемую установку через `install.sh`.
+- [ ] Основной сценарий описывать через `install.sh`.
+- [ ] Упомянуть `auto_latest` как совместимый старый вход текущей Go-линии.
 - [ ] Убрать перегруз legacy-инструкциями из основной части.
 - [ ] Создать отдельный документ `docs/legacy.md`.
 - [ ] Перенести подробности по legacy/old_go в `docs/legacy.md`.
+- [ ] Добавить отдельный документ `docs/direct-install.md`.
 - [ ] Добавить короткую архитектурную схему:
 
 ```text
-install.sh / auto_latest
+install.sh
+  -> direct-install v2
   -> Full Go
   -> Minimal Go
   -> xray-go
@@ -110,7 +210,7 @@ README должен помогать быстро установить и про
 
 ---
 
-## 4. Сделать `xray-go` главным интерфейсом управления
+## 6. Сделать `xray-go` главным интерфейсом управления
 
 `xray-go` должен стать единой командой для пользователя.
 
@@ -137,6 +237,8 @@ README должен помогать быстро установить и про
 - [ ] `xray-go module disable agent`
 - [ ] `xray-go agent status`
 - [ ] `xray-go web status`
+- [ ] `xray-go manifest`
+- [ ] `xray-go uninstall --dry-run`
 
 ### Описание
 
@@ -144,7 +246,7 @@ README должен помогать быстро установить и про
 
 ---
 
-## 5. Привести Full Go и Minimal Go к общей логике
+## 7. Привести Full Go и Minimal Go к общей логике
 
 Full Go и Minimal Go должны восприниматься как два профиля одной системы, а не как два разных проекта.
 
@@ -162,6 +264,7 @@ full    = minimal + subscriptions + cron + watchdog + recovery + doctor + histor
 - [ ] Не добавлять тяжёлые зависимости в Minimal Go.
 - [ ] Сохранить автоматический выбор режима по свободному месту в `/opt`.
 - [ ] Сохранить ручной выбор через `--go` и `--minimal-go`.
+- [ ] Сделать direct-install общим базовым flow для Full и Minimal.
 
 ### Описание
 
@@ -169,7 +272,7 @@ Minimal должен оставаться лёгким и надёжным. Full
 
 ---
 
-## 6. Спроектировать единый state/config слой
+## 8. Спроектировать единый state/config слой
 
 Сейчас состояние может храниться в разных местах. Нужно постепенно привести это к единой модели.
 
@@ -183,12 +286,14 @@ Minimal должен оставаться лёгким и надёжным. Full
 - [ ] Где хранится состояние agent.
 - [ ] Что читает Web UI.
 - [ ] Что читает Control Server.
+- [ ] Как manifest должен связываться с config/state.
 
 ### Целевая структура
 
 ```text
 /opt/etc/xray/xray-go.conf
 /opt/etc/xray/xray-go.state
+/opt/etc/xray/xray-go.manifest
 ```
 
 ### Описание
@@ -197,7 +302,7 @@ Doctor, watchdog, recovery, agent и Web UI должны читать одну �
 
 ---
 
-## 7. Web UI оставить опциональным модулем
+## 9. Web UI оставить опциональным модулем
 
 Web UI полезен, но он не должен быть частью минимальной базовой установки.
 
@@ -223,7 +328,7 @@ xray-go web status
 
 ---
 
-## 8. Agent и Control Server оставить опциональными
+## 10. Agent и Control Server оставить опциональными
 
 Agent и Control Server относятся к расширенному управлению и не должны смешиваться с базовой установкой роутера.
 
@@ -249,7 +354,7 @@ xray-go agent status
 
 ---
 
-## 9. Улучшить Doctor и Support mode
+## 11. Улучшить Doctor и Support mode
 
 Диагностика должна быть безопасной для отправки в поддержку.
 
@@ -268,6 +373,9 @@ OK:
 WARN:
 FAIL:
 Active slot:
+Install mode:
+Edition:
+Version:
 Recovery:
 Watchdog:
 Proxy0:
@@ -278,6 +386,7 @@ Cron:
 - [ ] Проверить, что в support output не попадают raw VLESS links.
 - [ ] Проверить, что в support output не попадают subscription URLs.
 - [ ] Проверить, что JSON summary стабилен для Web UI / Agent / Control Server.
+- [ ] Добавить manifest summary без приватных данных.
 
 ### Описание
 
@@ -285,14 +394,14 @@ Doctor должен быстро показывать проблему, а suppo
 
 ---
 
-## 10. Сделать обновления предсказуемыми
+## 12. Сделать обновления предсказуемыми
 
 Обновление разных частей проекта должно быть явно разделено.
 
 ### Нужно сделать
 
 - [ ] Разделить update targets:
-  - [ ] Go edition
+  - [ ] Go edition direct-install files
   - [ ] Xray-core
   - [ ] Web UI
   - [ ] Agent
@@ -309,6 +418,8 @@ xray-go update agent
 - [ ] Не менять пользовательские профили при safe update.
 - [ ] Не перезаписывать primary/backup sources без явного действия пользователя.
 - [ ] Сохранить `--no-cron` и `--no-restart` для аккуратного обновления.
+- [ ] Обновлять manifest после успешного direct-update.
+- [ ] Для старых opkg/IPK установок показывать совместимый upgrade path.
 
 ### Описание
 
@@ -316,7 +427,7 @@ xray-go update agent
 
 ---
 
-## 11. Минимизировать количество публичных скриптов в корне
+## 13. Минимизировать количество публичных скриптов в корне
 
 Корень репозитория должен быть понятным.
 
@@ -334,6 +445,7 @@ xray-go update agent
   - [ ] `docs/`
   - [ ] `packaging/`
 - [ ] Не трогать legacy/old_go в рамках этого пункта.
+- [ ] Не делать IPK/feed обязательным публичным путём v2.
 
 ### Описание
 
@@ -341,7 +453,7 @@ xray-go update agent
 
 ---
 
-## 12. Проверить безопасность и восстановление
+## 14. Проверить безопасность и восстановление
 
 Проект управляет сетевой связностью роутера, поэтому recovery и rollback важнее красоты кода.
 
@@ -354,6 +466,8 @@ xray-go update agent
 - [ ] Proxy0 refresh безопасен.
 - [ ] Xray restart не затирает конфиг.
 - [ ] `xray-go doctor --support` не раскрывает приватные данные.
+- [ ] direct-install update не оставляет систему в полуобновлённом состоянии.
+- [ ] При ошибке скачивания/sha256 direct-install должен откатываться или не трогать рабочие файлы.
 
 ### Описание
 
@@ -361,19 +475,21 @@ xray-go update agent
 
 ---
 
-## 13. Документация по режимам
+## 15. Документация по режимам
 
 Нужно понятно объяснить, чем отличаются Full Go, Minimal Go и optional-модули.
 
 ### Нужно сделать
 
 - [ ] `docs/install.md` — установка и первый запуск.
+- [ ] `docs/direct-install.md` — новая v2-схема без обязательного IPK/feed.
 - [ ] `docs/modes.md` — Full Go vs Minimal Go.
 - [ ] `docs/recovery.md` — recovery/watchdog/failover.
 - [ ] `docs/web-ui.md` — Web UI.
 - [ ] `docs/agent.md` — Agent.
 - [ ] `docs/control-server.md` — Control Server.
 - [ ] `docs/legacy.md` — legacy/old_go frozen archive.
+- [ ] `docs/opkg-feed-v1.md` — старая IPK/feed схема совместимости.
 
 ### Описание
 
@@ -381,7 +497,7 @@ README должен быть коротким. Подробности должн
 
 ---
 
-## 14. Финальная цель v2
+## 16. Финальная цель v2
 
 Пользовательский путь должен стать максимально простым.
 
@@ -401,6 +517,16 @@ xray-go switch primary
 xray-go switch backup
 xray-go recover status
 xray-go update
+```
+
+### Внутренняя архитектура
+
+```text
+install.sh
+  -> direct-install
+  -> manifest
+  -> xray-go
+  -> optional modules
 ```
 
 ### Описание
