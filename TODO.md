@@ -32,7 +32,7 @@
 
 ### Активные компоненты
 
-- [ ] `install.sh`
+- [x] `install.sh`
 - [ ] `xray_vless_failover_auto_latest.sh`
 - [ ] `xray_vless_failover_go.sh`
 - [ ] `xray_vless_failover_minimal_go.sh`
@@ -68,20 +68,20 @@
 
 ### Нужно сделать
 
-- [ ] Создать `install.sh` в корне репозитория.
-- [ ] На первом этапе сделать `install.sh` безопасным wrapper на текущий `auto_latest`.
+- [x] Создать `install.sh` в корне репозитория.
+- [x] На первом этапе сделать `install.sh` безопасным wrapper на текущий `auto_latest`.
 - [ ] На втором этапе перенести в `install.sh` v2-логику direct-install.
-- [ ] Сохранить совместимость со старой командой `xray_vless_failover_auto_latest.sh`.
+- [x] Сохранить совместимость со старой командой `xray_vless_failover_auto_latest.sh`.
 - [ ] Позже сделать `xray_vless_failover_auto_latest.sh` тонким wrapper на `install.sh`.
-- [ ] Поддержать текущие параметры:
-  - [ ] `--auto`
-  - [ ] `--go`
-  - [ ] `--minimal-go`
-  - [ ] `--detect-only`
-  - [ ] `--doctor`
-  - [ ] `--update-only`
-  - [ ] `--no-cron`
-  - [ ] `--no-restart`
+- [x] Поддержать текущие параметры через pass-through в `auto_latest`:
+  - [x] `--auto`
+  - [x] `--go`
+  - [x] `--minimal-go`
+  - [x] `--detect-only`
+  - [x] `--doctor`
+  - [x] `--update-only`
+  - [x] `--no-cron`
+  - [x] `--no-restart`
 
 ### Будущая команда установки
 
@@ -436,7 +436,7 @@ xray-go update agent
 - [ ] В корне оставить основные публичные входы:
   - [ ] `README.md`
   - [ ] `TODO.md`
-  - [ ] `install.sh`
+  - [x] `install.sh`
   - [ ] `xray_vless_failover_auto_latest.sh`
   - [ ] текущие Full/Minimal Go installers, пока они нужны для совместимости
 - [ ] Всё вспомогательное держать в:
