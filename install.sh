@@ -13,6 +13,7 @@ AUTO_LATEST_URL="${AUTO_LATEST_URL:-${REPO_BASE}/xray_vless_failover_auto_latest
 DIRECT_INSTALL_URL="${DIRECT_INSTALL_URL:-${REPO_BASE}/scripts/xray-go-direct-install.sh}"
 DIRECT_INIT_URL="${DIRECT_INIT_URL:-${REPO_BASE}/scripts/xray-go-direct-init.sh}"
 DIRECT_FULL_URL="${DIRECT_FULL_URL:-${REPO_BASE}/scripts/xray-go-direct-full.sh}"
+DIRECT_UNINSTALL_URL="${DIRECT_UNINSTALL_URL:-${REPO_BASE}/scripts/xray-go-direct-uninstall.sh}"
 
 if [ -d /opt ]; then
     TMP_DIR="${TMPDIR:-/opt/tmp}"
@@ -24,9 +25,10 @@ TMP_FILE="${TMP_DIR}/xray_vless_failover_auto_latest.$$"
 DIRECT_TMP_FILE="${TMP_DIR}/xray_go_direct_install.$$"
 DIRECT_INIT_TMP_FILE="${TMP_DIR}/xray_go_direct_init.$$"
 DIRECT_FULL_TMP_FILE="${TMP_DIR}/xray_go_direct_full.$$"
+DIRECT_UNINSTALL_TMP_FILE="${TMP_DIR}/xray_go_direct_uninstall.$$"
 
 cleanup() {
-    rm -f "$TMP_FILE" "$DIRECT_TMP_FILE" "$DIRECT_INIT_TMP_FILE" "$DIRECT_FULL_TMP_FILE" 2>/dev/null || true
+    rm -f "$TMP_FILE" "$DIRECT_TMP_FILE" "$DIRECT_INIT_TMP_FILE" "$DIRECT_FULL_TMP_FILE" "$DIRECT_UNINSTALL_TMP_FILE" 2>/dev/null || true
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -42,6 +44,7 @@ Usage:
   install.sh --direct-init-post-check
   install.sh --direct-full-dry-run
   install.sh --direct-full-experimental --yes
+  install.sh --direct-uninstall-dry-run
 
 Default mode:
   Without direct flags, this wrapper downloads and runs the stable
@@ -54,6 +57,7 @@ Experimental direct-install v2:
   --direct-init-post-check     Run direct init/service read-only checks
   --direct-full-dry-run        Print full direct-install plan; make no changes
   --direct-full-experimental   Apply full direct sequence; requires --yes
+  --direct-uninstall-dry-run   Print direct uninstall/cleanup plan; make no changes
 
 Examples:
   install.sh --detect-only
@@ -72,6 +76,7 @@ Examples:
   install.sh --direct-init-post-check
   install.sh --direct-full-dry-run
   install.sh --direct-full-experimental --yes
+  install.sh --direct-uninstall-dry-run
 USAGE
 }
 
@@ -177,6 +182,13 @@ case "${1:-}" in
         echo "Entrypoint: install.sh"
         echo "Mode: direct full experimental apply"
         run_downloaded_script "$DIRECT_FULL_URL" "$DIRECT_FULL_TMP_FILE" "direct full orchestrator" --apply "$@"
+        ;;
+    --direct-uninstall-dry-run)
+        shift
+        echo "Keenetic Xray Go installer"
+        echo "Entrypoint: install.sh"
+        echo "Mode: direct uninstall dry-run"
+        run_downloaded_script "$DIRECT_UNINSTALL_URL" "$DIRECT_UNINSTALL_TMP_FILE" "direct uninstall planner" --dry-run "$@"
         ;;
 esac
 
