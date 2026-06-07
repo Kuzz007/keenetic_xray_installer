@@ -55,6 +55,8 @@ Full Go включает:
 - quiet recovery;
 - hourly recovery cron;
 - doctor/support diagnostics;
+- compact summary;
+- privacy-check;
 - switch history;
 - cleanup helper;
 - Xray-core update helper;
@@ -65,7 +67,9 @@ Full Go включает:
 
 ```sh
 xray-go status
+xray-go summary
 xray-go doctor --support
+xray-go privacy-check
 xray-go manifest
 xray-go recover status
 xray-go update go --dry-run
@@ -116,6 +120,8 @@ direct full apply                OK
 xray-go update go --dry-run      OK
 xray-go update go                OK
 xray-go uninstall --dry-run      OK
+xray-go summary                  OK
+xray-go privacy-check            OK
 ```
 
 Direct-install v2 для Full Go использует:
@@ -130,36 +136,20 @@ scripts/xray-go-direct-uninstall.sh
 
 Minimal Go пока остаётся отдельным лёгким профилем через существующий Minimal Go flow. Цель будущего развития — сделать direct-install общим базовым flow для Full и Minimal, но не утяжелять Minimal.
 
-## Optional modules
+## Out-of-core extras
 
-Optional modules не должны включаться по умолчанию.
-
-К optional modules относятся:
-
-```text
-Web UI
-Agent
-Control Server
-```
+Web UI, Agent и Control Server не входят в router core.
 
 Правило:
 
-- Full Go может уметь включать optional modules отдельными командами;
-- Minimal Go не должен получать тяжёлые optional modules по умолчанию;
+- Web UI не включается по умолчанию и не нужен большинству установок;
+- Web UI остаётся manual addon для редких случаев;
 - Web UI должен быть доступен только в доверенной локальной сети;
-- Agent/Control Server относятся к расширенной схеме управления, а не к базовой установке роутера.
+- Agent ставится отдельной ссылкой/сценарием из бота;
+- Control Server не смешивается с router installer;
+- `xray-go module list` и `xray-go module enable/disable ...` не добавляются в core CLI.
 
-Будущие команды:
-
-```sh
-xray-go module list
-xray-go module enable web-ui
-xray-go module disable web-ui
-xray-go web status
-xray-go module enable agent
-xray-go module disable agent
-xray-go agent status
-```
+Это сохраняет core компактным: install, update, doctor, summary, privacy-check, recovery и cleanup.
 
 ## IPK/feed и профили
 
@@ -194,9 +184,11 @@ fi
 Для Full Go direct-mode нормальная проверка:
 
 ```sh
+xray-go summary
 xray-go manifest
 xray-go recover status
 xray-go doctor --support
+xray-go privacy-check
 ```
 
 Ожидаемый итог:
