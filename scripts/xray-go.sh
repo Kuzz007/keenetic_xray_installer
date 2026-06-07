@@ -17,6 +17,8 @@ GO_INSTALLER_UPDATE_CMD="/opt/bin/xray-go-installer-update"
 GO_INSTALLER_UPDATE_URL="${GO_INSTALLER_UPDATE_URL:-${RAW_BASE}/scripts/xray-go-installer-update.sh}"
 DIRECT_FULL_UPDATE_CMD="/opt/bin/xray-go-direct-full"
 DIRECT_FULL_UPDATE_URL="${DIRECT_FULL_UPDATE_URL:-${RAW_BASE}/scripts/xray-go-direct-full.sh}"
+DIRECT_UNINSTALL_CMD="/opt/bin/xray-go-direct-uninstall"
+DIRECT_UNINSTALL_URL="${DIRECT_UNINSTALL_URL:-${RAW_BASE}/scripts/xray-go-direct-uninstall.sh}"
 XRAY_CORE_UPDATE_CMD="/opt/bin/vless-go-xray-core-update"
 MENU_CMD="/opt/bin/failover-go"
 WATCHDOG_LOG="/opt/var/log/vless-go-watchdog.log"
@@ -39,6 +41,7 @@ xray-go - единая команда управления Keenetic Xray Go edit
   xray-go update-core
   xray-go switch primary|backup
   xray-go cleanup [--dry-run]
+  xray-go uninstall --dry-run
   xray-go version
   xray-go help
 
@@ -72,6 +75,11 @@ Update mode:
   xray-go update go --dry-run
     Для direct mode показывает план без изменений.
 
+Uninstall mode:
+  xray-go uninstall --dry-run
+    Для direct mode показывает план удаления/очистки без изменений.
+    На первом этапе это только read-only planner.
+
 Низкоуровневые команды остаются доступны:
   failover-go
   vless-go-doctor
@@ -83,6 +91,7 @@ Update mode:
   vless-go-xray-core-update
   xray-go-installer-update
   xray-go-direct-full
+  xray-go-direct-uninstall
 EOF
 }
 
@@ -121,6 +130,10 @@ refresh_direct_full_update() {
     fetch_script_to "$DIRECT_FULL_UPDATE_URL" "$DIRECT_FULL_UPDATE_CMD" "xray-go-direct-full" || return 0
 }
 
+refresh_direct_uninstall() {
+    fetch_script_to "$DIRECT_UNINSTALL_URL" "$DIRECT_UNINSTALL_CMD" "xray-go-direct-uninstall" || return 0
+}
+
 show_recovery_summary() {
     echo
     echo "== Recovery =="
@@ -144,7 +157,7 @@ show_status() {
 }
 
 json_escape() {
-    sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\n/\\n/g;s/\r//g;s/\t/  /g'
+    sed ':a;N;$!ba;s/\/\\/g;s/"/\"/g;s/\n/\\n/g;s/\r//g;s/\t/  /g'
 }
 
 counter_from_summary() {
@@ -386,6 +399,26 @@ run_update() {
     esac
 }
 
+run_uninstall() {
+    MODE="dry-run"
+    case "${1:-}" in
+        ""|--dry-run|--plan|dry-run|plan) MODE="dry-run"; [ "$#" -gt 0 ] && shift ;;
+        *) echo "Использование: xray-go uninstall --dry-run" >&2; exit 2 ;;
+    esac
+    [ "$#" -eq 0 ] || { echo "Использование: xray-go uninstall --dry-run" >&2; exit 2; }
+
+    INSTALL_MODE="$(manifest_get_value INSTALL_MODE)"
+    if [ "$INSTALL_MODE" != "direct" ]; then
+        echo "ОШИБКА: uninstall planner пока доступен только для INSTALL_MODE=direct." >&2
+        echo "Текущий INSTALL_MODE: ${INSTALL_MODE:-unknown}" >&2
+        exit 2
+    fi
+
+    refresh_direct_uninstall
+    need_exec "$DIRECT_UNINSTALL_CMD"
+    "$DIRECT_UNINSTALL_CMD" --dry-run
+}
+
 case "${1:-help}" in
     status)
         shift
@@ -433,6 +466,10 @@ case "${1:-help}" in
         shift
         need_exec "$GO_CLEANUP_CMD"
         "$GO_CLEANUP_CMD" "$@"
+        ;;
+    uninstall)
+        shift
+        run_uninstall "$@"
         ;;
     version|--version|-V)
         echo "$XRAY_GO_VERSION"
