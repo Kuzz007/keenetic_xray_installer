@@ -1,0 +1,68 @@
+# Direct safety check
+
+`xray-go-safety-check` — read-only проверка safety/rollback границ direct-install слоя.
+
+Цель: подтвердить, что failure scenarios в staging не меняют рабочие direct-install файлы и что установленный binary совпадает с manifest sha256.
+
+## Запуск без установки
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/xray-go-safety-check.sh | sh
+```
+
+## Что проверяется
+
+Проверка делает snapshot ключевых рабочих файлов:
+
+```text
+/opt/bin/xray-failover-go
+/opt/bin/xray-go
+/opt/bin/vless-go-*
+/opt/bin/failover-go
+/opt/bin/xray-go-manifest
+/opt/bin/xray-go-direct-full
+/opt/bin/xray-go-direct-uninstall
+/opt/libexec/vless-go-lock.sh
+/opt/etc/init.d/S26vless-go-watchdog
+/opt/etc/xray/xray-go.manifest
+/opt/etc/xray/xray-go.direct-install.plan
+/opt/etc/xray/xray-go.direct-init.plan
+```
+
+Затем выполняет изолированные failure simulations только в `/tmp`:
+
+- bad download должен завершиться ошибкой до изменения рабочих файлов;
+- broken shell helper должен быть отклонён через `sh -n`;
+- failed install simulation не должен менять уже существующий target content;
+- после simulations повторный snapshot должен совпадать с исходным.
+
+## Что не делает
+
+`xray-go-safety-check` не должен:
+
+- запускать real update;
+- скачивать Go resolver release asset;
+- устанавливать helper scripts;
+- менять manifest;
+- менять cron;
+- рестартовать Xray/watchdog;
+- редактировать VLESS sources/configs.
+
+## Ожидаемый здоровый результат
+
+```text
+== Result ==
+OK=... WARN=0 FAIL=0
+```
+
+Допустимы warning-и только для дополнительных файлов, которые отсутствуют на неполной установке. На подтверждённой direct full установке ожидается `FAIL=0`.
+
+## Связанные проверки
+
+```sh
+xray-go update go --dry-run
+xray-go update go
+xray-go summary
+xray-go privacy-check
+xray-go uninstall --dry-run
+```
