@@ -9,6 +9,8 @@ RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_in
 GO_RESOLVER="/opt/bin/xray-failover-go"
 XRAY_GO_CMD="/opt/bin/xray-go"
 XRAY_GO_URL="${XRAY_GO_URL:-${RAW_BASE}/scripts/xray-go.sh}"
+MANIFEST_CMD="/opt/bin/xray-go-manifest"
+MANIFEST_URL="${MANIFEST_URL:-${RAW_BASE}/scripts/xray-go-manifest.sh}"
 GO_UPDATE_CMD="/opt/bin/vless-go-update"
 GO_UPDATE_URL="${GO_UPDATE_URL:-${RAW_BASE}/scripts/vless-go-update.sh}"
 GO_AUTO_UPDATE_CMD="/opt/bin/vless-go-auto-update"
@@ -45,6 +47,7 @@ LOCK_WAIT="${VLESS_GO_LOCK_WAIT:-30}"
 LOCK_HELD="0"
 ENABLE_HOURLY_RECOVERY="${ENABLE_HOURLY_RECOVERY:-1}"
 HOURLY_RECOVERY_SCHEDULE="${HOURLY_RECOVERY_SCHEDULE:-7 * * * *}"
+
 
 detect_entware_arch() {
     OPKG_BIN=""
@@ -114,6 +117,33 @@ acquire_lock() {
 
 release_lock() { if [ "$LOCK_HELD" = "1" ]; then PID="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"; [ "$PID" = "$$" ] && rm -rf "$LOCK_DIR" 2>/dev/null || true; LOCK_HELD="0"; fi; }
 
+sha256_file() {
+    FILE="$1"
+    [ -s "$FILE" ] || { echo ""; return 0; }
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$FILE" 2>/dev/null | awk '{print $1}'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$FILE" 2>/dev/null | awk '{print $NF}'
+    else
+        echo ""
+    fi
+}
+
+update_manifest() {
+    [ -x "$MANIFEST_CMD" ] || return 0
+    BINARY_SHA256="$(sha256_file "$GO_RESOLVER")"
+    "$MANIFEST_CMD" init \
+        --install-mode opkg \
+        --edition full \
+        --version "$GO_EXPERIMENTAL_TAG" \
+        --arch "$ENTWARE_ARCH" \
+        --channel "$REPO_BRANCH" \
+        --source "$GO_BINARY_URL" \
+        --binary-path "$GO_RESOLVER" \
+        --binary-sha256 "$BINARY_SHA256" \
+        --modules "subscriptions,cron,watchdog,recovery,doctor,history,cleanup,update-core" >/dev/null 2>&1 || echo "WARNING: failed to update xray-go manifest." >&2
+}
+
 NO_RESTART="0"; NO_BINARY="0"; NO_WATCHDOG="0"; NO_DOCTOR="0"; NO_HELPERS="0"; NO_MENU="0"; NO_XRAY_CORE_UPDATER="0"; FIRST="0"
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -157,6 +187,7 @@ fi
 if [ "$NO_HELPERS" = "0" ]; then
     install_readable_helper "$LOCK_HELPER_URL" "$LOCK_HELPER" "lock helper"
     install_executable "$XRAY_GO_URL" "$XRAY_GO_CMD" "xray-go wrapper"
+    install_executable "$MANIFEST_URL" "$MANIFEST_CMD" "xray-go manifest helper"
     install_executable "$GO_UPDATE_URL" "$GO_UPDATE_CMD" "vless-go-update helper"
     install_executable "$GO_FAILOVER_URL" "$GO_FAILOVER_CMD" "vless-go-failover helper"
     install_executable "$GO_AUTO_UPDATE_URL" "$GO_AUTO_UPDATE_CMD" "vless-go-auto-update helper"
@@ -188,6 +219,8 @@ else
     echo "WARNING: vless-go-update not found; Xray config was not regenerated." >&2
 fi
 
+update_manifest
+
 if [ "$NO_RESTART" = "0" ]; then
     [ -x "$XRAY_INIT" ] && "$XRAY_INIT" restart || "$XRAY_INIT" start || true
     [ -x "$WATCHDOG_INIT" ] && "$WATCHDOG_INIT" restart || "$WATCHDOG_INIT" start || true
@@ -208,6 +241,7 @@ echo "Primary selector: $(sed -n '1p' "$XRAY_DIR/vless-go.primary.selector" 2>/d
 echo "Backup selector: $(sed -n '1p' "$XRAY_DIR/vless-go.backup.selector" 2>/dev/null || echo first)"
 echo "Watchdog config: $WATCHDOG_CONF"
 echo "Unified command: $XRAY_GO_CMD"
+echo "Manifest command: $MANIFEST_CMD"
 echo "Doctor command: $DOCTOR_CMD"
 echo "Lock helper: $LOCK_HELPER"
 echo "History command: $GO_HISTORY_CMD"
