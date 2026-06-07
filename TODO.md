@@ -70,7 +70,10 @@
 
 - [x] Создать `install.sh` в корне репозитория.
 - [x] На первом этапе сделать `install.sh` безопасным wrapper на текущий `auto_latest`.
-- [ ] На втором этапе перенести в `install.sh` v2-логику direct-install.
+- [x] Добавить скрытый экспериментальный direct-install запуск `--direct-experimental`.
+- [x] Добавить безопасный direct-install detection запуск `--direct-detect-only`.
+- [ ] На втором этапе перенести в `install.sh` полноценную v2-логику direct-install.
+- [ ] После проверки на реальном роутере сделать direct-install не скрытым режимом.
 - [x] Сохранить совместимость со старой командой `xray_vless_failover_auto_latest.sh`.
 - [ ] Позже сделать `xray_vless_failover_auto_latest.sh` тонким wrapper на `install.sh`.
 - [x] Поддержать текущие параметры через pass-through в `auto_latest`:
@@ -102,16 +105,19 @@ opkg update && opkg install curl && curl -fsSL https://raw.githubusercontent.com
 ### Нужно сделать
 
 - [x] Считать direct-install целевой схемой v2.
+- [x] Добавить experimental skeleton `scripts/xray-go-direct-install.sh`.
 - [ ] Оставить IPK/feed как v1 compatibility mode, но не развивать его как основную архитектуру.
 - [ ] Не удалять текущую IPK/feed-схему сразу, чтобы не сломать старые Full Go установки.
 - [ ] Подготовить direct-install flow:
-  - [ ] определить архитектуру роутера;
-  - [ ] скачать нужный Go binary;
-  - [ ] проверить sha256;
-  - [ ] установить shell helpers;
+  - [x] определить архитектуру роутера;
+  - [x] выбрать нужный Go binary release asset;
+  - [x] скачать нужный Go binary в staging directory;
+  - [x] проверить sha256 staged binary;
+  - [ ] установить shell helpers полностью;
   - [ ] установить init.d scripts;
   - [ ] настроить cron при необходимости;
   - [x] создать/обновить manifest helper;
+  - [x] записать informational direct-install plan;
   - [ ] выполнить first-run setup;
   - [ ] показать post-install checks.
 - [ ] Подготовить direct-update flow через `xray-go update go`.
@@ -161,7 +167,8 @@ Direct-install убирает лишний упаковочный слой. Фу
 /opt/etc/xray/xray-go.manifest
 ```
 
-- [ ] Создавать manifest-файл на роутере во время будущего direct-install.
+- [x] Добавить experimental `--write-manifest` в direct-install skeleton.
+- [ ] Создавать manifest-файл на роутере во время будущего полноценного direct-install.
 - [x] Определить безопасный формат manifest без raw VLESS/subscription secrets.
 - [ ] Хранить в manifest:
   - [x] install mode: `direct` или `opkg`;
@@ -199,6 +206,7 @@ README должен быть коротким входом для пользов
 - [ ] Создать отдельный документ `docs/legacy.md`.
 - [ ] Перенести подробности по legacy/old_go в `docs/legacy.md`.
 - [x] Добавить отдельный документ `docs/direct-install.md`.
+- [x] Описать experimental direct-install skeleton в `docs/direct-install.md`.
 - [ ] Добавить короткую архитектурную схему:
 
 ```text
@@ -471,6 +479,7 @@ xray-go update agent
 - [ ] Proxy0 refresh безопасен.
 - [ ] Xray restart не затирает конфиг.
 - [ ] `xray-go doctor --support` не раскрывает приватные данные.
+- [x] Direct-install skeleton не заменяет рабочий бинарник при staging download.
 - [ ] direct-install update не оставляет систему в полуобновлённом состоянии.
 - [ ] При ошибке скачивания/sha256 direct-install должен откатываться или не трогать рабочие файлы.
 
