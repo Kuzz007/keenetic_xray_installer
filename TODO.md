@@ -29,18 +29,8 @@
 - [x] Добавить безопасный `--direct-detect-only`.
 - [x] Добавить `--direct-init-experimental`.
 - [x] Добавить `--direct-init-post-check`.
-- [x] Пробросить direct options:
-  - [x] `--prepare-only`
-  - [x] `--download-binary`
-  - [x] `--install-binary`
-  - [x] `--stage-helpers`
-  - [x] `--install-helpers`
-  - [x] `--write-manifest`
-  - [x] `--post-check`
-  - [x] `--stage-watchdog-init`
-  - [x] `--install-watchdog-init`
-  - [x] `--enable-recovery-cron`
-  - [x] `--disable-recovery-cron`
+- [x] Добавить `--direct-full-dry-run`.
+- [x] Добавить `--direct-full-experimental --yes`.
 - [ ] Позже перенести полноценную v2-логику direct-install в основной путь.
 - [ ] После проверки на реальном роутере сделать direct-install не скрытым режимом.
 - [ ] Позже сделать `xray_vless_failover_auto_latest.sh` тонким wrapper на `install.sh`.
@@ -66,9 +56,13 @@
 - [x] Добавить явный `--install-helpers`.
 - [x] Устанавливать shell helpers в `/opt/bin` и `/opt/libexec` только при явном `--install-helpers`.
 - [x] Патчить staged doctor/recovery helpers для SOCKS auth-aware health-check.
+- [x] Добавить read-only `--post-check`.
+- [x] Добавить direct full dry-run orchestrator.
+- [x] Подтвердить на роутере: direct full dry-run показывает готовый state и `No changes made`.
+- [x] Добавить explicit direct full apply orchestrator, требующий `--yes`.
+- [ ] Подтвердить на роутере: direct full apply завершается успешно.
 - [x] Подтвердить на роутере: `xray-go recover status` показывает `health: OK`.
 - [x] Подтвердить на роутере: `xray-go doctor --support` показывает `SOCKS health-check OK` и `FAIL=0`.
-- [x] Добавить read-only `--post-check`.
 - [x] Подтвердить на роутере: direct post-check показывает `OK=12 WARN=0 FAIL=0`.
 - [x] Добавить отдельный direct-init helper для service/init слоя.
 - [x] Добавить direct-init read-only post-check.
@@ -219,6 +213,7 @@ Agent / Control Server:
 
 - [ ] Обновить README под `install.sh`.
 - [x] Добавить `docs/direct-install.md`.
+- [x] Описать direct full dry-run/apply orchestrator.
 - [x] Описать `--stage-helpers` и `--install-helpers`.
 - [x] Описать direct-init helper и recovery cron management.
 - [ ] Добавить `docs/install.md`.
@@ -234,6 +229,7 @@ Agent / Control Server:
 - [x] Staging download не заменяет рабочий бинарник.
 - [x] Shell helpers не устанавливаются без явного `--install-helpers`.
 - [x] Go resolver binary не устанавливается без явного `--install-binary`.
+- [x] Direct full apply требует явный `--yes`.
 - [x] При установке Go resolver сохраняется backup.
 - [x] Recovery health-check с SOCKS auth подтверждён как OK.
 - [x] Direct-init post-check подтверждает watchdog/recovery/cron без ошибок.
