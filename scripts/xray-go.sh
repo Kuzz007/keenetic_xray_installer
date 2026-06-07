@@ -80,6 +80,10 @@ Uninstall mode:
     Для direct mode показывает план удаления/очистки без изменений.
     На первом этапе это только read-only planner.
 
+Version mode:
+  xray-go version
+    Показывает wrapper version, direct manifest summary, Go resolver version/sha256 и helper paths.
+
 Низкоуровневые команды остаются доступны:
   failover-go
   vless-go-doctor
@@ -157,7 +161,7 @@ show_status() {
 }
 
 json_escape() {
-    sed ':a;N;$!ba;s/\/\\/g;s/"/\"/g;s/\n/\\n/g;s/\r//g;s/\t/  /g'
+    sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\n/\\n/g;s/\r//g;s/\t/  /g'
 }
 
 counter_from_summary() {
@@ -174,6 +178,18 @@ active_slot_from_output() {
 
 summary_seen() {
     grep -Eq 'OK=[0-9]+[[:space:]]+WARN=[0-9]+[[:space:]]+FAIL=[0-9]+' "$1" 2>/dev/null
+}
+
+sha256_file() {
+    file="$1"
+    [ -s "$file" ] || return 1
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$file" 2>/dev/null | awk '{print $1}'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$file" 2>/dev/null | awk '{print $NF}'
+    else
+        return 1
+    fi
 }
 
 run_doctor_json() {
@@ -346,6 +362,68 @@ run_manifest() {
     esac
 }
 
+run_version() {
+    [ "$#" -eq 0 ] || { echo "Использование: xray-go version" >&2; exit 2; }
+
+    echo "xray-go wrapper version: $XRAY_GO_VERSION"
+    echo "Repository branch: $REPO_BRANCH"
+
+    echo
+    echo "== Manifest summary =="
+    if [ -s "$MANIFEST_FILE" ]; then
+        if [ -x "$GO_MANIFEST_CMD" ]; then
+            "$GO_MANIFEST_CMD" summary || show_manifest_summary_fallback || true
+        else
+            show_manifest_summary_fallback || true
+        fi
+    else
+        echo "Manifest: not found ($MANIFEST_FILE)"
+    fi
+
+    echo
+    echo "== Go resolver =="
+    resolver_path="$(manifest_get_value BINARY_PATH)"
+    [ -n "$resolver_path" ] || resolver_path="/opt/bin/xray-failover-go"
+    echo "Path: $resolver_path"
+    if [ -x "$resolver_path" ]; then
+        resolver_version="$($resolver_path -version 2>/dev/null || true)"
+        [ -n "$resolver_version" ] || resolver_version="unknown"
+        echo "Version: $resolver_version"
+        resolver_sha="$(sha256_file "$resolver_path" 2>/dev/null || true)"
+        manifest_sha="$(manifest_get_value BINARY_SHA256)"
+        echo "Sha256: ${resolver_sha:-unknown}"
+        if [ -n "$manifest_sha" ]; then
+            if [ "$resolver_sha" = "$manifest_sha" ]; then
+                echo "Manifest sha256 match: yes"
+            else
+                echo "Manifest sha256 match: no"
+                echo "Manifest sha256: $manifest_sha"
+            fi
+        fi
+    else
+        echo "Status: missing or not executable"
+    fi
+
+    echo
+    echo "== Helper paths =="
+    for helper in \
+        "$GO_FAILOVER_CMD" \
+        "$GO_DOCTOR_CMD" \
+        "$GO_RECOVER_CMD" \
+        "$GO_WATCHDOG_CMD" \
+        "$DIRECT_FULL_UPDATE_CMD" \
+        "$DIRECT_UNINSTALL_CMD" \
+        "$XRAY_CORE_UPDATE_CMD"; do
+        if [ -x "$helper" ]; then
+            echo "[OK] $helper"
+        elif [ -e "$helper" ]; then
+            echo "[WARN] $helper exists but is not executable"
+        else
+            echo "[MISS] $helper"
+        fi
+    done
+}
+
 run_direct_go_update() {
     MODE="apply"
     case "${1:-}" in
@@ -472,7 +550,8 @@ case "${1:-help}" in
         run_uninstall "$@"
         ;;
     version|--version|-V)
-        echo "$XRAY_GO_VERSION"
+        shift || true
+        run_version "$@"
         ;;
     help|-h|--help|"")
         usage
