@@ -186,7 +186,18 @@ Staging directory для init:
 --direct-init-post-check                      OK=8 WARN=0 FAIL=0
 --direct-init-experimental --enable-recovery-cron --schedule '7 * * * *' -y OK
 --direct-full-dry-run                         OK, No changes made
+--direct-full-experimental --yes              OK
 watchdog restart after direct-init            OK
+```
+
+Full apply validation:
+
+```text
+direct post-check after apply                  OK=12 WARN=0 FAIL=0
+direct-init post-check after apply             OK=8 WARN=0 FAIL=0
+manifest after apply                           direct, binary-present
+recovery after apply                           health: OK
+doctor --support after apply                   SOCKS health-check OK, FAIL=0
 ```
 
 Также подтверждено:
