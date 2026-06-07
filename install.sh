@@ -4,8 +4,9 @@ set -e
 # Keenetic Xray Go v2 public installer entrypoint.
 #
 # Default stage: safe compatibility wrapper around the existing Auto Latest
-# selector. Experimental direct-install v2 can be started explicitly with
-# --direct-experimental, but it does not replace the stable flow yet.
+# selector. Direct-install v2 is available through public explicit aliases:
+# --direct-plan, --direct-apply --yes, and --direct-check. The old
+# --direct-*-experimental flags remain compatibility aliases.
 
 REPO_BRANCH="${REPO_BRANCH:-main}"
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
@@ -38,48 +39,48 @@ Keenetic Xray Go installer
 
 Usage:
   install.sh [auto_latest options]
-  install.sh --direct-experimental [direct options]
-  install.sh --direct-detect-only [direct options]
-  install.sh --direct-init-experimental [direct init options]
-  install.sh --direct-init-post-check
-  install.sh --direct-full-dry-run
-  install.sh --direct-full-experimental --yes
-  install.sh --direct-uninstall-dry-run
-  install.sh --direct-uninstall-experimental --yes
+  install.sh --direct-plan
+  install.sh --direct-apply --yes
+  install.sh --direct-check
+  install.sh --direct-init-check
+  install.sh --direct-uninstall-plan
+  install.sh --direct-uninstall-guarded --yes
 
 Default mode:
-  Without direct flags, this wrapper downloads and runs the stable
+  Without direct flags, this wrapper downloads and runs the compatible
   xray_vless_failover_auto_latest.sh selector.
 
-Experimental direct-install v2:
+Direct-install v2 public aliases:
+  --direct-plan                  Print full direct-install plan; make no changes
+  --direct-apply                 Apply full direct sequence; requires --yes
+  --direct-check                 Run direct-install read-only post-check
+  --direct-init-check            Run direct init/service read-only checks
+  --direct-uninstall-plan        Print direct uninstall/cleanup plan; make no changes
+  --direct-uninstall-guarded     Run guarded uninstall apply scaffold; requires --yes
+
+Low-level direct-install compatibility aliases:
   --direct-experimental             Run scripts/xray-go-direct-install.sh
   --direct-detect-only              Run direct-install detection only; make no changes
   --direct-init-experimental        Run scripts/xray-go-direct-init.sh
-  --direct-init-post-check          Run direct init/service read-only checks
-  --direct-full-dry-run             Print full direct-install plan; make no changes
-  --direct-full-experimental        Apply full direct sequence; requires --yes
-  --direct-uninstall-dry-run        Print direct uninstall/cleanup plan; make no changes
-  --direct-uninstall-experimental   Run guarded uninstall apply scaffold; requires --yes
+  --direct-init-post-check          Alias of --direct-init-check
+  --direct-full-dry-run             Alias of --direct-plan
+  --direct-full-experimental        Alias of --direct-apply
+  --direct-uninstall-dry-run        Alias of --direct-uninstall-plan
+  --direct-uninstall-experimental   Alias of --direct-uninstall-guarded
 
 Examples:
   install.sh --detect-only
-  install.sh --direct-detect-only
-  install.sh --direct-experimental --prepare-only
-  install.sh --direct-experimental --download-binary
-  install.sh --direct-experimental --install-binary
-  install.sh --direct-experimental --stage-helpers
-  install.sh --direct-experimental --install-helpers
+  install.sh --direct-plan
+  install.sh --direct-apply --yes
+  install.sh --direct-check
+  install.sh --direct-init-check
+  install.sh --direct-uninstall-plan
   install.sh --direct-experimental --post-check
+  install.sh --direct-experimental --install-binary
+  install.sh --direct-experimental --install-helpers
   install.sh --direct-init-experimental --stage-watchdog-init
   install.sh --direct-init-experimental --install-watchdog-init -y
-  install.sh --direct-init-experimental --enable-recovery-cron -y
   install.sh --direct-init-experimental --enable-recovery-cron --schedule '7 * * * *' -y
-  install.sh --direct-init-experimental --disable-recovery-cron -y
-  install.sh --direct-init-post-check
-  install.sh --direct-full-dry-run
-  install.sh --direct-full-experimental --yes
-  install.sh --direct-uninstall-dry-run
-  install.sh --direct-uninstall-experimental --yes
 USAGE
 }
 
@@ -148,7 +149,7 @@ case "${1:-}" in
         shift
         echo "Keenetic Xray Go installer"
         echo "Entrypoint: install.sh"
-        echo "Mode: direct-install experimental"
+        echo "Mode: direct-install low-level"
         run_downloaded_script "$DIRECT_INSTALL_URL" "$DIRECT_TMP_FILE" "direct-install skeleton" "$@"
         ;;
     --direct-detect-only)
@@ -162,38 +163,45 @@ case "${1:-}" in
         shift
         echo "Keenetic Xray Go installer"
         echo "Entrypoint: install.sh"
-        echo "Mode: direct-init experimental"
+        echo "Mode: direct-init low-level"
         run_downloaded_script "$DIRECT_INIT_URL" "$DIRECT_INIT_TMP_FILE" "direct-init helper" "$@"
         ;;
-    --direct-init-post-check)
+    --direct-init-check|--direct-init-post-check)
         shift
         echo "Keenetic Xray Go installer"
         echo "Entrypoint: install.sh"
         echo "Mode: direct-init post-check"
         run_downloaded_script "$DIRECT_INIT_URL" "$DIRECT_INIT_TMP_FILE" "direct-init helper" --post-check "$@"
         ;;
-    --direct-full-dry-run)
+    --direct-plan|--direct-full-dry-run)
         shift
         echo "Keenetic Xray Go installer"
         echo "Entrypoint: install.sh"
-        echo "Mode: direct full dry-run"
+        echo "Mode: direct full plan"
         run_downloaded_script "$DIRECT_FULL_URL" "$DIRECT_FULL_TMP_FILE" "direct full orchestrator" --dry-run "$@"
         ;;
-    --direct-full-experimental)
+    --direct-apply|--direct-full-experimental)
         shift
         echo "Keenetic Xray Go installer"
         echo "Entrypoint: install.sh"
-        echo "Mode: direct full experimental apply"
+        echo "Mode: direct full apply"
         run_downloaded_script "$DIRECT_FULL_URL" "$DIRECT_FULL_TMP_FILE" "direct full orchestrator" --apply "$@"
         ;;
-    --direct-uninstall-dry-run)
+    --direct-check)
         shift
         echo "Keenetic Xray Go installer"
         echo "Entrypoint: install.sh"
-        echo "Mode: direct uninstall dry-run"
+        echo "Mode: direct-install post-check"
+        run_downloaded_script "$DIRECT_INSTALL_URL" "$DIRECT_TMP_FILE" "direct-install skeleton" --post-check "$@"
+        ;;
+    --direct-uninstall-plan|--direct-uninstall-dry-run)
+        shift
+        echo "Keenetic Xray Go installer"
+        echo "Entrypoint: install.sh"
+        echo "Mode: direct uninstall plan"
         run_downloaded_script "$DIRECT_UNINSTALL_URL" "$DIRECT_UNINSTALL_TMP_FILE" "direct uninstall planner" --dry-run "$@"
         ;;
-    --direct-uninstall-experimental)
+    --direct-uninstall-guarded|--direct-uninstall-experimental)
         shift
         echo "Keenetic Xray Go installer"
         echo "Entrypoint: install.sh"
