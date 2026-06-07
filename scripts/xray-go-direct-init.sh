@@ -10,6 +10,7 @@ set -e
 XRAY_GO_DIRECT_INIT_VERSION="${XRAY_GO_DIRECT_INIT_VERSION:-0.1.0-direct-init}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
+INSTALL_ENTRY_URL="${INSTALL_ENTRY_URL:-${RAW_BASE}/install.sh}"
 
 TMP_DIR="${TMPDIR:-/opt/tmp}"
 STAGE_DIR="${XRAY_GO_DIRECT_STAGE_DIR:-${TMP_DIR}/xray-go-direct-install}"
@@ -304,6 +305,14 @@ run_post_check() {
     [ "$check_fail" -eq 0 ] || exit 1
 }
 
+print_public_next_checks() {
+    cat <<EOF_NEXT
+Next checks:
+  curl -fsSL $INSTALL_ENTRY_URL | sh -s -- --direct-init-post-check
+  xray-go recover status
+EOF_NEXT
+}
+
 print_plan
 
 if [ "$MODE" = "detect" ]; then
@@ -326,6 +335,4 @@ write_plan_file
 echo
 echo "Direct-init helper complete."
 echo "No first-run setup was executed."
-echo "Next checks:"
-echo "  $0 --post-check"
-echo "  xray-go recover status"
+print_public_next_checks
