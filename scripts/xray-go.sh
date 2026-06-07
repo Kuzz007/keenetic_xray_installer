@@ -10,6 +10,8 @@ GO_WATCHDOG_CMD="/opt/bin/vless-go-watchdog"
 GO_DOCTOR_CMD="/opt/bin/vless-go-doctor"
 GO_DOCTOR_SUMMARY_CMD="/opt/bin/vless-go-doctor-summary"
 GO_DOCTOR_SUMMARY_URL="${GO_DOCTOR_SUMMARY_URL:-${RAW_BASE}/scripts/vless-go-doctor-summary.sh}"
+GO_PRIVACY_CHECK_CMD="/opt/bin/vless-go-privacy-check"
+GO_PRIVACY_CHECK_URL="${GO_PRIVACY_CHECK_URL:-${RAW_BASE}/scripts/vless-go-privacy-check.sh}"
 GO_HISTORY_CMD="/opt/bin/vless-go-history"
 GO_CLEANUP_CMD="/opt/bin/vless-go-cleanup"
 GO_RECOVER_CMD="/opt/bin/vless-go-recover"
@@ -33,6 +35,7 @@ xray-go - единая команда управления Keenetic Xray Go edit
   xray-go status
   xray-go summary
   xray-go doctor [--support|--summary|--verbose|--json]
+  xray-go privacy-check
   xray-go menu
   xray-go history [--follow]
   xray-go logs watchdog [--follow]
@@ -52,6 +55,10 @@ Summary mode:
   xray-go summary
   xray-go doctor --summary
     Компактный read-only summary без raw VLESS/subscription sources.
+
+Privacy mode:
+  xray-go privacy-check
+    Read-only scanner для diagnostic/support output. Не печатает найденные значения.
 
 Support mode:
   xray-go doctor --support
@@ -96,6 +103,7 @@ Version mode:
   failover-go
   vless-go-doctor
   vless-go-doctor-summary
+  vless-go-privacy-check
   vless-go-failover
   vless-go-history
   vless-go-cleanup
@@ -151,6 +159,10 @@ refresh_doctor_summary() {
     fetch_script_to "$GO_DOCTOR_SUMMARY_URL" "$GO_DOCTOR_SUMMARY_CMD" "vless-go-doctor-summary" || return 0
 }
 
+refresh_privacy_check() {
+    fetch_script_to "$GO_PRIVACY_CHECK_URL" "$GO_PRIVACY_CHECK_CMD" "vless-go-privacy-check" || return 0
+}
+
 show_recovery_summary() {
     echo
     echo "== Recovery =="
@@ -174,7 +186,7 @@ show_status() {
 }
 
 json_escape() {
-    sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\n/\\n/g;s/\r//g;s/\t/  /g'
+    sed ':a;N;$!ba;s/\/\\/g;s/"/\\"/g;s/\n/\\n/g;s/\r//g;s/\t/  /g'
 }
 
 counter_from_summary() {
@@ -210,6 +222,13 @@ run_summary() {
     refresh_doctor_summary
     need_exec "$GO_DOCTOR_SUMMARY_CMD"
     "$GO_DOCTOR_SUMMARY_CMD"
+}
+
+run_privacy_check() {
+    [ "$#" -eq 0 ] || { echo "Использование: xray-go privacy-check" >&2; exit 2; }
+    refresh_privacy_check
+    need_exec "$GO_PRIVACY_CHECK_CMD"
+    "$GO_PRIVACY_CHECK_CMD"
 }
 
 run_doctor_json() {
@@ -437,6 +456,7 @@ run_version() {
         "$GO_FAILOVER_CMD" \
         "$GO_DOCTOR_CMD" \
         "$GO_DOCTOR_SUMMARY_CMD" \
+        "$GO_PRIVACY_CHECK_CMD" \
         "$GO_RECOVER_CMD" \
         "$GO_WATCHDOG_CMD" \
         "$DIRECT_FULL_UPDATE_CMD" \
@@ -471,6 +491,7 @@ run_direct_go_update() {
         echo "Direct install mode detected. Running direct full update."
         "$DIRECT_FULL_UPDATE_CMD" --apply --yes --no-commands
         refresh_doctor_summary
+        refresh_privacy_check
     fi
 }
 
@@ -533,6 +554,10 @@ case "${1:-help}" in
     summary)
         shift
         run_summary "$@"
+        ;;
+    privacy-check|privacy)
+        shift
+        run_privacy_check "$@"
         ;;
     doctor)
         shift
