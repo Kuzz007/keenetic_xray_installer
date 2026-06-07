@@ -199,6 +199,7 @@ Agent / Control Server:
 - [x] Добавить manifest summary в support output.
 - [x] Сделать SOCKS auth-aware health-check для doctor через direct staged helper patch.
 - [x] Подтвердить support output: `SOCKS health-check OK`, `FAIL=0`.
+- [x] Подтвердить прямой `vless-go-doctor`: manifest section, sha256 match, `OK=57 WARN=2 FAIL=0`.
 - [ ] Добавить summary: OK/WARN/FAIL, active slot, install mode, edition, version, recovery, watchdog, Proxy0, Xray, cron.
 - [ ] Проверить, что support output не раскрывает приватные данные.
 
