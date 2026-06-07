@@ -68,6 +68,36 @@ Manifest sha256: match
 OK=... WARN=... FAIL=0
 ```
 
+## Router validation
+
+Подтверждено на Keenetic `aarch64-3.10_kn`:
+
+```text
+Install mode: direct
+Edition: full
+Version: 0.1.0-direct-skeleton
+Architecture: aarch64-3.10_kn
+Modules: manifest,direct-experimental,binary-present
+Active slot: backup
+Xray init: alive
+Xray config: valid
+Proxy0: exists
+SOCKS listener: 127.0.0.1:10808 listening
+SOCKS health: OK
+Watchdog init: alive
+Recovery cron: enabled
+Auto-update cron: enabled
+Manifest sha256: match
+OK=12 WARN=0 FAIL=0
+```
+
+Validation notes:
+
+- helper работает без установки через `curl | sh`;
+- SOCKS auth health-check проходит;
+- manifest sha256 совпадает с текущим Go resolver binary;
+- приватные VLESS/subscription данные не выводятся.
+
 ## Связь с полным doctor
 
 Полный doctor остаётся основной глубокой диагностикой:
