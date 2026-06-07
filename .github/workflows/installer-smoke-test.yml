@@ -3,6 +3,7 @@ name: Installer smoke test
 on:
   pull_request:
     paths:
+      - 'install.sh'
       - 'xray_vless_failover*.sh'
       - 'xray_vless_go_watchdog_install.sh'
       - 'scripts/*.sh'
@@ -13,6 +14,7 @@ on:
     branches:
       - main
     paths:
+      - 'install.sh'
       - 'xray_vless_failover*.sh'
       - 'xray_vless_go_watchdog_install.sh'
       - 'scripts/*.sh'
