@@ -30,6 +30,7 @@
 - [x] Пробросить direct options:
   - [x] `--prepare-only`
   - [x] `--download-binary`
+  - [x] `--install-binary`
   - [x] `--stage-helpers`
   - [x] `--install-helpers`
   - [x] `--write-manifest`
@@ -47,6 +48,8 @@
 - [x] Выбрать Go resolver release asset.
 - [x] Скачать Go resolver в staging directory.
 - [x] Проверить sha256 staged binary.
+- [x] Установить Go resolver binary в target path через явный `--install-binary`.
+- [x] Сохранять backup старого Go resolver binary.
 - [x] Установить manifest helper.
 - [x] Записать informational plan file.
 - [x] Добавить `--stage-helpers`.
@@ -55,7 +58,9 @@
 - [x] Создать helper index с target path и sha256.
 - [x] Добавить явный `--install-helpers`.
 - [x] Устанавливать shell helpers в `/opt/bin` и `/opt/libexec` только при явном `--install-helpers`.
-- [ ] Добавить явный флаг для установки Go resolver binary из staging в target path.
+- [x] Патчить staged doctor/recovery helpers для SOCKS auth-aware health-check.
+- [x] Подтвердить на роутере: `xray-go recover status` показывает `health: OK`.
+- [x] Подтвердить на роутере: `xray-go doctor --support` показывает `SOCKS health-check OK` и `FAIL=0`.
 - [ ] Установить init.d scripts.
 - [ ] Настроить cron при необходимости.
 - [ ] Выполнить first-run setup.
@@ -74,6 +79,7 @@
 - [x] Добавить `xray-go manifest`.
 - [x] Добавить manifest summary в `xray-go doctor --support`.
 - [x] Обновлять manifest при `xray-go update go` / Full Go repair.
+- [x] Подтвердить manifest на роутере в direct mode.
 - [ ] Создавать manifest во время полноценного direct-install.
 - [ ] Научить `vless-go-doctor` читать manifest напрямую.
 - [ ] Научить `xray-go version` показывать manifest summary.
@@ -170,6 +176,8 @@ Agent / Control Server:
 - [ ] Сохранить `xray-go doctor --support`.
 - [ ] Сохранить `xray-go doctor --json`.
 - [x] Добавить manifest summary в support output.
+- [x] Сделать SOCKS auth-aware health-check для doctor через direct staged helper patch.
+- [x] Подтвердить support output: `SOCKS health-check OK`, `FAIL=0`.
 - [ ] Добавить summary: OK/WARN/FAIL, active slot, install mode, edition, version, recovery, watchdog, Proxy0, Xray, cron.
 - [ ] Проверить, что support output не раскрывает приватные данные.
 
@@ -211,6 +219,9 @@ Agent / Control Server:
 
 - [x] Staging download не заменяет рабочий бинарник.
 - [x] Shell helpers не устанавливаются без явного `--install-helpers`.
+- [x] Go resolver binary не устанавливается без явного `--install-binary`.
+- [x] При установке Go resolver сохраняется backup.
+- [x] Recovery health-check с SOCKS auth подтверждён как OK.
 - [ ] При ошибке скачивания или проверки рабочие файлы не должны меняться.
 - [ ] Direct-install update не должен оставлять систему в полуобновлённом состоянии.
 - [ ] Recovery не должен создавать reboot loop.
