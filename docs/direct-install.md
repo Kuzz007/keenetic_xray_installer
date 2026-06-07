@@ -81,9 +81,50 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 # Явно установить shell helpers в /opt/bin и /opt/libexec
 # Важно: first-run setup всё ещё не выполняется.
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --install-helpers
+
+# Read-only проверка установленного direct слоя
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --post-check
 ```
 
-Файл плана:
+## Direct init/service helper
+
+Для init.d/service части добавлен отдельный helper:
+
+```text
+scripts/xray-go-direct-init.sh
+```
+
+Он отвечает только за service/init.d слой. Он не переписывает VLESS sources, не запускает first-run setup и не рестартует сервисы сам по себе.
+
+Команды:
+
+```sh
+# Скачать watchdog installer в staging и проверить sh -n, без установки
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-experimental --stage-watchdog-init
+
+# Явно установить/обновить watchdog helper, init.d script и config
+# Важно: VLESS sources и first-run setup не трогаются.
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-experimental --install-watchdog-init -y
+
+# Read-only проверка service/init.d слоя
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-post-check
+```
+
+Файл init-плана:
+
+```text
+/opt/etc/xray/xray-go.direct-init.plan
+```
+
+Staging directory для init:
+
+```text
+/opt/tmp/xray-go-direct-install/init
+```
+
+## Файлы direct-install
+
+Файл основного плана:
 
 ```text
 /opt/etc/xray/xray-go.direct-install.plan
@@ -246,10 +287,14 @@ Direct-install update должен быть атомарным наскольк�
 - `install.sh --direct-experimental` умеет запускать experimental skeleton;
 - `install.sh --direct-detect-only` умеет проверять direct-install detection без изменений;
 - `scripts/xray-go-direct-install.sh` добавлен;
+- `scripts/xray-go-direct-init.sh` добавлен;
 - `scripts/xray-go-manifest.sh` добавлен;
 - skeleton умеет staging download + sha256 verification через `--download-binary`;
 - skeleton умеет явно устанавливать Go resolver через `--install-binary`;
 - skeleton умеет скачивать и проверять shell helpers через `--stage-helpers`;
 - skeleton умеет явно устанавливать shell helpers через `--install-helpers`;
+- skeleton умеет read-only post-check через `--post-check`;
+- direct-init умеет stage/install watchdog init через `--stage-watchdog-init` и `--install-watchdog-init`;
+- direct-init умеет read-only service checks через `--direct-init-post-check`;
 - direct-install flow ещё не заменяет текущую Full Go установку;
 - IPK/feed пока остаётся рабочей v1-схемой совместимости.
