@@ -74,7 +74,8 @@
 - [x] Добавить direct-init read-only post-check.
 - [x] Настроить recovery cron через direct-init helper.
 - [x] Подтвердить на роутере: direct-init post-check показывает `OK=8 WARN=0 FAIL=0`.
-- [ ] Установить init.d scripts через `--install-watchdog-init` на чистом сценарии.
+- [x] Установить/обновить watchdog init layer через `--install-watchdog-init -y`.
+- [x] Подтвердить на роутере: watchdog restart после direct-init сохраняет recovery `health: OK`.
 - [ ] Выполнить first-run setup.
 - [ ] Показать финальные post-install checks после полного direct-install.
 - [ ] Подготовить direct-update через `xray-go update go`.
@@ -236,6 +237,7 @@ Agent / Control Server:
 - [x] При установке Go resolver сохраняется backup.
 - [x] Recovery health-check с SOCKS auth подтверждён как OK.
 - [x] Direct-init post-check подтверждает watchdog/recovery/cron без ошибок.
+- [x] Watchdog init reinstall подтверждён без поломки recovery health.
 - [ ] При ошибке скачивания или проверки рабочие файлы не должны меняться.
 - [ ] Direct-install update не должен оставлять систему в полуобновлённом состоянии.
 - [ ] Recovery не должен создавать reboot loop.
