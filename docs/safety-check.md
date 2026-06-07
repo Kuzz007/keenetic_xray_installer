@@ -90,6 +90,26 @@ Standalone helper подтверждён на Keenetic `aarch64-3.10_kn` пос�
 OK=12 WARN=0 FAIL=0
 ```
 
+CLI command validation also confirmed on Keenetic `aarch64-3.10_kn`:
+
+```text
+xray-go update go
+  Post-check summary: OK=12 WARN=0 FAIL=0
+  Direct-init post-check summary: OK=8 WARN=0 FAIL=0
+
+xray-go safety-check
+  [OK] manifest binary sha256 matches current binary
+  [OK] direct full update supports binary reuse fallback
+  [OK] isolated bad download failed before touching working files
+  [OK] isolated broken shell helper rejected by sh -n
+  [OK] isolated failed install leaves previous target content unchanged
+  [OK] working direct-install files unchanged after failure simulations
+  OK=12 WARN=0 FAIL=0
+
+xray-go version
+  [OK] /opt/bin/xray-go-safety-check
+```
+
 ## Связанные проверки
 
 ```sh
