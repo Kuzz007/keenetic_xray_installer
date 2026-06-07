@@ -204,13 +204,19 @@ confirm_manifest_write() {
 
 ENTWARE_ARCH="${ENTWARE_ARCH:-$(detect_entware_arch)}"
 [ -n "$ENTWARE_ARCH" ] || ENTWARE_ARCH="$(uname -m 2>/dev/null || echo unknown)"
-GO_ASSET_NAME="${GO_ASSET_NAME:-$(asset_name_for_arch "$ENTWARE_ARCH")}"
+GO_ASSET_NAME="${GO_ASSET_NAME:-$(asset_name_for_arch "$ENTWARE_ARCH")}" 
 GO_BINARY_URL="${GO_BINARY_URL:-${RELEASE_BASE}/${GO_ASSET_NAME}}"
 GO_SHA256_URL="${GO_SHA256_URL:-${GO_BINARY_URL}.sha256}"
 STAGED_BINARY="${STAGE_DIR}/${GO_ASSET_NAME}"
 STAGED_SHA256="${STAGE_DIR}/${GO_ASSET_NAME}.sha256"
 BINARY_SHA256=""
 EXPECTED_SHA256=""
+
+refresh_target_binary_sha() {
+    if [ -z "$BINARY_SHA256" ] && [ -s "$GO_RESOLVER" ]; then
+        BINARY_SHA256="$(sha256_file "$GO_RESOLVER")"
+    fi
+}
 
 print_plan() {
     cat <<EOF_PLAN
@@ -257,6 +263,7 @@ EOF_HELPERS
 }
 
 write_plan_file() {
+    refresh_target_binary_sha
     mkdir -p "$XRAY_DIR"
     tmp="${PLAN_FILE}.$$"
     {
@@ -348,13 +355,26 @@ install_binary_from_stage() {
     chmod +x "$tmp_dest"
 
     if [ -s "$GO_RESOLVER" ]; then
-        cp "$GO_RESOLVER" "$GO_RESOLVER_BACKUP" 2>/dev/null || true
-        chmod +x "$GO_RESOLVER_BACKUP" 2>/dev/null || true
-        echo "Previous Go resolver backup: $GO_RESOLVER_BACKUP"
+        if [ -s "$GO_RESOLVER_BACKUP" ]; then
+            echo "Existing Go resolver backup preserved: $GO_RESOLVER_BACKUP"
+        else
+            cp "$GO_RESOLVER" "$GO_RESOLVER_BACKUP" 2>/dev/null || true
+            chmod +x "$GO_RESOLVER_BACKUP" 2>/dev/null || true
+            echo "Previous Go resolver backup: $GO_RESOLVER_BACKUP"
+        fi
     fi
 
     mv "$tmp_dest" "$GO_RESOLVER"
     chmod +x "$GO_RESOLVER"
+
+    target_sha="$(sha256_file "$GO_RESOLVER")"
+    if [ "$target_sha" != "$BINARY_SHA256" ]; then
+        echo "ERROR: installed Go resolver sha256 mismatch." >&2
+        echo "Expected: $BINARY_SHA256" >&2
+        echo "Actual:   $target_sha" >&2
+        exit 1
+    fi
+
     echo "Go resolver installed. sha256=$BINARY_SHA256"
 }
 
@@ -439,6 +459,7 @@ manifest_modules() {
 write_manifest() {
     [ "$WRITE_MANIFEST" = "1" ] || return 0
     [ -x "$MANIFEST_CMD" ] || { echo "ERROR: manifest helper is not installed: $MANIFEST_CMD" >&2; exit 1; }
+    refresh_target_binary_sha
     confirm_manifest_write
 
     "$MANIFEST_CMD" init \
