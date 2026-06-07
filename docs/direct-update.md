@@ -28,11 +28,26 @@ xray-go update go --dry-run
 xray-go update go
 ```
 
+## Binary reuse fallback
+
+Direct full update может пропустить скачивание Go resolver release asset, если установленный binary уже совпадает с manifest sha256.
+
+Это нужно для ситуаций, когда `raw.githubusercontent.com` доступен, а `github.com/releases` временно не резолвится или недоступен. В таком случае update может продолжить обновление shell helpers, wrapper, manifest и init/cron layer без повторного скачивания уже актуального binary.
+
+Ожидаемая строка:
+
+```text
+Skipping Go resolver download: installed binary already matches manifest sha256.
+```
+
+Если sha256 не совпадает или manifest sha256 отсутствует, direct full update по-прежнему пытается скачать и проверить release binary.
+
 ## Границы безопасности
 
 Direct update использует уже проверенный full direct orchestrator:
 
-- обновляет Go resolver через staging и sha256 verification;
+- обновляет Go resolver через staging и sha256 verification, если binary не совпадает с manifest;
+- может пропустить Go resolver download, если binary уже совпадает с manifest sha256;
 - обновляет shell helpers после `sh -n` проверки;
 - пишет direct manifest;
 - выполняет direct post-check;
