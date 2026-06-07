@@ -51,6 +51,8 @@ scripts/xray-go-direct-install.sh
 - при необходимости скачать Go binary в staging directory;
 - проверить sha256;
 - установить manifest helper;
+- скачать и проверить shell helpers в staging directory;
+- опционально установить shell helpers в /opt/bin и /opt/libexec;
 - записать informational plan file;
 - опционально записать manifest как direct-install.
 ```
@@ -66,6 +68,13 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 
 # Скачать Go resolver в staging и проверить sha256, но не заменять рабочий бинарник
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --download-binary
+
+# Скачать shell helpers в staging и проверить sh -n, но не ставить их в /opt/bin
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --stage-helpers
+
+# Явно установить shell helpers в /opt/bin и /opt/libexec
+# Важно: first-run setup всё ещё не выполняется.
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --install-helpers
 ```
 
 Файл плана:
@@ -78,6 +87,36 @@ Staging directory по умолчанию:
 
 ```text
 /opt/tmp/xray-go-direct-install
+```
+
+Staged shell helpers:
+
+```text
+/opt/tmp/xray-go-direct-install/helpers
+/opt/tmp/xray-go-direct-install/xray-go.helpers.index
+```
+
+В helper index сохраняются только служебные данные:
+
+```text
+mode|target_path|staged_path|sha256|label
+```
+
+Сейчас skeleton может установить следующие helper-команды:
+
+```text
+/opt/bin/xray-go
+/opt/bin/vless-go-update
+/opt/bin/vless-go-auto-update
+/opt/bin/vless-go-failover
+/opt/bin/vless-go-history
+/opt/bin/vless-go-cleanup
+/opt/bin/vless-go-recover
+/opt/bin/vless-go-socks-auth
+/opt/bin/failover-go
+/opt/bin/vless-go-xray-core-update
+/opt/bin/vless-go-doctor
+/opt/libexec/vless-go-lock.sh
 ```
 
 Важно: skeleton не выполняет first-run setup, не перезаписывает primary/backup sources и не заменяет стабильный `auto_latest` путь.
@@ -203,5 +242,7 @@ Direct-install update должен быть атомарным наскольк�
 - `scripts/xray-go-direct-install.sh` добавлен;
 - `scripts/xray-go-manifest.sh` добавлен;
 - skeleton умеет staging download + sha256 verification через `--download-binary`;
+- skeleton умеет скачивать и проверять shell helpers через `--stage-helpers`;
+- skeleton умеет явно устанавливать shell helpers через `--install-helpers`;
 - direct-install flow ещё не заменяет текущую Full Go установку;
 - IPK/feed пока остаётся рабочей v1-схемой совместимости.
