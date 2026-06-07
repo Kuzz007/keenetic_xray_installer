@@ -12,68 +12,33 @@ fail() { printf '[FAIL] %s\n' "$*"; FAILURES=$((FAILURES + 1)); }
 
 check_file_exists() {
     path="$1"
-    if [ -f "$ROOT_DIR/$path" ]; then
-        ok "exists: $path"
-    else
-        fail "missing: $path"
-    fi
+    if [ -f "$ROOT_DIR/$path" ]; then ok "exists: $path"; else fail "missing: $path"; fi
 }
 
 check_syntax() {
     path="$1"
-    if [ ! -f "$ROOT_DIR/$path" ]; then
-        fail "syntax skipped, missing: $path"
-        return 0
-    fi
-
-    if sh -n "$ROOT_DIR/$path"; then
-        ok "sh -n: $path"
-    else
-        fail "sh -n failed: $path"
-    fi
+    if [ ! -f "$ROOT_DIR/$path" ]; then fail "syntax skipped, missing: $path"; return 0; fi
+    if sh -n "$ROOT_DIR/$path"; then ok "sh -n: $path"; else fail "sh -n failed: $path"; fi
 }
 
 check_contains() {
-    path="$1"
-    pattern="$2"
-    label="$3"
-    if grep -q -- "$pattern" "$ROOT_DIR/$path" 2>/dev/null; then
-        ok "$label"
-    else
-        fail "$label"
-    fi
+    path="$1"; pattern="$2"; label="$3"
+    if grep -q -- "$pattern" "$ROOT_DIR/$path" 2>/dev/null; then ok "$label"; else fail "$label"; fi
 }
 
 check_not_contains() {
-    path="$1"
-    pattern="$2"
-    label="$3"
-    if grep -q -- "$pattern" "$ROOT_DIR/$path" 2>/dev/null; then
-        fail "$label"
-    else
-        ok "$label"
-    fi
+    path="$1"; pattern="$2"; label="$3"
+    if grep -q -- "$pattern" "$ROOT_DIR/$path" 2>/dev/null; then fail "$label"; else ok "$label"; fi
 }
 
 check_executable_hint() {
     path="$1"
-    if [ ! -f "$ROOT_DIR/$path" ]; then
-        warn "executable check skipped, missing: $path"
-        return 0
-    fi
-
-    if [ -x "$ROOT_DIR/$path" ]; then
-        ok "executable in checkout: $path"
-    else
-        warn "not executable in checkout: $path"
-    fi
+    if [ ! -f "$ROOT_DIR/$path" ]; then warn "executable check skipped, missing: $path"; return 0; fi
+    if [ -x "$ROOT_DIR/$path" ]; then ok "executable in checkout: $path"; else warn "not executable in checkout: $path"; fi
 }
 
 check_repo_plain_target() {
-    entrypoint="$1"
-    target="$2"
-    label="$3"
-
+    entrypoint="$1"; target="$2"; label="$3"
     check_file_exists "$target"
     check_contains "$entrypoint" "$target" "$label points at existing repo path: $target"
 }
@@ -88,10 +53,7 @@ for path in \
     xray_vless_failover.sh \
     xray_vless_failover_minimal.sh \
     xray_vless_go_watchdog_install.sh
-    do
-        check_file_exists "$path"
-        check_syntax "$path"
-    done
+    do check_file_exists "$path"; check_syntax "$path"; done
 
 info ""
 info "== Downloader entrypoint target guardrails =="
@@ -128,20 +90,19 @@ info "== Direct-init guardrails =="
 check_contains scripts/xray-go-direct-init.sh '--stage-watchdog-init' "direct-init keeps watchdog init staging mode"
 check_contains scripts/xray-go-direct-init.sh '--install-watchdog-init' "direct-init keeps explicit watchdog init install mode"
 check_contains scripts/xray-go-direct-init.sh '--post-check' "direct-init keeps read-only post-check mode"
+check_contains scripts/xray-go-direct-init.sh '--enable-recovery-cron' "direct-init keeps explicit recovery cron enable mode"
+check_contains scripts/xray-go-direct-init.sh '--disable-recovery-cron' "direct-init keeps explicit recovery cron disable mode"
+check_contains scripts/xray-go-direct-init.sh 'RECOVERY_CRON_MARKER' "direct-init manages cron by marker"
+check_contains scripts/xray-go-direct-init.sh 'remove_recovery_cron_lines' "direct-init removes old recovery cron line before writing"
 check_contains scripts/xray-go-direct-init.sh 'WATCHDOG_INSTALLER_STAGE' "direct-init stages watchdog installer before running"
 check_contains scripts/xray-go-direct-init.sh 'No first-run setup was executed' "direct-init documents no first-run setup"
 
 info ""
 info "== Embedded payload guardrails for public entrypoints =="
-for path in \
-    install.sh \
-    xray_vless_failover_auto_latest.sh \
-    xray_vless_failover_go.sh \
-    xray_vless_failover_minimal_go.sh
-    do
-        check_not_contains "$path" 'PAYLOAD_B64' "$path has no embedded base64 payload marker"
-        check_not_contains "$path" 'gzip -dc' "$path has no gzip self-extract decode path"
-    done
+for path in install.sh xray_vless_failover_auto_latest.sh xray_vless_failover_go.sh xray_vless_failover_minimal_go.sh; do
+    check_not_contains "$path" 'PAYLOAD_B64' "$path has no embedded base64 payload marker"
+    check_not_contains "$path" 'gzip -dc' "$path has no gzip self-extract decode path"
+done
 
 info ""
 info "== Auto-latest read-only mode guardrails =="
@@ -161,21 +122,11 @@ check_contains packaging/entware/failover-go/postinst 'xray-failover-go-linux-mi
 
 info ""
 info "== Helper scripts syntax =="
-for file in "$ROOT_DIR"/scripts/*.sh; do
-    [ -e "$file" ] || continue
-    rel="scripts/$(basename "$file")"
-    check_syntax "$rel"
-done
+for file in "$ROOT_DIR"/scripts/*.sh; do [ -e "$file" ] || continue; rel="scripts/$(basename "$file")"; check_syntax "$rel"; done
 
 info ""
 info "== Packaging maintainer scripts syntax =="
-for path in \
-    packaging/entware/failover-go/postinst \
-    packaging/entware/failover-go/prerm
-    do
-        check_file_exists "$path"
-        check_syntax "$path"
-    done
+for path in packaging/entware/failover-go/postinst packaging/entware/failover-go/prerm; do check_file_exists "$path"; check_syntax "$path"; done
 
 info ""
 info "== Runtime helper executable bits =="
@@ -198,16 +149,10 @@ for path in \
     scripts/vless-go-xray-core-update.sh \
     scripts/vless-go-web-install.sh \
     scripts/build-entware-ipk.sh
-    do
-        check_executable_hint "$path"
-    done
+    do check_executable_hint "$path"; done
 
 info ""
 info "== Summary =="
-if [ "$FAILURES" -eq 0 ]; then
-    ok "smoke test passed with $WARNINGS warning(s)"
-    exit 0
-fi
-
+if [ "$FAILURES" -eq 0 ]; then ok "smoke test passed with $WARNINGS warning(s)"; exit 0; fi
 fail "smoke test failed: $FAILURES issue(s), $WARNINGS warning(s)"
 exit 1
