@@ -34,6 +34,36 @@ install.sh
   -> print post-install checks
 ```
 
+## Direct full dry-run orchestrator
+
+Для сборки всех уже проверенных direct-install шагов в один понятный план добавлен read-only оркестратор:
+
+```text
+scripts/xray-go-direct-full.sh
+```
+
+Публичный запуск:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-full-dry-run
+```
+
+На текущем этапе это только dry-run. Он ничего не скачивает, не устанавливает, не пишет manifest, не меняет cron, не запускает first-run setup и не рестартует сервисы. Он показывает текущий direct state и последовательность команд, из которых позже можно будет собрать полный direct full install.
+
+План dry-run:
+
+```text
+1. direct-install detect-only
+2. install Go resolver binary from GitHub release asset with sha256 verification
+3. install shell helpers after staging + sh -n verification
+4. write direct manifest
+5. run direct post-check
+6. stage/install watchdog init/service layer
+7. enable hourly recovery cron by marker
+8. run direct-init post-check
+9. print final xray-go commands for user validation
+```
+
 ## Experimental direct-install skeleton
 
 Основной skeleton:
