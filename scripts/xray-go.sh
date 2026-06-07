@@ -11,6 +11,8 @@ GO_DOCTOR_CMD="/opt/bin/vless-go-doctor"
 GO_HISTORY_CMD="/opt/bin/vless-go-history"
 GO_CLEANUP_CMD="/opt/bin/vless-go-cleanup"
 GO_RECOVER_CMD="/opt/bin/vless-go-recover"
+GO_MANIFEST_CMD="/opt/bin/xray-go-manifest"
+MANIFEST_FILE="${XRAY_GO_MANIFEST:-/opt/etc/xray/xray-go.manifest}"
 GO_INSTALLER_UPDATE_CMD="/opt/bin/xray-go-installer-update"
 GO_INSTALLER_UPDATE_URL="${GO_INSTALLER_UPDATE_URL:-${RAW_BASE}/scripts/xray-go-installer-update.sh}"
 XRAY_CORE_UPDATE_CMD="/opt/bin/vless-go-xray-core-update"
@@ -29,6 +31,7 @@ xray-go - единая команда управления Keenetic Xray Go edit
   xray-go logs watchdog [--follow]
   xray-go logs history [--follow]
   xray-go recover [status|enable-hourly|disable-hourly|proxy0|xray|watchdog]
+  xray-go manifest [summary|show|path]
   xray-go update [go|xray-core]
   xray-go update-core
   xray-go switch primary|backup
@@ -53,6 +56,12 @@ Recovery mode:
   xray-go recover enable-hourly
     Включить ежечасную тихую cron-проверку.
 
+Manifest mode:
+  xray-go manifest
+    Показывает безопасный summary /opt/etc/xray/xray-go.manifest.
+  xray-go manifest show
+    Показывает raw manifest без VLESS/subscription secrets.
+
 Низкоуровневые команды остаются доступны:
   failover-go
   vless-go-doctor
@@ -60,6 +69,7 @@ Recovery mode:
   vless-go-history
   vless-go-cleanup
   vless-go-recover
+  xray-go-manifest
   vless-go-xray-core-update
   xray-go-installer-update
 EOF
@@ -191,6 +201,7 @@ run_doctor() {
             DOCTOR_RC="0"
             "$GO_DOCTOR_CMD" || DOCTOR_RC="$?"
             show_recovery_summary
+            show_manifest_summary_safe || true
             exit "$DOCTOR_RC"
             ;;
         *)
@@ -249,6 +260,56 @@ run_recover() {
     esac
 }
 
+manifest_get_value() {
+    key="$1"
+    sed -n 's/^'"$key"'="\(.*\)"$/\1/p' "$MANIFEST_FILE" 2>/dev/null | tail -n 1
+}
+
+show_manifest_summary_fallback() {
+    [ -s "$MANIFEST_FILE" ] || { echo "Manifest: not found ($MANIFEST_FILE)"; return 1; }
+    echo "Manifest: $MANIFEST_FILE"
+    echo "Install mode: $(manifest_get_value INSTALL_MODE)"
+    echo "Edition: $(manifest_get_value EDITION)"
+    echo "Version: $(manifest_get_value VERSION)"
+    echo "Architecture: $(manifest_get_value ARCH)"
+    echo "Channel: $(manifest_get_value CHANNEL)"
+    echo "Source: $(manifest_get_value SOURCE)"
+    echo "Binary: $(manifest_get_value BINARY_PATH)"
+    echo "Binary sha256: $(manifest_get_value BINARY_SHA256)"
+    echo "Modules: $(manifest_get_value MODULES)"
+    echo "Installed at: $(manifest_get_value INSTALLED_AT)"
+    echo "Last update at: $(manifest_get_value LAST_UPDATE_AT)"
+}
+
+show_manifest_summary_safe() {
+    echo
+    echo "== Manifest =="
+    if [ -x "$GO_MANIFEST_CMD" ]; then
+        "$GO_MANIFEST_CMD" summary
+    else
+        show_manifest_summary_fallback
+    fi
+}
+
+run_manifest() {
+    action="${1:-summary}"
+    case "$action" in
+        ""|summary|status)
+            if [ -x "$GO_MANIFEST_CMD" ]; then "$GO_MANIFEST_CMD" summary; else show_manifest_summary_fallback; fi
+            ;;
+        show|cat)
+            if [ -x "$GO_MANIFEST_CMD" ]; then "$GO_MANIFEST_CMD" show; else [ -s "$MANIFEST_FILE" ] && cat "$MANIFEST_FILE" || { echo "Manifest not found: $MANIFEST_FILE" >&2; exit 1; }; fi
+            ;;
+        path)
+            if [ -x "$GO_MANIFEST_CMD" ]; then "$GO_MANIFEST_CMD" path; else echo "$MANIFEST_FILE"; fi
+            ;;
+        *)
+            echo "Использование: xray-go manifest [summary|show|path]" >&2
+            exit 2
+            ;;
+    esac
+}
+
 run_update() {
     TARGET="${1:-go}"
     case "$TARGET" in
@@ -293,6 +354,10 @@ case "${1:-help}" in
     recover)
         shift
         run_recover "$@"
+        ;;
+    manifest)
+        shift
+        run_manifest "$@"
         ;;
     update)
         shift
