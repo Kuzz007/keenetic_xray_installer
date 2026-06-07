@@ -107,6 +107,46 @@ restart Xray
 restart watchdog
 ```
 
+## Router validation
+
+Validated on Keenetic / Entware `aarch64-3.10_kn` with an existing configured direct Full Go runtime.
+
+Command:
+
+```sh
+curl -fsSL -H 'Cache-Control: no-cache' \
+  https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh \
+  | sh -s -- --direct-setup-plan
+```
+
+Result:
+
+```text
+Version: 0.1.1-direct-setup-plan
+[OK] manifest install mode: direct
+[OK] manifest edition: full
+[OK] Go resolver sha256 matches manifest
+[OK] Xray config validates
+[OK] Xray init found
+[OK] watchdog init found
+[OK] Proxy0 interface exists
+[OK] current source configured (subscription URL)
+[OK] primary source configured (subscription URL)
+[OK] backup source configured (subscription URL)
+[OK] active slot valid: backup
+[OK] primary selector valid: index:1
+[OK] backup selector valid: index:1
+[OK] existing configured Full Go/direct runtime detected
+OK=27 WARN=0 FAIL=0
+Direct setup plan complete. No changes made.
+```
+
+Notes:
+
+- manifest values are normalized before comparison, including quoted values;
+- `install.sh --direct-setup-plan` downloads the setup planner with cache-bust query to avoid stale raw GitHub content;
+- raw VLESS/subscription values were not printed.
+
 ## Next step
 
 After router validation, the next step can be a guarded scaffold:
