@@ -45,19 +45,21 @@ Usage:
   install.sh --direct-full-dry-run
   install.sh --direct-full-experimental --yes
   install.sh --direct-uninstall-dry-run
+  install.sh --direct-uninstall-experimental --yes
 
 Default mode:
   Without direct flags, this wrapper downloads and runs the stable
   xray_vless_failover_auto_latest.sh selector.
 
 Experimental direct-install v2:
-  --direct-experimental        Run scripts/xray-go-direct-install.sh
-  --direct-detect-only         Run direct-install detection only; make no changes
-  --direct-init-experimental   Run scripts/xray-go-direct-init.sh
-  --direct-init-post-check     Run direct init/service read-only checks
-  --direct-full-dry-run        Print full direct-install plan; make no changes
-  --direct-full-experimental   Apply full direct sequence; requires --yes
-  --direct-uninstall-dry-run   Print direct uninstall/cleanup plan; make no changes
+  --direct-experimental             Run scripts/xray-go-direct-install.sh
+  --direct-detect-only              Run direct-install detection only; make no changes
+  --direct-init-experimental        Run scripts/xray-go-direct-init.sh
+  --direct-init-post-check          Run direct init/service read-only checks
+  --direct-full-dry-run             Print full direct-install plan; make no changes
+  --direct-full-experimental        Apply full direct sequence; requires --yes
+  --direct-uninstall-dry-run        Print direct uninstall/cleanup plan; make no changes
+  --direct-uninstall-experimental   Run guarded uninstall apply scaffold; requires --yes
 
 Examples:
   install.sh --detect-only
@@ -77,6 +79,7 @@ Examples:
   install.sh --direct-full-dry-run
   install.sh --direct-full-experimental --yes
   install.sh --direct-uninstall-dry-run
+  install.sh --direct-uninstall-experimental --yes
 USAGE
 }
 
@@ -189,6 +192,13 @@ case "${1:-}" in
         echo "Entrypoint: install.sh"
         echo "Mode: direct uninstall dry-run"
         run_downloaded_script "$DIRECT_UNINSTALL_URL" "$DIRECT_UNINSTALL_TMP_FILE" "direct uninstall planner" --dry-run "$@"
+        ;;
+    --direct-uninstall-experimental)
+        shift
+        echo "Keenetic Xray Go installer"
+        echo "Entrypoint: install.sh"
+        echo "Mode: direct uninstall guarded apply scaffold"
+        run_downloaded_script "$DIRECT_UNINSTALL_URL" "$DIRECT_UNINSTALL_TMP_FILE" "direct uninstall planner" --apply "$@"
         ;;
 esac
 
