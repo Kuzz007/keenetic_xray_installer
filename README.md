@@ -67,9 +67,17 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-check
 ```
 
+План будущего first-run/setup без изменений:
+
+```sh
+curl -fsSL -H 'Cache-Control: no-cache' \
+  https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh \
+  | sh -s -- --direct-setup-plan
+```
+
 Старые `--direct-full-dry-run`, `--direct-full-experimental`, `--direct-experimental` и `--direct-init-post-check` остаются compatibility aliases.
 
-Подробности: `docs/install.md`, `docs/modes.md`, `docs/recovery.md`, `docs/doctor-summary.md`, `docs/privacy-check.md`, `docs/safety-check.md`, `docs/direct-install.md`, `docs/direct-update.md`, `docs/direct-uninstall.md`, `docs/direct-uninstall-validation.md`.
+Подробности: `docs/install.md`, `docs/modes.md`, `docs/recovery.md`, `docs/doctor-summary.md`, `docs/privacy-check.md`, `docs/safety-check.md`, `docs/direct-setup.md`, `docs/direct-install.md`, `docs/direct-update.md`, `docs/direct-uninstall.md`, `docs/direct-uninstall-validation.md`.
 
 ---
 
