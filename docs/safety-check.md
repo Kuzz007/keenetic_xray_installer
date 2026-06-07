@@ -1,10 +1,23 @@
 # Direct safety check
 
-`xray-go-safety-check` — read-only проверка safety/rollback границ direct-install слоя.
+`xray-go safety-check` — read-only проверка safety/rollback границ direct-install слоя.
 
 Цель: подтвердить, что failure scenarios в staging не меняют рабочие direct-install файлы и что установленный binary совпадает с manifest sha256.
 
+## Запуск через `xray-go`
+
+После обновления wrapper:
+
+```sh
+xray-go update go
+xray-go safety-check
+```
+
+`xray-go safety-check` refresh'ит helper `/opt/bin/xray-go-safety-check` из `scripts/xray-go-safety-check.sh` и запускает его.
+
 ## Запуск без установки
+
+Standalone fallback:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/xray-go-safety-check.sh | sh
@@ -59,7 +72,7 @@ OK=... WARN=0 FAIL=0
 
 ## Router validation
 
-Подтверждено на Keenetic `aarch64-3.10_kn` после direct full/update/Xray-core validation:
+Standalone helper подтверждён на Keenetic `aarch64-3.10_kn` после direct full/update/Xray-core validation:
 
 ```text
 [OK] manifest present: /opt/etc/xray/xray-go.manifest
