@@ -67,6 +67,11 @@ check_contains scripts/xray-go.sh 'refresh_privacy_check' "xray-go can refresh p
 check_contains scripts/xray-go.sh 'run_privacy_check' "xray-go has privacy-check command path"
 check_contains scripts/xray-go.sh 'xray-go privacy-check' "xray-go usage documents privacy-check command"
 check_contains scripts/xray-go.sh 'privacy-check|privacy' "xray-go accepts privacy-check command"
+check_contains scripts/xray-go.sh 'GO_SAFETY_CHECK_URL' "xray-go has safety check URL"
+check_contains scripts/xray-go.sh 'refresh_safety_check' "xray-go can refresh safety checker"
+check_contains scripts/xray-go.sh 'run_safety_check' "xray-go has safety-check command path"
+check_contains scripts/xray-go.sh 'xray-go safety-check' "xray-go usage documents safety-check command"
+check_contains scripts/xray-go.sh 'safety-check|safety' "xray-go accepts safety-check command"
 check_contains scripts/xray-go.sh 'DIRECT_FULL_UPDATE_URL' "xray-go has direct full update URL"
 check_contains scripts/xray-go.sh 'refresh_direct_full_update' "xray-go can refresh direct full updater"
 check_contains scripts/xray-go.sh 'DIRECT_UNINSTALL_URL' "xray-go has direct uninstall URL"
@@ -104,6 +109,16 @@ check_contains scripts/vless-go-privacy-check.sh 'UUID-like value' "privacy chec
 check_contains scripts/vless-go-privacy-check.sh 'SOCKS password variable' "privacy checker scans SOCKS password variables"
 check_contains scripts/vless-go-privacy-check.sh 'proxy credentials in URL' "privacy checker scans URL credentials"
 check_contains scripts/vless-go-privacy-check.sh 'Captured outputs are removed automatically' "privacy checker removes captured output"
+
+info ""
+info "== Safety checker guardrails =="
+check_file_exists scripts/xray-go-safety-check.sh
+check_syntax scripts/xray-go-safety-check.sh
+check_contains scripts/xray-go-safety-check.sh 'This check is read-only for working files.' "safety checker documents read-only boundary"
+check_contains scripts/xray-go-safety-check.sh 'snapshot_before' "safety checker snapshots working files before simulations"
+check_contains scripts/xray-go-safety-check.sh 'isolated bad download failed' "safety checker simulates bad download"
+check_contains scripts/xray-go-safety-check.sh 'broken shell helper rejected by sh -n' "safety checker verifies broken helper rejection"
+check_contains scripts/xray-go-safety-check.sh 'working direct-install files unchanged' "safety checker verifies unchanged working files"
 
 info ""
 info "== Doctor manifest guardrails =="
@@ -220,6 +235,7 @@ for path in \
     scripts/vless-go-doctor.sh \
     scripts/vless-go-doctor-summary.sh \
     scripts/vless-go-privacy-check.sh \
+    scripts/xray-go-safety-check.sh \
     scripts/vless-go-xray-core-update.sh \
     scripts/vless-go-web-install.sh \
     scripts/build-entware-ipk.sh
