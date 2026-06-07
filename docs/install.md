@@ -112,6 +112,7 @@ curl -fsSL -H 'Cache-Control: no-cache' \
 Базовая проверка:
 
 ```sh
+xray-go version
 xray-go manifest
 xray-go recover status
 xray-go doctor --support
@@ -125,6 +126,8 @@ health: OK
 SOCKS health-check OK
 FAIL=0
 ```
+
+`xray-go version` показывает manifest summary, Go resolver version/sha256 и helper paths. `vless-go-doctor` также читает direct manifest напрямую и проверяет соответствие sha256 binary без raw VLESS/subscription data.
 
 Проверка direct code layer:
 
@@ -166,6 +169,7 @@ xray-go update go
 После обновления:
 
 ```sh
+xray-go version
 xray-go manifest
 xray-go recover status
 xray-go doctor --support
