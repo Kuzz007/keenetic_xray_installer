@@ -204,6 +204,8 @@ xray-go recover disable-hourly
 xray-go recover status
 ```
 
+Подробности по recovery/watchdog/health-check: `docs/recovery.md`.
+
 ## 8. SOCKS health-check
 
 Без SOCKS auth:
@@ -308,6 +310,8 @@ xray-go cleanup
 
 ## 12. Где читать дальше
 
+- `docs/modes.md` — Full Go vs Minimal Go;
+- `docs/recovery.md` — watchdog, hourly recovery and health-check;
 - `docs/direct-install.md` — direct-install design and commands;
 - `docs/direct-update.md` — direct-aware update;
 - `docs/direct-uninstall.md` — uninstall dry-run planner;
