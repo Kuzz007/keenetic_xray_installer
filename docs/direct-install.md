@@ -34,6 +34,54 @@ install.sh
   -> print post-install checks
 ```
 
+## Экспериментальный skeleton
+
+Первый безопасный v2-шаг уже добавлен:
+
+```text
+scripts/xray-go-direct-install.sh
+```
+
+Он пока не заменяет рабочую установку. Его задача — проверить основу direct-install:
+
+```text
+- определить Entware architecture;
+- выбрать release asset для Go resolver;
+- показать direct-install plan;
+- при необходимости скачать Go binary в staging directory;
+- проверить sha256;
+- установить manifest helper;
+- записать informational plan file;
+- опционально записать manifest как direct-install.
+```
+
+Команды через публичный `install.sh`:
+
+```sh
+# Только detection, без изменений
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-detect-only
+
+# Подготовить direct-install plan и установить manifest helper
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --prepare-only
+
+# Скачать Go resolver в staging и проверить sha256, но не заменять рабочий бинарник
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --download-binary
+```
+
+Файл плана:
+
+```text
+/opt/etc/xray/xray-go.direct-install.plan
+```
+
+Staging directory по умолчанию:
+
+```text
+/opt/tmp/xray-go-direct-install
+```
+
+Важно: skeleton не выполняет first-run setup, не перезаписывает primary/backup sources и не заменяет стабильный `auto_latest` путь.
+
 ## Что остаётся от старой IPK/feed схемы
 
 IPK/feed не удаляется сразу. Он остаётся v1 compatibility mode для существующих Full Go установок.
@@ -115,16 +163,24 @@ xray-go-manifest touch-update
 
 ## Связь с `xray-go`
 
-В дальнейшем `xray-go` должен уметь:
+`xray-go` уже умеет показывать manifest:
 
 ```sh
 xray-go manifest
-xray-go version
-xray-go doctor --support
-xray-go update go
+xray-go manifest summary
+xray-go manifest show
+xray-go manifest path
 ```
 
-и показывать manifest summary без приватных данных.
+Также `xray-go doctor --support` показывает безопасный manifest summary, если helper доступен.
+
+В дальнейшем `xray-go` должен уметь:
+
+```sh
+xray-go version
+xray-go update go
+xray-go uninstall --dry-run
+```
 
 ## Безопасность обновления
 
@@ -141,7 +197,11 @@ Direct-install update должен быть атомарным наскольк�
 
 На текущем этапе:
 
-- `install.sh` существует как безопасный wrapper на `auto_latest`;
+- `install.sh` существует как безопасный wrapper на `auto_latest` по умолчанию;
+- `install.sh --direct-experimental` умеет запускать experimental skeleton;
+- `install.sh --direct-detect-only` умеет проверять direct-install detection без изменений;
+- `scripts/xray-go-direct-install.sh` добавлен;
 - `scripts/xray-go-manifest.sh` добавлен;
+- skeleton умеет staging download + sha256 verification через `--download-binary`;
 - direct-install flow ещё не заменяет текущую Full Go установку;
 - IPK/feed пока остаётся рабочей v1-схемой совместимости.
