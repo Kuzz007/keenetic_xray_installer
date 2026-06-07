@@ -82,8 +82,9 @@ check_contains scripts/xray-go-direct-full.sh '--dry-run' "direct-full keeps dry
 check_contains scripts/xray-go-direct-full.sh 'Planned full direct-install sequence' "direct-full prints planned sequence"
 check_contains scripts/xray-go-direct-full.sh 'Equivalent commands, not executed by dry-run' "direct-full prints non-executed command plan"
 check_contains scripts/xray-go-direct-full.sh 'No changes made' "direct-full documents read-only behavior"
-check_not_contains scripts/xray-go-direct-full.sh 'sh -s -- --direct-experimental --install-binary' "direct-full does not execute install-binary directly"
-check_not_contains scripts/xray-go-direct-full.sh 'sh -s -- --direct-init-experimental --install-watchdog-init' "direct-full does not execute init install directly"
+check_contains scripts/xray-go-direct-full.sh 'SHOW_COMMANDS' "direct-full can hide command examples"
+check_not_contains scripts/xray-go-direct-full.sh 'run_downloaded_script' "direct-full does not run downloaded installers itself"
+check_not_contains scripts/xray-go-direct-full.sh 'fetch_url' "direct-full does not download during dry-run"
 
 info ""
 info "== Embedded payload guardrails for public entrypoints =="
