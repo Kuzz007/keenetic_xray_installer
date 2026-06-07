@@ -11,6 +11,7 @@ REPO_BRANCH="${REPO_BRANCH:-main}"
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
 AUTO_LATEST_URL="${AUTO_LATEST_URL:-${REPO_BASE}/xray_vless_failover_auto_latest.sh}"
 DIRECT_INSTALL_URL="${DIRECT_INSTALL_URL:-${REPO_BASE}/scripts/xray-go-direct-install.sh}"
+DIRECT_INIT_URL="${DIRECT_INIT_URL:-${REPO_BASE}/scripts/xray-go-direct-init.sh}"
 
 if [ -d /opt ]; then
     TMP_DIR="${TMPDIR:-/opt/tmp}"
@@ -20,9 +21,10 @@ fi
 
 TMP_FILE="${TMP_DIR}/xray_vless_failover_auto_latest.$$"
 DIRECT_TMP_FILE="${TMP_DIR}/xray_go_direct_install.$$"
+DIRECT_INIT_TMP_FILE="${TMP_DIR}/xray_go_direct_init.$$"
 
 cleanup() {
-    rm -f "$TMP_FILE" "$DIRECT_TMP_FILE" 2>/dev/null || true
+    rm -f "$TMP_FILE" "$DIRECT_TMP_FILE" "$DIRECT_INIT_TMP_FILE" 2>/dev/null || true
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -34,14 +36,18 @@ Usage:
   install.sh [auto_latest options]
   install.sh --direct-experimental [direct options]
   install.sh --direct-detect-only [direct options]
+  install.sh --direct-init-experimental [direct init options]
+  install.sh --direct-init-post-check
 
 Default mode:
   Without direct flags, this wrapper downloads and runs the stable
   xray_vless_failover_auto_latest.sh selector.
 
 Experimental direct-install v2:
-  --direct-experimental   Run scripts/xray-go-direct-install.sh
-  --direct-detect-only    Run direct-install detection only; make no changes
+  --direct-experimental        Run scripts/xray-go-direct-install.sh
+  --direct-detect-only         Run direct-install detection only; make no changes
+  --direct-init-experimental   Run scripts/xray-go-direct-init.sh
+  --direct-init-post-check     Run direct init/service read-only checks
 
 Examples:
   install.sh --detect-only
@@ -51,6 +57,10 @@ Examples:
   install.sh --direct-experimental --install-binary
   install.sh --direct-experimental --stage-helpers
   install.sh --direct-experimental --install-helpers
+  install.sh --direct-experimental --post-check
+  install.sh --direct-init-experimental --stage-watchdog-init
+  install.sh --direct-init-experimental --install-watchdog-init -y
+  install.sh --direct-init-post-check
 USAGE
 }
 
@@ -128,6 +138,20 @@ case "${1:-}" in
         echo "Entrypoint: install.sh"
         echo "Mode: direct-install detect-only"
         run_downloaded_script "$DIRECT_INSTALL_URL" "$DIRECT_TMP_FILE" "direct-install skeleton" --detect-only "$@"
+        ;;
+    --direct-init-experimental)
+        shift
+        echo "Keenetic Xray Go installer"
+        echo "Entrypoint: install.sh"
+        echo "Mode: direct-init experimental"
+        run_downloaded_script "$DIRECT_INIT_URL" "$DIRECT_INIT_TMP_FILE" "direct-init helper" "$@"
+        ;;
+    --direct-init-post-check)
+        shift
+        echo "Keenetic Xray Go installer"
+        echo "Entrypoint: install.sh"
+        echo "Mode: direct-init post-check"
+        run_downloaded_script "$DIRECT_INIT_URL" "$DIRECT_INIT_TMP_FILE" "direct-init helper" --post-check "$@"
         ;;
 esac
 
