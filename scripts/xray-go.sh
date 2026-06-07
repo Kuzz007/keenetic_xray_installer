@@ -24,6 +24,7 @@ DIRECT_FULL_UPDATE_URL="${DIRECT_FULL_UPDATE_URL:-${RAW_BASE}/scripts/xray-go-di
 DIRECT_UNINSTALL_CMD="/opt/bin/xray-go-direct-uninstall"
 DIRECT_UNINSTALL_URL="${DIRECT_UNINSTALL_URL:-${RAW_BASE}/scripts/xray-go-direct-uninstall.sh}"
 XRAY_CORE_UPDATE_CMD="/opt/bin/vless-go-xray-core-update"
+XRAY_CORE_UPDATE_URL="${XRAY_CORE_UPDATE_URL:-${RAW_BASE}/scripts/vless-go-xray-core-update.sh}"
 MENU_CMD="/opt/bin/failover-go"
 WATCHDOG_LOG="/opt/var/log/vless-go-watchdog.log"
 
@@ -44,7 +45,8 @@ xray-go - единая команда управления Keenetic Xray Go edit
   xray-go manifest [summary|show|path]
   xray-go update [go|xray-core]
   xray-go update go --dry-run
-  xray-go update-core
+  xray-go update xray-core --dry-run
+  xray-go update-core [--dry-run]
   xray-go switch primary|backup
   xray-go cleanup [--dry-run]
   xray-go uninstall --dry-run
@@ -89,6 +91,10 @@ Update mode:
     Иначе использует старый opkg/IPK-compatible update path.
   xray-go update go --dry-run
     Для direct mode показывает план без изменений.
+  xray-go update xray-core --dry-run
+    Read-only проверка Xray-core update target без скачивания и без restart.
+  xray-go update xray-core [--channel stable|latest|prerelease] [--tag vX.Y.Z] [--yes] [--no-restart]
+    Обновляет только Xray-core через vless-go-xray-core-update. Direct-install layer не меняется.
 
 Uninstall mode:
   xray-go uninstall --dry-run
@@ -163,6 +169,10 @@ refresh_privacy_check() {
     fetch_script_to "$GO_PRIVACY_CHECK_URL" "$GO_PRIVACY_CHECK_CMD" "vless-go-privacy-check" || return 0
 }
 
+refresh_xray_core_update() {
+    fetch_script_to "$XRAY_CORE_UPDATE_URL" "$XRAY_CORE_UPDATE_CMD" "vless-go-xray-core-update" || return 0
+}
+
 show_recovery_summary() {
     echo
     echo "== Recovery =="
@@ -186,7 +196,7 @@ show_status() {
 }
 
 json_escape() {
-    sed ':a;N;$!ba;s/\/\\/g;s/"/\\"/g;s/\n/\\n/g;s/\r//g;s/\t/  /g'
+    sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\n/\\n/g;s/\r//g;s/\t/  /g'
 }
 
 counter_from_summary() {
@@ -472,6 +482,95 @@ run_version() {
     done
 }
 
+get_xray_bin() {
+    if command -v xray >/dev/null 2>&1; then
+        command -v xray
+    elif [ -x /opt/sbin/xray ]; then
+        echo "/opt/sbin/xray"
+    elif [ -x /opt/bin/xray ]; then
+        echo "/opt/bin/xray"
+    else
+        echo ""
+    fi
+}
+
+xray_config_test() {
+    bin="$1"
+    config="$2"
+    [ -x "$bin" ] || return 1
+    [ -s "$config" ] || return 1
+    if "$bin" run -test -config "$config" >/dev/null 2>&1; then
+        return 0
+    fi
+    "$bin" test -config "$config" >/dev/null 2>&1
+}
+
+run_xray_core_dry_run() {
+    [ "$#" -eq 0 ] || { echo "Использование: xray-go update xray-core --dry-run" >&2; exit 2; }
+
+    echo "== Xray-core update dry-run =="
+    echo "No changes made. No downloads, no service restart, no direct-install files modified."
+    echo
+
+    xray_bin="$(get_xray_bin)"
+    if [ -n "$xray_bin" ] && [ -x "$xray_bin" ]; then
+        echo "[OK] Xray binary: $xray_bin"
+        "$xray_bin" version 2>/dev/null | sed -n '1,2p' || true
+    else
+        echo "[FAIL] Xray binary not found"
+    fi
+
+    if [ -s /opt/etc/xray/config.json ]; then
+        if [ -n "$xray_bin" ] && xray_config_test "$xray_bin" /opt/etc/xray/config.json; then
+            echo "[OK] Xray config valid: /opt/etc/xray/config.json"
+        else
+            echo "[FAIL] Xray config validation failed: /opt/etc/xray/config.json"
+        fi
+    else
+        echo "[WARN] Xray config missing: /opt/etc/xray/config.json"
+    fi
+
+    if [ -x /opt/etc/init.d/S24xray ]; then
+        if /opt/etc/init.d/S24xray status >/dev/null 2>&1; then
+            echo "[OK] Xray init status: alive"
+        else
+            echo "[WARN] Xray init status is not alive"
+        fi
+    else
+        echo "[WARN] Xray init script missing: /opt/etc/init.d/S24xray"
+    fi
+
+    if [ -x "$XRAY_CORE_UPDATE_CMD" ]; then
+        echo "[OK] Xray-core updater helper: $XRAY_CORE_UPDATE_CMD"
+    elif [ -e "$XRAY_CORE_UPDATE_CMD" ]; then
+        echo "[WARN] Xray-core updater helper exists but is not executable: $XRAY_CORE_UPDATE_CMD"
+    else
+        echo "[WARN] Xray-core updater helper missing: $XRAY_CORE_UPDATE_CMD"
+    fi
+
+    echo
+    echo "Planned apply command examples:"
+    echo "  xray-go update xray-core --channel latest --yes"
+    echo "  xray-go update xray-core --channel prerelease --yes --no-restart"
+    echo "  xray-go update xray-core --tag vX.Y.Z --yes"
+    echo
+    echo "Scope boundary: this target updates only Xray-core. It does not change direct-install manifest, VLESS sources, helpers, watchdog config, or recovery cron."
+}
+
+run_xray_core_update() {
+    case "${1:-}" in
+        --dry-run|--plan|dry-run|plan)
+            shift || true
+            run_xray_core_dry_run "$@"
+            ;;
+        *)
+            refresh_xray_core_update
+            need_exec "$XRAY_CORE_UPDATE_CMD"
+            "$XRAY_CORE_UPDATE_CMD" "$@"
+            ;;
+    esac
+}
+
 run_direct_go_update() {
     MODE="apply"
     case "${1:-}" in
@@ -516,9 +615,7 @@ run_update() {
             ;;
         xray-core|core|xray)
             shift || true
-            [ "$#" -eq 0 ] || { echo "Использование: xray-go update xray-core" >&2; exit 2; }
-            need_exec "$XRAY_CORE_UPDATE_CMD"
-            "$XRAY_CORE_UPDATE_CMD"
+            run_xray_core_update "$@"
             ;;
         *)
             echo "Использование: xray-go update [go|xray-core]" >&2
@@ -590,7 +687,7 @@ case "${1:-help}" in
         ;;
     update-core)
         shift
-        run_update xray-core
+        run_update xray-core "$@"
         ;;
     switch)
         shift
