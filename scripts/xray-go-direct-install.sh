@@ -4,9 +4,9 @@ set -e
 # xray-go-direct-install - experimental direct-install v2 skeleton.
 #
 # This script is intentionally conservative. It can detect architecture, stage the
-# Go resolver binary, install the manifest helper and write an experimental
-# manifest. It does not run first setup and does not replace the stable
-# auto_latest/IPK flow yet.
+# Go resolver binary, stage/install shell helpers, install the manifest helper and
+# write an experimental manifest. It does not run first setup and does not replace
+# the stable auto_latest/IPK flow yet.
 
 XRAY_GO_DIRECT_VERSION="${XRAY_GO_DIRECT_VERSION:-0.1.0-direct-skeleton}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
@@ -17,13 +17,42 @@ RELEASE_BASE="${RELEASE_BASE:-https://github.com/Kuzz007/keenetic_xray_installer
 XRAY_DIR="${XRAY_DIR:-/opt/etc/xray}"
 TMP_DIR="${TMPDIR:-/opt/tmp}"
 STAGE_DIR="${XRAY_GO_DIRECT_STAGE_DIR:-${TMP_DIR}/xray-go-direct-install}"
+HELPER_STAGE_DIR="${HELPER_STAGE_DIR:-${STAGE_DIR}/helpers}"
+HELPER_INDEX="${HELPER_INDEX:-${STAGE_DIR}/xray-go.helpers.index}"
 GO_RESOLVER="${GO_RESOLVER:-/opt/bin/xray-failover-go}"
 MANIFEST_CMD="${MANIFEST_CMD:-/opt/bin/xray-go-manifest}"
 MANIFEST_URL="${MANIFEST_URL:-${RAW_BASE}/scripts/xray-go-manifest.sh}"
 PLAN_FILE="${PLAN_FILE:-${XRAY_DIR}/xray-go.direct-install.plan}"
 
+XRAY_GO_CMD="${XRAY_GO_CMD:-/opt/bin/xray-go}"
+XRAY_GO_URL="${XRAY_GO_URL:-${RAW_BASE}/scripts/xray-go.sh}"
+GO_UPDATE_CMD="${GO_UPDATE_CMD:-/opt/bin/vless-go-update}"
+GO_UPDATE_URL="${GO_UPDATE_URL:-${RAW_BASE}/scripts/vless-go-update.sh}"
+GO_AUTO_UPDATE_CMD="${GO_AUTO_UPDATE_CMD:-/opt/bin/vless-go-auto-update}"
+GO_AUTO_UPDATE_URL="${GO_AUTO_UPDATE_URL:-${RAW_BASE}/scripts/vless-go-auto-update.sh}"
+GO_FAILOVER_CMD="${GO_FAILOVER_CMD:-/opt/bin/vless-go-failover}"
+GO_FAILOVER_URL="${GO_FAILOVER_URL:-${RAW_BASE}/scripts/vless-go-failover.sh}"
+GO_HISTORY_CMD="${GO_HISTORY_CMD:-/opt/bin/vless-go-history}"
+GO_HISTORY_URL="${GO_HISTORY_URL:-${RAW_BASE}/scripts/vless-go-history.sh}"
+GO_CLEANUP_CMD="${GO_CLEANUP_CMD:-/opt/bin/vless-go-cleanup}"
+GO_CLEANUP_URL="${GO_CLEANUP_URL:-${RAW_BASE}/scripts/vless-go-cleanup.sh}"
+GO_RECOVER_CMD="${GO_RECOVER_CMD:-/opt/bin/vless-go-recover}"
+GO_RECOVER_URL="${GO_RECOVER_URL:-${RAW_BASE}/scripts/vless-go-recover.sh}"
+GO_SOCKS_AUTH_CMD="${GO_SOCKS_AUTH_CMD:-/opt/bin/vless-go-socks-auth}"
+GO_SOCKS_AUTH_URL="${GO_SOCKS_AUTH_URL:-${RAW_BASE}/scripts/vless-go-socks-auth.sh}"
+FAILOVER_GO_CMD="${FAILOVER_GO_CMD:-/opt/bin/failover-go}"
+FAILOVER_GO_URL="${FAILOVER_GO_URL:-${RAW_BASE}/scripts/failover-go.sh}"
+XRAY_CORE_UPDATE_CMD="${XRAY_CORE_UPDATE_CMD:-/opt/bin/vless-go-xray-core-update}"
+XRAY_CORE_UPDATE_URL="${XRAY_CORE_UPDATE_URL:-${RAW_BASE}/scripts/vless-go-xray-core-update.sh}"
+DOCTOR_CMD="${DOCTOR_CMD:-/opt/bin/vless-go-doctor}"
+DOCTOR_URL="${DOCTOR_URL:-${RAW_BASE}/scripts/vless-go-doctor.sh}"
+LOCK_HELPER="${LOCK_HELPER:-/opt/libexec/vless-go-lock.sh}"
+LOCK_HELPER_URL="${LOCK_HELPER_URL:-${RAW_BASE}/scripts/vless-go-lock.sh}"
+
 MODE="prepare"
 DOWNLOAD_BINARY="0"
+STAGE_HELPERS="0"
+INSTALL_HELPERS="0"
 INSTALL_MANIFEST_HELPER="1"
 WRITE_MANIFEST="0"
 ASSUME_YES="0"
@@ -42,6 +71,8 @@ Modes:
 
 Options:
   --download-binary      Download and verify the Go resolver into staging dir
+  --stage-helpers        Download and syntax-check shell helpers into staging dir
+  --install-helpers      Stage shell helpers and install them into /opt/bin,/opt/libexec
   --no-helper            Do not install /opt/bin/xray-go-manifest
   -y, --yes              Do not ask for confirmation when writing manifest
   -h, --help             Show help
@@ -63,6 +94,8 @@ while [ "$#" -gt 0 ]; do
         --prepare-only|--prepare) MODE="prepare"; shift ;;
         --write-manifest) WRITE_MANIFEST="1"; shift ;;
         --download-binary) DOWNLOAD_BINARY="1"; shift ;;
+        --stage-helpers) STAGE_HELPERS="1"; shift ;;
+        --install-helpers) STAGE_HELPERS="1"; INSTALL_HELPERS="1"; shift ;;
         --no-helper|--no-manifest-helper) INSTALL_MANIFEST_HELPER="0"; shift ;;
         -y|--yes) ASSUME_YES="1"; shift ;;
         -h|--help|help) usage; exit 0 ;;
@@ -142,6 +175,16 @@ looks_like_shell_script() {
     head -n 1 "$1" 2>/dev/null | grep -Eq '^#!/bin/sh|^#!/opt/bin/sh|^#!/usr/bin/env[[:space:]]+sh'
 }
 
+verify_shell_helper() {
+    file="$1"
+    label="$2"
+
+    if ! sh -n "$file"; then
+        echo "ERROR: $label failed shell syntax check: $file" >&2
+        exit 1
+    fi
+}
+
 confirm_manifest_write() {
     [ "$WRITE_MANIFEST" = "1" ] || return 0
     [ "$ASSUME_YES" = "1" ] && return 0
@@ -157,7 +200,7 @@ confirm_manifest_write() {
 
 ENTWARE_ARCH="${ENTWARE_ARCH:-$(detect_entware_arch)}"
 [ -n "$ENTWARE_ARCH" ] || ENTWARE_ARCH="$(uname -m 2>/dev/null || echo unknown)"
-GO_ASSET_NAME="${GO_ASSET_NAME:-$(asset_name_for_arch "$ENTWARE_ARCH")}" 
+GO_ASSET_NAME="${GO_ASSET_NAME:-$(asset_name_for_arch "$ENTWARE_ARCH")}"
 GO_BINARY_URL="${GO_BINARY_URL:-${RELEASE_BASE}/${GO_ASSET_NAME}}"
 GO_SHA256_URL="${GO_SHA256_URL:-${GO_BINARY_URL}.sha256}"
 STAGED_BINARY="${STAGE_DIR}/${GO_ASSET_NAME}"
@@ -176,14 +219,35 @@ Entware architecture: $ENTWARE_ARCH
 Go asset: ${GO_ASSET_NAME:-unsupported}
 Go binary URL: ${GO_BINARY_URL:-unsupported}
 Stage dir: $STAGE_DIR
+Helper stage dir: $HELPER_STAGE_DIR
+Helper index: $HELPER_INDEX
 Target binary path: $GO_RESOLVER
 Manifest helper: $MANIFEST_CMD
 Manifest helper URL: $MANIFEST_URL
 Plan file: $PLAN_FILE
 Download binary: $DOWNLOAD_BINARY
+Stage helpers: $STAGE_HELPERS
+Install helpers: $INSTALL_HELPERS
 Install manifest helper: $INSTALL_MANIFEST_HELPER
 Write manifest: $WRITE_MANIFEST
 EOF_PLAN
+}
+
+helper_specs() {
+    cat <<EOF_HELPERS
+exec|$XRAY_GO_CMD|$XRAY_GO_URL|xray-go wrapper
+exec|$GO_UPDATE_CMD|$GO_UPDATE_URL|vless-go-update helper
+exec|$GO_AUTO_UPDATE_CMD|$GO_AUTO_UPDATE_URL|vless-go-auto-update helper
+exec|$GO_FAILOVER_CMD|$GO_FAILOVER_URL|vless-go-failover helper
+exec|$GO_HISTORY_CMD|$GO_HISTORY_URL|vless-go-history helper
+exec|$GO_CLEANUP_CMD|$GO_CLEANUP_URL|vless-go-cleanup helper
+exec|$GO_RECOVER_CMD|$GO_RECOVER_URL|vless-go-recover helper
+exec|$GO_SOCKS_AUTH_CMD|$GO_SOCKS_AUTH_URL|vless-go-socks-auth helper
+exec|$FAILOVER_GO_CMD|$FAILOVER_GO_URL|failover-go menu
+exec|$XRAY_CORE_UPDATE_CMD|$XRAY_CORE_UPDATE_URL|Xray-core updater helper
+exec|$DOCTOR_CMD|$DOCTOR_URL|doctor helper
+read|$LOCK_HELPER|$LOCK_HELPER_URL|lock helper
+EOF_HELPERS
 }
 
 write_plan_file() {
@@ -202,8 +266,13 @@ write_plan_file() {
         echo "GO_BINARY_SHA256=\"$BINARY_SHA256\""
         echo "EXPECTED_SHA256=\"$EXPECTED_SHA256\""
         echo "STAGE_DIR=\"$STAGE_DIR\""
+        echo "HELPER_STAGE_DIR=\"$HELPER_STAGE_DIR\""
+        echo "HELPER_INDEX=\"$HELPER_INDEX\""
         echo "TARGET_BINARY=\"$GO_RESOLVER\""
         echo "MANIFEST_HELPER=\"$MANIFEST_CMD\""
+        echo "DOWNLOAD_BINARY=\"$DOWNLOAD_BINARY\""
+        echo "STAGE_HELPERS=\"$STAGE_HELPERS\""
+        echo "INSTALL_HELPERS=\"$INSTALL_HELPERS\""
         echo "CREATED_AT=\"$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S%z')\""
     } >"$tmp"
     chmod 600 "$tmp" 2>/dev/null || true
@@ -218,7 +287,7 @@ install_manifest_helper() {
     echo "Installing manifest helper: $MANIFEST_CMD"
     fetch_url "$MANIFEST_URL" "$tmp"
     looks_like_shell_script "$tmp" || { echo "ERROR: downloaded manifest helper is not a shell script." >&2; exit 1; }
-    sh -n "$tmp" || { echo "ERROR: manifest helper failed shell syntax check." >&2; exit 1; }
+    verify_shell_helper "$tmp" "manifest helper"
     chmod +x "$tmp"
     mv "$tmp" "$MANIFEST_CMD"
     chmod +x "$MANIFEST_CMD"
@@ -257,6 +326,83 @@ download_binary_to_stage() {
     echo "Staged Go resolver sha256 OK: $BINARY_SHA256"
 }
 
+stage_shell_helpers() {
+    [ "$STAGE_HELPERS" = "1" ] || return 0
+    mkdir -p "$HELPER_STAGE_DIR" "$(dirname "$HELPER_INDEX")"
+    tmp_index="${HELPER_INDEX}.$$"
+    : >"$tmp_index"
+
+    helper_specs | while IFS='|' read -r mode dest url label; do
+        [ -n "$dest" ] || continue
+        staged="${HELPER_STAGE_DIR}/$(basename "$dest")"
+
+        echo "Staging $label: $staged"
+        fetch_url "$url" "$staged"
+        verify_shell_helper "$staged" "$label"
+
+        case "$mode" in
+            exec)
+                chmod +x "$staged"
+                ;;
+            read)
+                chmod 644 "$staged"
+                ;;
+            *)
+                echo "ERROR: unsupported helper mode '$mode' for $label" >&2
+                exit 1
+                ;;
+        esac
+
+        helper_sha="$(sha256_file "$staged")"
+        printf '%s|%s|%s|%s|%s\n' "$mode" "$dest" "$staged" "$helper_sha" "$label" >>"$tmp_index"
+    done
+
+    chmod 600 "$tmp_index" 2>/dev/null || true
+    mv "$tmp_index" "$HELPER_INDEX"
+    echo "Shell helpers staged and verified. Index: $HELPER_INDEX"
+}
+
+install_shell_helpers() {
+    [ "$INSTALL_HELPERS" = "1" ] || return 0
+    [ -s "$HELPER_INDEX" ] || { echo "ERROR: helper index not found: $HELPER_INDEX" >&2; exit 1; }
+
+    while IFS='|' read -r mode dest staged helper_sha label; do
+        [ -n "$dest" ] || continue
+        [ -s "$staged" ] || { echo "ERROR: staged helper is missing: $staged" >&2; exit 1; }
+
+        mkdir -p "$(dirname "$dest")"
+        tmp_dest="$(dirname "$dest")/.$(basename "$dest").$$"
+        echo "Installing $label: $dest"
+        cp "$staged" "$tmp_dest"
+
+        case "$mode" in
+            exec)
+                chmod +x "$tmp_dest"
+                ;;
+            read)
+                chmod 644 "$tmp_dest"
+                ;;
+            *)
+                echo "ERROR: unsupported helper mode '$mode' for $label" >&2
+                rm -f "$tmp_dest" 2>/dev/null || true
+                exit 1
+                ;;
+        esac
+
+        mv "$tmp_dest" "$dest"
+    done <"$HELPER_INDEX"
+
+    echo "Shell helpers installed."
+}
+
+manifest_modules() {
+    modules="manifest,direct-experimental"
+    [ "$DOWNLOAD_BINARY" = "1" ] && modules="$modules,binary-staged"
+    [ "$STAGE_HELPERS" = "1" ] && modules="$modules,helpers-staged"
+    [ "$INSTALL_HELPERS" = "1" ] && modules="$modules,helpers-installed"
+    printf '%s' "$modules"
+}
+
 write_manifest() {
     [ "$WRITE_MANIFEST" = "1" ] || return 0
     [ -x "$MANIFEST_CMD" ] || { echo "ERROR: manifest helper is not installed: $MANIFEST_CMD" >&2; exit 1; }
@@ -271,7 +417,7 @@ write_manifest() {
         --source "${GO_BINARY_URL:-direct-experimental}" \
         --binary-path "$GO_RESOLVER" \
         --binary-sha256 "$BINARY_SHA256" \
-        --modules "manifest,direct-experimental"
+        --modules "$(manifest_modules)"
 }
 
 print_plan
@@ -284,6 +430,8 @@ fi
 mkdir -p "$STAGE_DIR" "$XRAY_DIR"
 install_manifest_helper
 download_binary_to_stage
+stage_shell_helpers
+install_shell_helpers
 write_plan_file
 write_manifest
 
