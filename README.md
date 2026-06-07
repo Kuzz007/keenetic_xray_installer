@@ -36,6 +36,8 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 
 Старый вход `xray_vless_failover_auto_latest.sh` остаётся рабочим для совместимости, но новая документация ведёт через `install.sh`.
 
+Полный пошаговый install guide: `docs/install.md`.
+
 ---
 
 ## Direct-install v2
@@ -65,7 +67,7 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-post-check
 ```
 
-Подробности: `docs/direct-install.md`, `docs/direct-update.md`, `docs/direct-uninstall.md`, `docs/direct-uninstall-validation.md`.
+Подробности: `docs/install.md`, `docs/direct-install.md`, `docs/direct-update.md`, `docs/direct-uninstall.md`, `docs/direct-uninstall-validation.md`.
 
 ---
 
