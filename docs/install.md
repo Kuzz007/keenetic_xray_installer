@@ -59,7 +59,7 @@ Direct-install v2 — новая целевая схема без обязате
 Сначала безопасный dry-run полного direct flow:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-full-dry-run
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-plan
 ```
 
 Ожидаемый финал:
@@ -70,9 +70,23 @@ Direct full dry-run complete. No changes made.
 
 Dry-run ничего не скачивает в target paths, не меняет cron, не запускает first-run setup и не редактирует VLESS sources.
 
+Compatibility alias:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-full-dry-run
+```
+
 ## 4. Direct-install v2 apply
 
 Явный full direct apply:
+
+```sh
+curl -fsSL -H 'Cache-Control: no-cache' \
+  https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh \
+  | sh -s -- --direct-apply --yes
+```
+
+Compatibility alias:
 
 ```sh
 curl -fsSL -H 'Cache-Control: no-cache' \
@@ -84,9 +98,9 @@ curl -fsSL -H 'Cache-Control: no-cache' \
 
 ```text
 1. detect architecture
-2. download Go resolver into staging
+2. download Go resolver into staging when needed
 3. verify sha256
-4. install Go resolver
+4. install Go resolver when needed
 5. stage shell helpers
 6. run sh -n checks
 7. install shell helpers
@@ -113,9 +127,12 @@ curl -fsSL -H 'Cache-Control: no-cache' \
 
 ```sh
 xray-go version
+xray-go summary
 xray-go manifest
 xray-go recover status
 xray-go doctor --support
+xray-go privacy-check
+xray-go safety-check
 vless-go-doctor
 ```
 
@@ -147,7 +164,7 @@ FAIL=0
 Проверка direct code layer:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --post-check
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-check
 ```
 
 Ожидаемый финал:
@@ -159,13 +176,20 @@ Post-check summary: OK=12 WARN=0 FAIL=0
 Проверка init/service/cron layer:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-post-check
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-check
 ```
 
 Ожидаемый финал:
 
 ```text
 Direct-init post-check summary: OK=8 WARN=0 FAIL=0
+```
+
+Compatibility aliases:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --post-check
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-post-check
 ```
 
 ## 6. Обновление
@@ -185,9 +209,12 @@ xray-go update go
 
 ```sh
 xray-go version
+xray-go summary
 xray-go manifest
 xray-go recover status
 xray-go doctor --support
+xray-go privacy-check
+xray-go safety-check
 vless-go-doctor
 ```
 
@@ -255,6 +282,12 @@ curl -fsS \
 xray-go uninstall --dry-run
 ```
 
+Или через installer:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-uninstall-plan
+```
+
 Dry-run ничего не удаляет. Он только показывает:
 
 ```text
@@ -267,6 +300,14 @@ Dry-run ничего не удаляет. Он только показывает
 ```
 
 Guarded apply scaffold через installer существует только как safety-boundary проверка и сейчас не удаляет файлы:
+
+```sh
+curl -fsSL -H 'Cache-Control: no-cache' \
+  https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh \
+  | sh -s -- --direct-uninstall-guarded --yes
+```
+
+Compatibility alias:
 
 ```sh
 curl -fsSL -H 'Cache-Control: no-cache' \
@@ -285,7 +326,7 @@ No changes made in this build. Real removal is intentionally disabled.
 Если direct helper не обновился из-за cache:
 
 ```sh
-curl -fsSL -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-full-dry-run
+curl -fsSL -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-plan
 ```
 
 Если нужно проверить direct state без изменений:
@@ -293,6 +334,7 @@ curl -fsSL -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/Kuzz00
 ```sh
 xray-go update go --dry-run
 xray-go uninstall --dry-run
+xray-go safety-check
 ```
 
 Если doctor показывает SOCKS auth error, проверить вручную:
@@ -310,5 +352,7 @@ curl -fsS --socks5-hostname 127.0.0.1:10808 --proxy-user "$XRAY_SOCKS_USER:$XRAY
 - `docs/direct-uninstall.md`
 - `docs/direct-uninstall-validation.md`
 - `docs/recovery.md`
+- `docs/privacy-check.md`
+- `docs/safety-check.md`
 - `docs/opkg-feed-v1.md`
 - `docs/legacy.md`
