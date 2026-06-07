@@ -94,6 +94,21 @@ classify_source_file() {
     esac
 }
 
+valid_selector_value() {
+    value="$1"
+    case "$value" in
+        first) return 0 ;;
+        index:*)
+            n="${value#index:}"
+            case "$n" in
+                ''|*[!0-9]*|0) return 1 ;;
+                *) return 0 ;;
+            esac
+            ;;
+        *) return 1 ;;
+    esac
+}
+
 selector_state() {
     path="$1"
     label="$2"
@@ -102,10 +117,12 @@ selector_state() {
         return 1
     fi
     value="$(sed -n '1p' "$path" 2>/dev/null || true)"
-    case "$value" in
-        first|index:[1-9]*[0-9]) ok "$label selector valid: $value" ;;
-        *) warn "$label selector invalid or unsupported; value is not printed"; return 1 ;;
-    esac
+    if valid_selector_value "$value"; then
+        ok "$label selector valid: $value"
+    else
+        warn "$label selector invalid or unsupported; value is not printed"
+        return 1
+    fi
 }
 
 find_xray_init() {
