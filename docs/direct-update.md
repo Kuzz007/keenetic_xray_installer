@@ -1,6 +1,6 @@
 # Direct-aware update
 
-`xray-go update go` теперь должен выбирать update path по manifest.
+`xray-go update go` выбирает update path по manifest.
 
 ## Логика
 
@@ -63,4 +63,28 @@ xray-go doctor --support
 manifest install mode: direct
 recovery health: OK
 doctor --support: FAIL=0
+```
+
+## Router validation
+
+Подтверждено на Keenetic / Entware `aarch64-3.10_kn`:
+
+```text
+xray-go update go --dry-run
+  -> Refreshing xray-go-direct-full...
+  -> Mode: dry-run
+  -> manifest install mode: direct
+  -> manifest binary sha256 matches target
+  -> recovery cron marker present
+  -> Direct full dry-run complete. No changes made.
+```
+
+Также подтверждено до этого:
+
+```text
+--direct-full-experimental --yes
+  -> direct post-check: OK=12 WARN=0 FAIL=0
+  -> direct-init post-check: OK=8 WARN=0 FAIL=0
+  -> No first-run setup was executed
+  -> VLESS sources were not edited
 ```
