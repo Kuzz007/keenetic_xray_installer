@@ -126,6 +126,7 @@ Manifest не должен хранить приватные источники,
 - [x] `xray-go update go --dry-run`
 - [x] `xray-go update go` direct-aware path для direct manifest.
 - [x] `xray-go update xray-core --dry-run`
+- [x] `xray-go update xray-core --channel latest --yes`.
 - [x] `xray-go update-core`
 - [x] `xray-go switch`
 - [x] `xray-go cleanup`
@@ -218,6 +219,7 @@ Agent / Control Server:
 - [x] Разделить update targets:
   - [x] Go edition direct-install files.
   - [x] Xray-core dry-run target.
+  - [x] Xray-core apply target.
 - [x] Web UI update не включать в router core update path.
 - [x] Agent update не включать в router core update path.
 - [x] Control Server update не включать в router core update path.
@@ -228,7 +230,8 @@ Agent / Control Server:
 - [x] Подтвердить на роутере: direct update умеет reuse установленного Go resolver при совпадении manifest sha256.
 - [x] Добавить `xray-go update xray-core --dry-run`.
 - [x] Подтвердить на роутере: `xray-go update xray-core --dry-run` не скачивает, не рестартует сервисы и не меняет direct-install layer.
-- [ ] Подтвердить на роутере apply path `xray-go update xray-core --channel latest --yes`.
+- [x] Подтвердить на роутере apply path `xray-go update xray-core --channel latest --yes`.
+- [x] Подтвердить после Xray-core apply: Xray config valid, init alive, SOCKS health OK, summary `FAIL=0`, doctor `FAIL=0`, privacy-check `FAIL=0`.
 - [x] Не менять пользовательские профили при safe update direct path.
 - [x] Не перезаписывать primary/backup sources при direct update.
 - [x] Обновлять manifest после успешного `xray-go update go`.
@@ -260,6 +263,7 @@ Agent / Control Server:
 - [x] Зафиксировать router validation для doctor summary CLI path.
 - [x] Зафиксировать router validation для privacy-check.
 - [x] Зафиксировать router validation для Xray-core dry-run target.
+- [x] Зафиксировать router validation для Xray-core apply target.
 - [x] Добавить `docs/legacy.md`.
 - [x] Добавить `docs/opkg-feed-v1.md`.
 
@@ -282,5 +286,6 @@ Agent / Control Server:
 - [x] Direct-aware `xray-go update go` подтверждён без редактирования VLESS sources и без first-run setup.
 - [x] При недоступности release host direct update может не трогать рабочий binary и продолжить helpers update, если установленный binary совпадает с manifest sha256.
 - [x] `xray-go update xray-core --dry-run` подтверждён как read-only: без downloads, restart и изменений direct-install layer.
+- [x] `xray-go update xray-core --channel latest --yes` подтверждён с backup старого Xray binary и успешной post-apply проверкой.
 - [ ] При ошибке скачивания или проверки рабочие файлы не должны меняться.
 - [ ] Direct-install update не должен оставлять систему в полуобновлённом состоянии.
