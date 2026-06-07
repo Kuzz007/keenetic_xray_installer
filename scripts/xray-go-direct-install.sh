@@ -189,6 +189,110 @@ verify_shell_helper() {
     fi
 }
 
+patch_recover_helper_auth() {
+    file="$1"
+    tmp="${file}.auth.$$"
+    awk '
+        /^health_check\(\) \{/ {
+            print "load_socks_auth_config() {"
+            print "    XRAY_SOCKS_AUTH=\"${XRAY_SOCKS_AUTH:-0}\""
+            print "    XRAY_SOCKS_USER=\"${XRAY_SOCKS_USER:-}\""
+            print "    XRAY_SOCKS_PASS=\"${XRAY_SOCKS_PASS:-}\""
+            print "    if [ -s \"$XRAY_DIR/vless-go-socks-auth.conf\" ]; then"
+            print "        . \"$XRAY_DIR/vless-go-socks-auth.conf\""
+            print "    fi"
+            print "}"
+            print ""
+            print "socks_auth_enabled() {"
+            print "    load_socks_auth_config"
+            print "    [ \"${XRAY_SOCKS_AUTH:-0}\" = \"1\" ] && [ -n \"${XRAY_SOCKS_USER:-}\" ] && [ -n \"${XRAY_SOCKS_PASS:-}\" ]"
+            print "}"
+            print ""
+            print "health_check() {"
+            print "    ensure_dependencies || return 1"
+            print "    for URL in $CHECK_URLS; do"
+            print "        if socks_auth_enabled; then"
+            print "            if curl -fsS --proxy-user \"$XRAY_SOCKS_USER:$XRAY_SOCKS_PASS\" --socks5-hostname \"$SOCKS_HOST:$SOCKS_PORT\" --connect-timeout \"$CONNECT_TIMEOUT\" --max-time \"$MAX_TIME\" \"$URL\" >/dev/null 2>&1; then"
+            print "                return 0"
+            print "            fi"
+            print "        elif curl -fsS --socks5-hostname \"$SOCKS_HOST:$SOCKS_PORT\" --connect-timeout \"$CONNECT_TIMEOUT\" --max-time \"$MAX_TIME\" \"$URL\" >/dev/null 2>&1; then"
+            print "            return 0"
+            print "        fi"
+            print "    done"
+            print "    return 1"
+            print "}"
+            skip=1
+            next
+        }
+        skip && /^}/ { skip=0; next }
+        skip { next }
+        { print }
+    ' "$file" > "$tmp"
+    mv "$tmp" "$file"
+}
+
+patch_doctor_helper_auth() {
+    file="$1"
+    tmp="${file}.auth.$$"
+    awk '
+        /^check_socks_health\(\) \{/ {
+            print "load_socks_auth_config() {"
+            print "    XRAY_SOCKS_AUTH=\"${XRAY_SOCKS_AUTH:-0}\""
+            print "    XRAY_SOCKS_USER=\"${XRAY_SOCKS_USER:-}\""
+            print "    XRAY_SOCKS_PASS=\"${XRAY_SOCKS_PASS:-}\""
+            print "    if [ -s \"$XRAY_DIR/vless-go-socks-auth.conf\" ]; then"
+            print "        . \"$XRAY_DIR/vless-go-socks-auth.conf\""
+            print "    fi"
+            print "}"
+            print ""
+            print "socks_auth_enabled() {"
+            print "    load_socks_auth_config"
+            print "    [ \"${XRAY_SOCKS_AUTH:-0}\" = \"1\" ] && [ -n \"${XRAY_SOCKS_USER:-}\" ] && [ -n \"${XRAY_SOCKS_PASS:-}\" ]"
+            print "}"
+            print ""
+            print "check_socks_health() {"
+            print "    if ! has_cmd curl; then warn \"curl не найден; SOCKS health-check невозможен\"; return 0; fi"
+            print "    if socks_auth_enabled; then"
+            print "        ok \"SOCKS auth config найден; health-check использует proxy-user\""
+            print "        if curl -fsS --proxy-user \"$XRAY_SOCKS_USER:$XRAY_SOCKS_PASS\" --socks5-hostname \"$SOCKS_HOST:$SOCKS_PORT\" --connect-timeout \"$CONNECT_TIMEOUT\" --max-time \"$MAX_TIME\" \"$CHECK_URL\" >/dev/null 2>/tmp/vless-go-doctor.curl.$$; then"
+            print "            ok \"SOCKS health-check OK через $CHECK_URL\""
+            print "        else"
+            print "            warn \"SOCKS health-check не прошёл через $CHECK_URL\""
+            print "            sed '\''s/^/  /'\'' /tmp/vless-go-doctor.curl.$$"
+            print "        fi"
+            print "    elif curl -fsS --socks5-hostname \"$SOCKS_HOST:$SOCKS_PORT\" --connect-timeout \"$CONNECT_TIMEOUT\" --max-time \"$MAX_TIME\" \"$CHECK_URL\" >/dev/null 2>/tmp/vless-go-doctor.curl.$$; then"
+            print "        ok \"SOCKS health-check OK через $CHECK_URL\""
+            print "    else"
+            print "        warn \"SOCKS health-check не прошёл через $CHECK_URL\""
+            print "        sed '\''s/^/  /'\'' /tmp/vless-go-doctor.curl.$$"
+            print "    fi"
+            print "    rm -f /tmp/vless-go-doctor.curl.$$ 2>/dev/null || true"
+            print "}"
+            skip=1
+            next
+        }
+        skip && /^}/ { skip=0; next }
+        skip { next }
+        { print }
+    ' "$file" > "$tmp"
+    mv "$tmp" "$file"
+}
+
+patch_staged_helper_auth() {
+    file="$1"
+    label="$2"
+    case "$(basename "$file")" in
+        vless-go-recover)
+            echo "Patching $label for SOCKS auth-aware health-check"
+            patch_recover_helper_auth "$file"
+            ;;
+        vless-go-doctor)
+            echo "Patching $label for SOCKS auth-aware health-check"
+            patch_doctor_helper_auth "$file"
+            ;;
+    esac
+}
+
 confirm_manifest_write() {
     [ "$WRITE_MANIFEST" = "1" ] || return 0
     [ "$ASSUME_YES" = "1" ] && return 0
@@ -390,6 +494,7 @@ stage_shell_helpers() {
 
         echo "Staging $label: $staged"
         fetch_url "$url" "$staged"
+        patch_staged_helper_auth "$staged" "$label"
         verify_shell_helper "$staged" "$label"
 
         case "$mode" in
