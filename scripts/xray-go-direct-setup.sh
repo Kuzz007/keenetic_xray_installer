@@ -36,10 +36,29 @@ warn() { echo "[WARN] $*"; WARN=$((WARN + 1)); }
 fail() { echo "[FAIL] $*"; FAIL=$((FAIL + 1)); }
 info() { echo "$*"; }
 
+strip_manifest_quotes() {
+    value="$1"
+    value="$(printf '%s' "$value" | tr -d '\r')"
+    case "$value" in
+        \"*\")
+            case "$value" in
+                *\") value="${value#\"}"; value="${value%\"}" ;;
+            esac
+            ;;
+        \'*\')
+            value="${value#\'}"
+            value="${value%\'}"
+            ;;
+    esac
+    printf '%s\n' "$value"
+}
+
 manifest_get() {
     key="$1"
     [ -f "$MANIFEST_FILE" ] || return 1
-    sed -n "s/^${key}=//p" "$MANIFEST_FILE" 2>/dev/null | tail -n 1
+    value="$(sed -n "s/^${key}=//p" "$MANIFEST_FILE" 2>/dev/null | tail -n 1)"
+    [ -n "$value" ] || return 1
+    strip_manifest_quotes "$value"
 }
 
 sha256_file() {
