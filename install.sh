@@ -48,6 +48,7 @@ Examples:
   install.sh --direct-detect-only
   install.sh --direct-experimental --prepare-only
   install.sh --direct-experimental --download-binary
+  install.sh --direct-experimental --install-binary
   install.sh --direct-experimental --stage-helpers
   install.sh --direct-experimental --install-helpers
 USAGE
