@@ -15,8 +15,8 @@
 
 - [ ] Не переписывать legacy/old_go.
 - [ ] Не переносить оттуда логику в v2 без крайней необходимости.
-- [ ] Описать в README: `legacy/old_go` frozen.
-- [ ] Подробности вынести в `docs/legacy.md`.
+- [x] Описать в README: `legacy/old_go` frozen.
+- [x] Подробности вынести в `docs/legacy.md`.
 
 ---
 
@@ -228,7 +228,7 @@ Agent / Control Server:
 
 ## 10. Документация
 
-- [ ] Обновить README под `install.sh`.
+- [x] Обновить README под `install.sh`.
 - [x] Добавить `docs/direct-install.md`.
 - [x] Добавить `docs/direct-update.md`.
 - [x] Добавить `docs/direct-uninstall.md`.
@@ -246,8 +246,8 @@ Agent / Control Server:
 - [ ] Добавить `docs/install.md`.
 - [ ] Добавить `docs/modes.md`.
 - [ ] Добавить `docs/recovery.md`.
-- [ ] Добавить `docs/legacy.md`.
-- [ ] Добавить `docs/opkg-feed-v1.md`.
+- [x] Добавить `docs/legacy.md`.
+- [x] Добавить `docs/opkg-feed-v1.md`.
 
 ---
 
@@ -268,31 +268,3 @@ Agent / Control Server:
 - [x] Direct-aware `xray-go update go` подтверждён без редактирования VLESS sources и без first-run setup.
 - [ ] При ошибке скачивания или проверки рабочие файлы не должны меняться.
 - [ ] Direct-install update не должен оставлять систему в полуобновлённом состоянии.
-- [ ] Реальный uninstall apply должен сохранять user/runtime data по умолчанию.
-- [ ] Recovery не должен создавать reboot loop.
-- [ ] Xray restart не должен затирать конфиг.
-
----
-
-## 12. Финальная цель v2
-
-Установка:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh
-```
-
-Управление:
-
-```sh
-xray-go status
-xray-go doctor
-xray-go menu
-xray-go switch primary
-xray-go switch backup
-xray-go recover status
-xray-go update go
-xray-go uninstall --dry-run
-```
-
-Пользователь не должен выбирать между множеством старых скриптов. Основной путь — `install.sh` для установки и `xray-go` для управления.
