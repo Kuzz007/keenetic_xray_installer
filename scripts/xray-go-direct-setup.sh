@@ -36,21 +36,22 @@ warn() { echo "[WARN] $*"; WARN=$((WARN + 1)); }
 fail() { echo "[FAIL] $*"; FAIL=$((FAIL + 1)); }
 info() { echo "$*"; }
 
+trim_value() {
+    printf '%s' "$1" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
 strip_manifest_quotes() {
-    value="$1"
-    value="$(printf '%s' "$value" | tr -d '\r')"
-    case "$value" in
-        \"*\")
-            case "$value" in
-                *\") value="${value#\"}"; value="${value%\"}" ;;
-            esac
-            ;;
-        \'*\')
-            value="${value#\'}"
-            value="${value%\'}"
-            ;;
-    esac
-    printf '%s\n' "$value"
+    value="$(trim_value "$1")"
+    first="$(printf '%s' "$value" | cut -c 1 2>/dev/null || true)"
+    last="$(printf '%s' "$value" | sed 's/^.*\(.\)$/\1/' 2>/dev/null || true)"
+    if [ "$first" = '"' ] && [ "$last" = '"' ]; then
+        value="${value#\"}"
+        value="${value%\"}"
+    elif [ "$first" = "'" ] && [ "$last" = "'" ]; then
+        value="${value#\'}"
+        value="${value%\'}"
+    fi
+    trim_value "$value"
 }
 
 manifest_get() {
@@ -178,7 +179,7 @@ xray_config_valid() {
 print_header() {
     info "Keenetic Xray Go direct setup planner"
     info "Mode: plan"
-    info "Version: 0.1.0-direct-setup-plan"
+    info "Version: 0.1.1-direct-setup-plan"
     info "Xray dir: $XRAY_DIR"
     info "This is read-only. No sources, config, Proxy0, cron, init, or services are changed."
 }
