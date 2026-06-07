@@ -71,4 +71,8 @@ sh -n "$TMP_FILE" || {
 }
 
 chmod +x "$TMP_FILE"
-exec sh "$TMP_FILE" "$@"
+set +e
+sh "$TMP_FILE" "$@"
+RC="$?"
+set -e
+exit "$RC"
