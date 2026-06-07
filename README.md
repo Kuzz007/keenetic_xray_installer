@@ -81,7 +81,10 @@ xray-go doctor
 xray-go doctor --support
 xray-go menu
 xray-go manifest
+xray-go version
 ```
+
+`xray-go version` показывает wrapper version, direct manifest summary, Go resolver version/sha256 и helper paths без raw VLESS/subscription data.
 
 Обновление direct-mode установки:
 
@@ -153,6 +156,7 @@ Minimal Go остаётся лёгким профилем для роутеро�
 
 ```sh
 xray-go manifest
+xray-go version
 xray-go recover status
 xray-go doctor --support
 ```
