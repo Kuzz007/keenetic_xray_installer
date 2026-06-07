@@ -50,6 +50,7 @@ scripts/xray-go-direct-install.sh
 - показать direct-install plan;
 - при необходимости скачать Go binary в staging directory;
 - проверить sha256;
+- опционально установить Go binary в target path;
 - установить manifest helper;
 - скачать и проверить shell helpers в staging directory;
 - опционально установить shell helpers в /opt/bin и /opt/libexec;
@@ -66,8 +67,13 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 # Подготовить direct-install plan и установить manifest helper
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --prepare-only
 
-# Скачать Go resolver в staging и проверить sha256, но не заменять рабочий бинарник
+# Скачать Go resolver в staging и проверить sha256, но не заменить рабочий бинарник
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --download-binary
+
+# Скачать, проверить и явно установить Go resolver в /opt/bin/xray-failover-go
+# Если старый бинарник уже есть, skeleton сохранит backup рядом: /opt/bin/xray-failover-go.bak.direct
+# Важно: first-run setup всё ещё не выполняется.
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --install-binary
 
 # Скачать shell helpers в staging и проверить sh -n, но не ставить их в /opt/bin
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --stage-helpers
@@ -242,6 +248,7 @@ Direct-install update должен быть атомарным наскольк�
 - `scripts/xray-go-direct-install.sh` добавлен;
 - `scripts/xray-go-manifest.sh` добавлен;
 - skeleton умеет staging download + sha256 verification через `--download-binary`;
+- skeleton умеет явно устанавливать Go resolver через `--install-binary`;
 - skeleton умеет скачивать и проверять shell helpers через `--stage-helpers`;
 - skeleton умеет явно устанавливать shell helpers через `--install-helpers`;
 - direct-install flow ещё не заменяет текущую Full Go установку;
