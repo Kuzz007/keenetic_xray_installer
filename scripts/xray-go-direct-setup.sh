@@ -33,18 +33,42 @@ OK=0
 WARN=0
 FAIL=0
 
+ARG_PRIMARY_SOURCE=""
+ARG_BACKUP_SOURCE=""
+ARG_ACTIVE=""
+ARG_PRIMARY_SELECTOR=""
+ARG_BACKUP_SELECTOR=""
+ARG_SOCKS_AUTH=""
+INPUT_ARGS_SEEN=0
+
 usage() {
     cat <<'USAGE'
 Keenetic Xray Go direct setup planner
 
 Usage:
   xray-go-direct-setup.sh [--plan]
-  xray-go-direct-setup.sh --apply --yes
+  xray-go-direct-setup.sh --apply --yes [setup inputs]
 
 Modes:
   --plan          Read-only setup analysis. Default.
   --apply --yes   Guarded setup apply scaffold. No changes are made in this build.
+
+Validation-only setup inputs:
+  --primary-source SRC             vless://, http:// or https:// single-line source
+  --backup-source SRC              vless://, http:// or https:// single-line source
+  --active primary|backup          active slot for future apply
+  --primary-selector first|index:N primary subscription selector
+  --backup-selector first|index:N  backup subscription selector
+  --socks-auth auto|keep|disable   future SOCKS auth policy
+
+Input values are validated but not written in this build. Raw source values are not printed.
 USAGE
+}
+
+require_arg() {
+    opt="$1"
+    [ "$#" -ge 2 ] || { echo "ERROR: $opt requires a value." >&2; exit 2; }
+    [ -n "$2" ] || { echo "ERROR: $opt value must not be empty." >&2; exit 2; }
 }
 
 while [ "$#" -gt 0 ]; do
@@ -57,6 +81,42 @@ while [ "$#" -gt 0 ]; do
             ;;
         --yes|-y)
             YES=1
+            ;;
+        --primary-source)
+            require_arg "$1" "${2:-}"
+            ARG_PRIMARY_SOURCE="$2"
+            INPUT_ARGS_SEEN=1
+            shift
+            ;;
+        --backup-source)
+            require_arg "$1" "${2:-}"
+            ARG_BACKUP_SOURCE="$2"
+            INPUT_ARGS_SEEN=1
+            shift
+            ;;
+        --active)
+            require_arg "$1" "${2:-}"
+            ARG_ACTIVE="$2"
+            INPUT_ARGS_SEEN=1
+            shift
+            ;;
+        --primary-selector)
+            require_arg "$1" "${2:-}"
+            ARG_PRIMARY_SELECTOR="$2"
+            INPUT_ARGS_SEEN=1
+            shift
+            ;;
+        --backup-selector)
+            require_arg "$1" "${2:-}"
+            ARG_BACKUP_SELECTOR="$2"
+            INPUT_ARGS_SEEN=1
+            shift
+            ;;
+        --socks-auth)
+            require_arg "$1" "${2:-}"
+            ARG_SOCKS_AUTH="$2"
+            INPUT_ARGS_SEEN=1
+            shift
             ;;
         -h|--help|help)
             usage
@@ -121,6 +181,67 @@ sha256_file() {
     return 1
 }
 
+source_type() {
+    value="$1"
+    case "$value" in
+        vless://*) printf '%s\n' "direct vless link" ;;
+        http://*|https://*) printf '%s\n' "subscription URL" ;;
+        *) printf '%s\n' "unknown format" ;;
+    esac
+}
+
+validate_source_value() {
+    value="$1"
+    [ -n "$value" ] || return 1
+    line_count="$(printf '%s\n' "$value" | wc -l | tr -d ' ')"
+    [ "$line_count" = "1" ] || return 1
+    case "$(source_type "$value")" in
+        "direct vless link"|"subscription URL") return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+source_input_state() {
+    value="$1"
+    label="$2"
+    if validate_source_value "$value"; then
+        type="$(source_type "$value")"
+        size="$(printf '%s' "$value" | wc -c | tr -d ' ')"
+        ok "$label input valid ($type); size=${size} bytes"
+    else
+        fail "$label input invalid; raw value is not printed"
+    fi
+}
+
+valid_selector_value() {
+    value="$1"
+    case "$value" in
+        first) return 0 ;;
+        index:*)
+            n="${value#index:}"
+            case "$n" in
+                ''|*[!0-9]*|0) return 1 ;;
+                *) return 0 ;;
+            esac
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+valid_active_slot() {
+    case "$1" in
+        primary|backup) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+valid_socks_auth_policy() {
+    case "$1" in
+        auto|keep|disable) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 file_state() {
     path="$1"
     label="$2"
@@ -148,30 +269,11 @@ classify_source_file() {
     first="$(sed -n '1p' "$path" 2>/dev/null || true)"
     lines="$(wc -l < "$path" 2>/dev/null | tr -d ' ' || echo '?')"
     size="$(wc -c < "$path" 2>/dev/null | tr -d ' ' || echo '?')"
-    case "$first" in
-        vless://*) type="direct vless link" ;;
-        http://*|https://*) type="subscription URL" ;;
-        *) type="unknown format" ;;
-    esac
+    type="$(source_type "$first")"
 
     case "$type" in
         "unknown format") warn "$label configured but format is unknown; lines=$lines size=${size} bytes"; return 1 ;;
         *) ok "$label configured ($type); lines=$lines size=${size} bytes"; return 0 ;;
-    esac
-}
-
-valid_selector_value() {
-    value="$1"
-    case "$value" in
-        first) return 0 ;;
-        index:*)
-            n="${value#index:}"
-            case "$n" in
-                ''|*[!0-9]*|0) return 1 ;;
-                *) return 0 ;;
-            esac
-            ;;
-        *) return 1 ;;
     esac
 }
 
@@ -225,7 +327,7 @@ xray_config_valid() {
 print_header() {
     info "Keenetic Xray Go direct setup planner"
     info "Mode: $MODE"
-    info "Version: 0.1.2-direct-setup-guarded"
+    info "Version: 0.1.3-direct-setup-inputs"
     info "Xray dir: $XRAY_DIR"
     if [ "$MODE" = "apply" ]; then
         info "Guarded setup apply scaffold. Confirmation accepted: --apply --yes"
@@ -353,6 +455,58 @@ check_sources() {
     file_state "$WATCHDOG_CONF" "watchdog config" || true
 }
 
+check_input_args() {
+    info ""
+    info "== Setup input validation =="
+    info "Raw setup input values are not printed."
+
+    if [ "$INPUT_ARGS_SEEN" != 1 ]; then
+        info "No explicit setup input arguments supplied. Existing state only."
+        return 0
+    fi
+
+    [ -n "$ARG_PRIMARY_SOURCE" ] && source_input_state "$ARG_PRIMARY_SOURCE" "primary source"
+    [ -n "$ARG_BACKUP_SOURCE" ] && source_input_state "$ARG_BACKUP_SOURCE" "backup source"
+
+    if [ -n "$ARG_ACTIVE" ]; then
+        if valid_active_slot "$ARG_ACTIVE"; then
+            ok "active input valid: $ARG_ACTIVE"
+        else
+            fail "active input invalid; supported values: primary, backup"
+        fi
+    fi
+
+    if [ -n "$ARG_PRIMARY_SELECTOR" ]; then
+        if valid_selector_value "$ARG_PRIMARY_SELECTOR"; then
+            ok "primary selector input valid: $ARG_PRIMARY_SELECTOR"
+        else
+            fail "primary selector input invalid; supported values: first, index:N"
+        fi
+    fi
+
+    if [ -n "$ARG_BACKUP_SELECTOR" ]; then
+        if valid_selector_value "$ARG_BACKUP_SELECTOR"; then
+            ok "backup selector input valid: $ARG_BACKUP_SELECTOR"
+        else
+            fail "backup selector input invalid; supported values: first, index:N"
+        fi
+    fi
+
+    if [ -n "$ARG_SOCKS_AUTH" ]; then
+        if valid_socks_auth_policy "$ARG_SOCKS_AUTH"; then
+            ok "SOCKS auth policy input valid: $ARG_SOCKS_AUTH"
+        else
+            fail "SOCKS auth policy input invalid; supported values: auto, keep, disable"
+        fi
+    fi
+
+    if [ "$MODE" = "apply" ]; then
+        info "Input validation only. No files are written in this build."
+    else
+        info "Input preview only. No files are written."
+    fi
+}
+
 print_setup_plan() {
     info ""
     info "== Setup plan classification =="
@@ -401,6 +555,7 @@ print_header
 check_direct_layer
 check_runtime_state
 check_sources
+check_input_args
 print_setup_plan
 
 info ""
