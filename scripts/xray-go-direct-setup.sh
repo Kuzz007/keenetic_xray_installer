@@ -327,7 +327,7 @@ xray_config_valid() {
 print_header() {
     info "Keenetic Xray Go direct setup planner"
     info "Mode: $MODE"
-    info "Version: 0.1.3-direct-setup-inputs"
+    info "Version: 0.1.4-direct-setup-staged-plan"
     info "Xray dir: $XRAY_DIR"
     if [ "$MODE" = "apply" ]; then
         info "Guarded setup apply scaffold. Confirmation accepted: --apply --yes"
@@ -507,6 +507,60 @@ check_input_args() {
     fi
 }
 
+print_write_item() {
+    label="$1"
+    target="$2"
+    condition="$3"
+    [ -n "$condition" ] || return 0
+    info "  - $label -> $target"
+}
+
+print_staged_write_plan() {
+    info ""
+    info "== Staged write plan =="
+
+    if [ "$INPUT_ARGS_SEEN" != 1 ]; then
+        info "No explicit setup input arguments supplied; no staged writes planned."
+        return 0
+    fi
+
+    info "No files are written in this build. This is a future real-apply plan only."
+    info "Future target writes after validation succeeds:"
+    print_write_item "primary source" "$PRIMARY_STORE" "$ARG_PRIMARY_SOURCE"
+    print_write_item "backup source" "$BACKUP_STORE" "$ARG_BACKUP_SOURCE"
+    print_write_item "active slot" "$ACTIVE_STORE" "$ARG_ACTIVE"
+    print_write_item "primary selector" "$PRIMARY_SELECTOR" "$ARG_PRIMARY_SELECTOR"
+    print_write_item "backup selector" "$BACKUP_SELECTOR" "$ARG_BACKUP_SELECTOR"
+
+    if [ -n "$ARG_ACTIVE" ]; then
+        info "  - current source -> $SOURCE_STORE (from selected active slot)"
+    fi
+
+    if [ -n "$ARG_SOCKS_AUTH" ]; then
+        case "$ARG_SOCKS_AUTH" in
+            auto) info "  - SOCKS auth -> $SOCKS_AUTH_CONF (preserve existing or generate if missing)" ;;
+            keep) info "  - SOCKS auth -> $SOCKS_AUTH_CONF (preserve existing only)" ;;
+            disable) info "  - SOCKS auth -> disabled policy (no credentials would be printed)" ;;
+        esac
+    fi
+
+    info ""
+    info "Backup and atomic-write rules for future real apply:"
+    info "  - create $XRAY_DIR before writes"
+    info "  - backup existing targets as <path>.bak.<timestamp> before replace"
+    info "  - write each target to <path>.tmp.$$ first"
+    info "  - chmod 600 for source/selector/auth/state files"
+    info "  - atomically mv temp file into place only after write succeeds"
+    info "  - never print raw source values or generated credentials"
+
+    info ""
+    info "Future config/service sequence after staged state writes:"
+    info "  - generate active config through $FAILOVER_HELPER update-active --no-restart"
+    info "  - validate config with $XRAY_BIN run -test -config $CONFIG_FILE"
+    info "  - only after config validation: restart Xray/watchdog if required"
+    info "  - run xray-go summary, xray-go doctor --support, xray-go privacy-check, xray-go safety-check"
+}
+
 print_setup_plan() {
     info ""
     info "== Setup plan classification =="
@@ -556,6 +610,7 @@ check_direct_layer
 check_runtime_state
 check_sources
 check_input_args
+print_staged_write_plan
 print_setup_plan
 
 info ""
