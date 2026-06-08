@@ -1,9 +1,10 @@
 #!/bin/sh
 set -eu
 
-# Keenetic Xray Go direct setup planner.
-# Read-only first-run/setup analysis. It does not write sources, config,
-# Proxy0 settings, cron, init scripts, or restart services.
+# Keenetic Xray Go direct setup planner / guarded scaffold.
+# Plan mode is read-only first-run/setup analysis.
+# Apply mode is currently a guarded scaffold only: it requires --yes and still
+# does not write sources, config, Proxy0 settings, cron, init scripts, or restart services.
 
 XRAY_DIR="${XRAY_DIR:-/opt/etc/xray}"
 MANIFEST_FILE="$XRAY_DIR/xray-go.manifest"
@@ -18,7 +19,6 @@ SOCKS_AUTH_CONF="$XRAY_DIR/vless-go-socks-auth.conf"
 WATCHDOG_CONF="$XRAY_DIR/vless-go-watchdog.conf"
 DIRECT_INSTALL_PLAN="$XRAY_DIR/xray-go.direct-install.plan"
 DIRECT_INIT_PLAN="$XRAY_DIR/xray-go.direct-init.plan"
-DIRECT_CHECK_CMD="${DIRECT_CHECK_CMD:-/opt/bin/xray-go-safety-check}"
 GO_RESOLVER="${GO_RESOLVER:-/opt/bin/xray-failover-go}"
 XRAY_BIN="${XRAY_BIN:-/opt/sbin/xray}"
 FAILOVER_HELPER="${FAILOVER_HELPER:-/opt/bin/vless-go-failover}"
@@ -27,9 +27,55 @@ RECOVER_HELPER="${RECOVER_HELPER:-/opt/bin/vless-go-recover}"
 DOCTOR_HELPER="${DOCTOR_HELPER:-/opt/bin/vless-go-doctor}"
 SUMMARY_HELPER="${SUMMARY_HELPER:-/opt/bin/vless-go-doctor-summary}"
 
+MODE="plan"
+YES=0
 OK=0
 WARN=0
 FAIL=0
+
+usage() {
+    cat <<'USAGE'
+Keenetic Xray Go direct setup planner
+
+Usage:
+  xray-go-direct-setup.sh [--plan]
+  xray-go-direct-setup.sh --apply --yes
+
+Modes:
+  --plan          Read-only setup analysis. Default.
+  --apply --yes   Guarded setup apply scaffold. No changes are made in this build.
+USAGE
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --plan|--dry-run)
+            MODE="plan"
+            ;;
+        --apply)
+            MODE="apply"
+            ;;
+        --yes|-y)
+            YES=1
+            ;;
+        -h|--help|help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "ERROR: unknown argument: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+if [ "$MODE" = "apply" ] && [ "$YES" != 1 ]; then
+    echo "ERROR: --apply requires --yes." >&2
+    echo "This guarded scaffold is read-only, but explicit confirmation is still required." >&2
+    exit 2
+fi
 
 ok() { echo "[OK] $*"; OK=$((OK + 1)); }
 warn() { echo "[WARN] $*"; WARN=$((WARN + 1)); }
@@ -178,9 +224,12 @@ xray_config_valid() {
 
 print_header() {
     info "Keenetic Xray Go direct setup planner"
-    info "Mode: plan"
-    info "Version: 0.1.1-direct-setup-plan"
+    info "Mode: $MODE"
+    info "Version: 0.1.2-direct-setup-guarded"
     info "Xray dir: $XRAY_DIR"
+    if [ "$MODE" = "apply" ]; then
+        info "Guarded setup apply scaffold. Confirmation accepted: --apply --yes"
+    fi
     info "This is read-only. No sources, config, Proxy0, cron, init, or services are changed."
 }
 
@@ -337,9 +386,15 @@ print_setup_plan() {
     fi
 
     info ""
-    info "== Future guarded apply boundary =="
-    info "A future --direct-setup apply should require --yes and should not print raw sources."
-    info "It should write only setup/runtime files after validation succeeds."
+    info "== Guarded apply boundary =="
+    if [ "$MODE" = "apply" ]; then
+        info "Confirmation accepted: --apply --yes"
+        info "No changes made in this build. Real setup apply is intentionally disabled."
+        info "Validated safety boundary: sources/config/Proxy0/cron/init/services were not changed."
+    else
+        info "A future --direct-setup apply should require --yes and should not print raw sources."
+        info "It should write only setup/runtime files after validation succeeds."
+    fi
 }
 
 print_header
@@ -351,6 +406,10 @@ print_setup_plan
 info ""
 info "== Result =="
 info "OK=$OK WARN=$WARN FAIL=$FAIL"
-info "Direct setup plan complete. No changes made."
+if [ "$MODE" = "apply" ]; then
+    info "Direct setup guarded scaffold complete. No changes made."
+else
+    info "Direct setup plan complete. No changes made."
+fi
 
 [ "$FAIL" -eq 0 ]
