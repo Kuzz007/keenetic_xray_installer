@@ -2,15 +2,32 @@
 
 `direct setup planner` — первый безопасный шаг к future direct first-run setup.
 
-Он только анализирует текущее состояние и печатает план. Он не создаёт и не меняет runtime-файлы.
+Он анализирует текущее состояние и печатает план. В текущей реализации есть два режима:
 
-## Команда
+```text
+plan   — read-only анализ;
+apply  — guarded scaffold, требует --yes, но всё ещё ничего не меняет.
+```
+
+## Команды
+
+Read-only setup plan:
 
 ```sh
 curl -fsSL -H 'Cache-Control: no-cache' \
   https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh \
   | sh -s -- --direct-setup-plan
 ```
+
+Guarded setup scaffold:
+
+```sh
+curl -fsSL -H 'Cache-Control: no-cache' \
+  https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh \
+  | sh -s -- --direct-setup-plan --apply --yes
+```
+
+`--direct-setup-plan --apply --yes` is a temporary public route through the existing setup planner alias. A shorter `--direct-setup --yes` alias can be added later.
 
 ## Что проверяется
 
@@ -90,9 +107,9 @@ run summary, doctor, privacy-check and safety-check
 
 ## Safety boundary
 
-`--direct-setup-plan` is read-only.
+Plan and guarded scaffold are read-only in this build.
 
-It does not:
+They do not:
 
 ```text
 write VLESS sources
@@ -107,7 +124,7 @@ restart Xray
 restart watchdog
 ```
 
-## Router validation
+## Router validation: plan
 
 Validated on Keenetic / Entware `aarch64-3.10_kn` with an existing configured direct Full Go runtime.
 
@@ -147,12 +164,22 @@ Notes:
 - `install.sh --direct-setup-plan` downloads the setup planner with cache-bust query to avoid stale raw GitHub content;
 - raw VLESS/subscription values were not printed.
 
-## Next step
+## Next validation
 
-After router validation, the next step can be a guarded scaffold:
+Run guarded scaffold:
 
-```text
-install.sh --direct-setup --yes
+```sh
+curl -fsSL -H 'Cache-Control: no-cache' \
+  https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh \
+  | sh -s -- --direct-setup-plan --apply --yes
 ```
 
-The scaffold should initially only require confirmation and print the same plan without changing files. Real setup apply should be a later step.
+Expected ending:
+
+```text
+Confirmation accepted: --apply --yes
+No changes made in this build. Real setup apply is intentionally disabled.
+Direct setup guarded scaffold complete. No changes made.
+```
+
+Real setup apply should be a later step.
