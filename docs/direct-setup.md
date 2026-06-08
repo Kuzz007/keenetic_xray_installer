@@ -250,9 +250,11 @@ OK=27 WARN=0 FAIL=0
 Direct setup guarded scaffold complete. No changes made.
 ```
 
-## Next validation
+## Router validation: validation-only inputs
 
-Run validation-only inputs with non-secret test values:
+Validated on Keenetic / Entware `aarch64-3.10_kn` with non-secret test input URLs.
+
+Command:
 
 ```sh
 curl -fsSL -H 'Cache-Control: no-cache' \
@@ -266,18 +268,24 @@ curl -fsSL -H 'Cache-Control: no-cache' \
       --socks-auth auto
 ```
 
-Expected added section:
+Result:
 
 ```text
+Mode: apply
+Version: 0.1.3-direct-setup-inputs
 == Setup input validation ==
 Raw setup input values are not printed.
-[OK] primary source input valid (subscription URL); size=N bytes
-[OK] backup source input valid (subscription URL); size=N bytes
+[OK] primary source input valid (subscription URL); size=35 bytes
+[OK] backup source input valid (subscription URL); size=34 bytes
 [OK] active input valid: primary
 [OK] primary selector input valid: index:1
 [OK] backup selector input valid: index:1
 [OK] SOCKS auth policy input valid: auto
 Input validation only. No files are written in this build.
+No changes made in this build. Real setup apply is intentionally disabled.
+Validated safety boundary: sources/config/Proxy0/cron/init/services were not changed.
+OK=33 WARN=0 FAIL=0
+Direct setup guarded scaffold complete. No changes made.
 ```
 
 Real setup apply should be a later step.
