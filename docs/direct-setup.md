@@ -164,9 +164,11 @@ Notes:
 - `install.sh --direct-setup-plan` downloads the setup planner with cache-bust query to avoid stale raw GitHub content;
 - raw VLESS/subscription values were not printed.
 
-## Next validation
+## Router validation: guarded scaffold
 
-Run guarded scaffold:
+Validated on Keenetic / Entware `aarch64-3.10_kn` with an existing configured direct Full Go runtime.
+
+Command:
 
 ```sh
 curl -fsSL -H 'Cache-Control: no-cache' \
@@ -174,11 +176,30 @@ curl -fsSL -H 'Cache-Control: no-cache' \
   | sh -s -- --direct-setup-plan --apply --yes
 ```
 
-Expected ending:
+Result:
 
 ```text
+Mode: apply
+Version: 0.1.2-direct-setup-guarded
+Guarded setup apply scaffold. Confirmation accepted: --apply --yes
+[OK] manifest install mode: direct
+[OK] manifest edition: full
+[OK] Go resolver sha256 matches manifest
+[OK] Xray config validates
+[OK] Xray init found
+[OK] watchdog init found
+[OK] Proxy0 interface exists
+[OK] current source configured (subscription URL)
+[OK] primary source configured (subscription URL)
+[OK] backup source configured (subscription URL)
+[OK] active slot valid
+[OK] primary selector valid: index:1
+[OK] backup selector valid: index:1
+[OK] existing configured Full Go/direct runtime detected
 Confirmation accepted: --apply --yes
 No changes made in this build. Real setup apply is intentionally disabled.
+Validated safety boundary: sources/config/Proxy0/cron/init/services were not changed.
+OK=27 WARN=0 FAIL=0
 Direct setup guarded scaffold complete. No changes made.
 ```
 
