@@ -27,7 +27,54 @@ curl -fsSL -H 'Cache-Control: no-cache' \
   | sh -s -- --direct-setup-plan --apply --yes
 ```
 
+Validation-only setup inputs:
+
+```sh
+curl -fsSL -H 'Cache-Control: no-cache' \
+  https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh \
+  | sh -s -- --direct-setup-plan --apply --yes \
+      --primary-source 'https://example.invalid/primary-sub' \
+      --backup-source 'https://example.invalid/backup-sub' \
+      --active primary \
+      --primary-selector index:1 \
+      --backup-selector index:1 \
+      --socks-auth auto
+```
+
 `--direct-setup-plan --apply --yes` is a temporary public route through the existing setup planner alias. A shorter `--direct-setup --yes` alias can be added later.
+
+## Validation-only setup inputs
+
+Supported input flags:
+
+```text
+--primary-source SRC
+--backup-source SRC
+--active primary|backup
+--primary-selector first|index:N
+--backup-selector first|index:N
+--socks-auth auto|keep|disable
+```
+
+In this build these inputs are validated only. They are not written to `/opt/etc/xray`, and they are not used to restart services.
+
+Validation rules:
+
+```text
+source: one line, starts with vless://, http:// or https://
+active: primary or backup
+selector: first or index:N, where N >= 1
+SOCKS auth policy: auto, keep or disable
+```
+
+The planner prints only safe metadata for input sources:
+
+```text
+primary source input valid (subscription URL); size=N bytes
+backup source input valid (direct vless link); size=N bytes
+```
+
+It must not print the full source value.
 
 ## Что проверяется
 
@@ -201,6 +248,36 @@ No changes made in this build. Real setup apply is intentionally disabled.
 Validated safety boundary: sources/config/Proxy0/cron/init/services were not changed.
 OK=27 WARN=0 FAIL=0
 Direct setup guarded scaffold complete. No changes made.
+```
+
+## Next validation
+
+Run validation-only inputs with non-secret test values:
+
+```sh
+curl -fsSL -H 'Cache-Control: no-cache' \
+  https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh \
+  | sh -s -- --direct-setup-plan --apply --yes \
+      --primary-source 'https://example.invalid/primary-sub' \
+      --backup-source 'https://example.invalid/backup-sub' \
+      --active primary \
+      --primary-selector index:1 \
+      --backup-selector index:1 \
+      --socks-auth auto
+```
+
+Expected added section:
+
+```text
+== Setup input validation ==
+Raw setup input values are not printed.
+[OK] primary source input valid (subscription URL); size=N bytes
+[OK] backup source input valid (subscription URL); size=N bytes
+[OK] active input valid: primary
+[OK] primary selector input valid: index:1
+[OK] backup selector input valid: index:1
+[OK] SOCKS auth policy input valid: auto
+Input validation only. No files are written in this build.
 ```
 
 Real setup apply should be a later step.
