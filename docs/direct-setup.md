@@ -76,6 +76,45 @@ backup source input valid (direct vless link); size=N bytes
 
 It must not print the full source value.
 
+## Staged write plan
+
+When setup inputs are supplied, the planner also prints a future real-apply write plan. This is still read-only in this build.
+
+Future target writes:
+
+```text
+/opt/etc/xray/vless-go.primary
+/opt/etc/xray/vless-go.backup
+/opt/etc/xray/vless-go.active
+/opt/etc/xray/vless-go.primary.selector
+/opt/etc/xray/vless-go.backup.selector
+/opt/etc/xray/vless-go.source
+/opt/etc/xray/vless-go-socks-auth.conf
+```
+
+Future backup/atomic-write rules:
+
+```text
+create /opt/etc/xray before writes
+backup existing targets as <path>.bak.<timestamp>
+write each target to <path>.tmp.$$ first
+chmod 600 for source/selector/auth/state files
+atomically mv temp file into place only after write succeeds
+never print raw source values or generated credentials
+```
+
+Future config/service sequence:
+
+```text
+vless-go-failover update-active --no-restart
+xray run -test -config /opt/etc/xray/config.json
+restart Xray/watchdog only after config validation
+xray-go summary
+xray-go doctor --support
+xray-go privacy-check
+xray-go safety-check
+```
+
 ## Что проверяется
 
 Direct layer:
@@ -284,6 +323,55 @@ Raw setup input values are not printed.
 Input validation only. No files are written in this build.
 No changes made in this build. Real setup apply is intentionally disabled.
 Validated safety boundary: sources/config/Proxy0/cron/init/services were not changed.
+OK=33 WARN=0 FAIL=0
+Direct setup guarded scaffold complete. No changes made.
+```
+
+## Router validation: staged write plan
+
+Validated on Keenetic / Entware `aarch64-3.10_kn` with non-secret test input URLs using pinned commit `b478099ec2577ba18d202c17b40cdbeddbc76887` to bypass raw GitHub main cache.
+
+Command:
+
+```sh
+curl -fsSL -H 'Cache-Control: no-cache' \
+  https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/b478099ec2577ba18d202c17b40cdbeddbc76887/scripts/xray-go-direct-setup.sh \
+  | sh -s -- --apply --yes \
+      --primary-source 'https://example.invalid/primary-sub' \
+      --backup-source 'https://example.invalid/backup-sub' \
+      --active primary \
+      --primary-selector index:1 \
+      --backup-selector index:1 \
+      --socks-auth auto
+```
+
+Result:
+
+```text
+Mode: apply
+Version: 0.1.4-direct-setup-staged-plan
+== Setup input validation ==
+Raw setup input values are not printed.
+[OK] primary source input valid (subscription URL); size=35 bytes
+[OK] backup source input valid (subscription URL); size=34 bytes
+[OK] active input valid: primary
+[OK] primary selector input valid: index:1
+[OK] backup selector input valid: index:1
+[OK] SOCKS auth policy input valid: auto
+Input validation only. No files are written in this build.
+
+== Staged write plan ==
+No files are written in this build. This is a future real-apply plan only.
+Future target writes after validation succeeds:
+  - primary source -> /opt/etc/xray/vless-go.primary
+  - backup source -> /opt/etc/xray/vless-go.backup
+  - active slot -> /opt/etc/xray/vless-go.active
+  - primary selector -> /opt/etc/xray/vless-go.primary.selector
+  - backup selector -> /opt/etc/xray/vless-go.backup.selector
+  - current source -> /opt/etc/xray/vless-go.source (from selected active slot)
+  - SOCKS auth -> /opt/etc/xray/vless-go-socks-auth.conf (preserve existing or generate if missing)
+Backup and atomic-write rules were printed.
+Future config/service sequence was printed.
 OK=33 WARN=0 FAIL=0
 Direct setup guarded scaffold complete. No changes made.
 ```
