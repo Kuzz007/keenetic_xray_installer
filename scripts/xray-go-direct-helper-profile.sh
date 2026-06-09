@@ -23,6 +23,7 @@ PROFILE="full-lite"
 MODE="dry-run"
 ASSUME_YES="0"
 INSTALL_PROFILE_CMD="1"
+CLEAN_STAGE="1"
 
 usage() {
     cat <<'USAGE'
@@ -45,6 +46,8 @@ Safety:
   --dry-run is default and makes no changes.
   --apply requires --yes.
   minimal/full-lite exclude vless-go-xray-core-update by policy.
+  Successful --apply removes its staging dir by default.
+  Use --keep-stage only for debugging.
 USAGE
 }
 
@@ -69,6 +72,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         --no-profile-helper)
             INSTALL_PROFILE_CMD="0"
+            shift
+            ;;
+        --keep-stage|--no-clean-stage)
+            CLEAN_STAGE="0"
             shift
             ;;
         -h|--help|help)
@@ -151,6 +158,23 @@ profile_script_path() {
     verify_shell_helper "$tmp" "xray-go-helper-profiles"
     chmod +x "$tmp"
     echo "$tmp"
+}
+
+cleanup_stage_dir() {
+    [ "$MODE" = "apply" ] || return 0
+    [ "$CLEAN_STAGE" = "1" ] || { echo "Keeping stage dir for debugging: $STAGE_DIR"; return 0; }
+    [ -n "$STAGE_DIR" ] || return 0
+
+    case "$STAGE_DIR" in
+        /opt/tmp/xray-go-helper-profile|/opt/tmp/xray-go-helper-profile/*|/tmp/xray-go-helper-profile|/tmp/xray-go-helper-profile/*)
+            rm -rf "$STAGE_DIR"
+            echo "Stage dir cleaned: $STAGE_DIR"
+            ;;
+        *)
+            echo "WARN: refusing to auto-clean non-standard stage dir: $STAGE_DIR" >&2
+            echo "      Remove it manually after inspection if needed." >&2
+            ;;
+    esac
 }
 
 # Keep auth-aware patches self-contained so full-lite installed through this helper
@@ -330,6 +354,7 @@ stage_and_install_helpers() {
 
     install_profile_helper
     echo "Helper profile installed: $PROFILE"
+    cleanup_stage_dir
 }
 
 print_plan
