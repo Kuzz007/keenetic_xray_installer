@@ -7,6 +7,9 @@ set -eu
 # validates and shows a write plan. In apply mode it delegates guarded writes to
 # xray-go-direct-setup.sh --write-state, which refuses to overwrite existing
 # state/source/selector files.
+#
+# SOCKS auth is intentionally not part of first-run setup. Local SOCKS is plain
+# by default; auth can be added later as an explicit optional helper.
 
 REPO_BRANCH="${REPO_BRANCH:-main}"
 RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
@@ -16,6 +19,7 @@ SETUP_TMP="${TMP_DIR}/xray-go-direct-setup-wizard.setup.$$"
 
 MODE="plan"
 YES="0"
+SOCKS_AUTH="disable"
 
 usage() {
     cat <<'USAGE'
@@ -30,13 +34,13 @@ What it asks:
   backup source:  vless://..., http(s) subscription URL, or 'same'
   active slot:    primary or backup
   selectors:      first or index:N
-  SOCKS auth:     auto, keep, or disable
 
 Safety:
   Plan mode is default and writes nothing.
   Apply mode requires --yes and writes only source/state/selector files.
   Raw source values are never printed by this script.
   Existing state/source/selector files are protected by xray-go-direct-setup.sh.
+  SOCKS auth is disabled by default and not configured in first-run setup.
 USAGE
 }
 
@@ -125,15 +129,8 @@ valid_active() {
     case "$1" in primary|backup) return 0 ;; *) return 1 ;; esac
 }
 
-valid_socks_auth() {
-    case "$1" in auto|keep|disable) return 0 ;; *) return 1 ;; esac
-}
-
 read_line() {
     prompt="$1"
-    # Prompt must go to stderr because callers capture stdout with command
-    # substitution. If printed to stdout, the prompt is swallowed into the
-    # variable and looks like the wizard is hanging.
     printf '%s' "$prompt" >&2
     IFS= read -r value || value=""
     trim_value "$value"
@@ -204,6 +201,7 @@ cat <<EOF_INTRO
 Mode: $MODE
 Repository branch/ref: $REPO_BRANCH
 Raw source values are accepted from your terminal input but are not printed back.
+SOCKS auth: disabled by default; not configured in this wizard.
 EOF_INTRO
 
 echo
@@ -212,7 +210,6 @@ BACKUP_SOURCE="$(read_backup_source "$PRIMARY_SOURCE")"
 ACTIVE_SLOT="$(read_choice "Active slot" "primary" valid_active)"
 PRIMARY_SELECTOR="$(read_choice "Primary selector" "first" valid_selector)"
 BACKUP_SELECTOR="$(read_choice "Backup selector" "first" valid_selector)"
-SOCKS_AUTH="$(read_choice "SOCKS auth policy" "keep" valid_socks_auth)"
 
 echo
 echo "== Wizard summary =="
@@ -221,7 +218,7 @@ echo "backup source:  accepted ($(source_type "$BACKUP_SOURCE"), $(printf '%s' "
 echo "active slot:    $ACTIVE_SLOT"
 echo "primary selector: $PRIMARY_SELECTOR"
 echo "backup selector:  $BACKUP_SELECTOR"
-echo "SOCKS auth:     $SOCKS_AUTH"
+echo "SOCKS auth:     disabled"
 
 fetch_setup
 
