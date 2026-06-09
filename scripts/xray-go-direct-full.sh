@@ -7,7 +7,7 @@ set -e
 # The orchestrator runs already validated direct-install/direct-init helpers in a
 # safe order. It does not run first setup and does not edit VLESS sources.
 
-XRAY_GO_DIRECT_FULL_VERSION="${XRAY_GO_DIRECT_FULL_VERSION:-0.1.0-direct-full}"
+XRAY_GO_DIRECT_FULL_VERSION="${XRAY_GO_DIRECT_FULL_VERSION:-0.1.1-direct-full-watchdog-restart}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
 DIRECT_INSTALL_URL="${DIRECT_INSTALL_URL:-${REPO_BASE}/scripts/xray-go-direct-install.sh}"
@@ -49,8 +49,9 @@ Options:
 
 Notes:
   Apply mode installs/updates direct binary, helpers, manifest, watchdog init and
-  recovery cron using the smaller direct helpers. It does not run first setup,
-  does not edit VLESS sources and does not restart services by itself.
+  recovery cron using the smaller direct helpers. It does not run first setup and
+  does not edit VLESS sources. It restarts the watchdog service after helper/init
+  updates so the daemon uses the freshly installed recovery logic.
 USAGE
 }
 
@@ -163,6 +164,21 @@ run_remote_helper() {
     rm -f "$tmp" 2>/dev/null || true
 }
 
+restart_watchdog_if_present() {
+    echo
+    echo "== restart watchdog daemon =="
+    if [ -x "$WATCHDOG_INIT" ]; then
+        "$WATCHDOG_INIT" restart || {
+            echo "ERROR: watchdog restart failed: $WATCHDOG_INIT" >&2
+            exit 1
+        }
+        echo "Watchdog daemon restarted so updated helper logic is active."
+    else
+        echo "[WARN] watchdog init missing or not executable: $WATCHDOG_INIT"
+        echo "Skipping watchdog restart."
+    fi
+}
+
 current_binary_matches_manifest() {
     [ -x "$GO_RESOLVER" ] || return 1
     [ -n "$MANIFEST_SHA" ] || return 1
@@ -243,8 +259,9 @@ cat <<'EOF_STEPS'
 5. run direct post-check
 6. stage/install watchdog init/service layer
 7. enable hourly recovery cron by marker
-8. run direct-init post-check
-9. print final xray-go commands for user validation
+8. restart watchdog daemon so updated helper logic is active
+9. run direct-init post-check after restart
+10. print final xray-go commands for user validation
 EOF_STEPS
 
 if [ "$SHOW_COMMANDS" = "1" ]; then
@@ -257,6 +274,7 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --write-manifest -y
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --post-check
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-experimental --install-watchdog-init -y
+/opt/etc/init.d/S26vless-go-watchdog restart
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-experimental --enable-recovery-cron --schedule '$RECOVERY_CRON_SCHEDULE' -y
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-post-check
 EOF_CMDS
@@ -290,11 +308,13 @@ run_remote_helper "direct write manifest" "$DIRECT_INSTALL_URL" --write-manifest
 run_remote_helper "direct post-check" "$DIRECT_INSTALL_URL" --post-check
 run_remote_helper "direct init install watchdog" "$DIRECT_INIT_URL" --install-watchdog-init -y
 run_remote_helper "direct init enable recovery cron" "$DIRECT_INIT_URL" --enable-recovery-cron --schedule "$RECOVERY_CRON_SCHEDULE" -y
+restart_watchdog_if_present
 run_remote_helper "direct init post-check" "$DIRECT_INIT_URL" --post-check
 
 echo
 echo "Direct full apply complete."
 echo "No first-run setup was executed. VLESS sources were not edited."
+echo "Watchdog daemon was restarted after helper/init update."
 echo "Final validation commands:"
 echo "  xray-go manifest"
 echo "  xray-go recover status"
