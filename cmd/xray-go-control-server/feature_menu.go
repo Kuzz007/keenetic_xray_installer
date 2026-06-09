@@ -9,7 +9,7 @@ func featuresFromStatus(status string) routerFeatures {
 	idx := strings.Index(status, "features:")
 	if idx < 0 {
 		// Backward compatibility: old agents did not report features,
-		// so keep showing the normal control menu.
+		// so keep showing the full menu.
 		features["legacy_full_menu"] = true
 		return features
 	}
@@ -42,7 +42,7 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 		statusRow = append(statusRow, inlineButton{Text: "📊 Статус", CallbackData: "act:status:" + routerID})
 	}
 	if f.has("doctor") {
-		statusRow = append(statusRow, inlineButton{Text: "🩺 Диагностика", CallbackData: "act:doctor:" + routerID})
+		statusRow = append(statusRow, inlineButton{Text: "🩺 Doctor", CallbackData: "act:doctor:" + routerID})
 	}
 	if len(statusRow) > 0 {
 		rows = append(rows, statusRow)
@@ -72,25 +72,25 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 	if f.has("recovery") {
 		rows = append(rows, []inlineButton{
 			{Text: "🛡 Recovery", CallbackData: "act:recover_status:" + routerID},
-			{Text: "♻️ Восстановить", CallbackData: "act:recover:" + routerID},
+			{Text: "♻️ Recover now", CallbackData: "act:recover:" + routerID},
 		})
 	}
 
 	logRow := []inlineButton{}
 	if f.has("history") {
-		logRow = append(logRow, inlineButton{Text: "🕘 История", CallbackData: "act:history:" + routerID})
+		logRow = append(logRow, inlineButton{Text: "🕘 History", CallbackData: "act:history:" + routerID})
 	}
 	if f.has("watchdog") {
-		logRow = append(logRow, inlineButton{Text: "👁 Логи", CallbackData: "act:watchdog:" + routerID})
+		logRow = append(logRow, inlineButton{Text: "👁 Logs", CallbackData: "act:watchdog:" + routerID})
 	}
 	if f.has("agent_log") {
-		logRow = append(logRow, inlineButton{Text: "🤖 Лог агента", CallbackData: "act:agentlog:" + routerID})
+		logRow = append(logRow, inlineButton{Text: "🤖 Agent log", CallbackData: "act:agentlog:" + routerID})
 	}
 	if len(logRow) > 0 {
 		rows = append(rows, logRow)
 	}
 
-	rows = append(rows, []inlineButton{{Text: "📬 Результаты", CallbackData: "act:results:" + routerID}})
+	rows = append(rows, []inlineButton{{Text: "📬 Results", CallbackData: "act:results:" + routerID}})
 
 	updateRow := []inlineButton{}
 	if f.has("update_scripts") {
