@@ -33,14 +33,6 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
 	case data == "add_router_help":
 		s.startAddRouterWizard(chatID)
-	case strings.HasPrefix(data, "install-profile:"):
-		parts := strings.SplitN(data, ":", 3)
-		if len(parts) == 3 {
-			s.setActiveMenu(parts[2], chatID, messageID)
-			s.enqueueProfileInstall(chatID, messageID, parts[2], parts[1])
-			return
-		}
-		s.editMenuOnly(cb.ID, chatID, messageID, "Некорректная кнопка профиля установки", mainMenuKeyboard())
 	case strings.HasPrefix(data, "routes-custom:"):
 		routerID := strings.TrimPrefix(data, "routes-custom:")
 		s.startCustomRoutesWizard(chatID, routerID)
