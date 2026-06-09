@@ -8,7 +8,7 @@ set -e
 #   2. interactive setup wizard only when state/source files are missing
 #   3. initial Xray binary install when missing
 #   4. active config generation and service restart when possible
-#   5. size/policy summary
+#   5. staging cleanup and size/policy summary
 #
 # Xray-core update remains manual-only. Initial install runs only when Xray is
 # missing and does not install vless-go-xray-core-update.
@@ -40,6 +40,7 @@ CONFIG_FILE="$XRAY_DIR/config.json"
 MODE="apply"
 ASSUME_YES="0"
 RUN_SETUP="auto"
+CLEAN_STAGE="1"
 
 usage() {
     cat <<'USAGE'
@@ -54,13 +55,14 @@ What it does:
   2. runs interactive setup wizard only if source/state files are missing
   3. installs Xray binary only if missing
   4. generates active config and restarts Xray/watchdog when possible
-  5. prints size/policy summary
+  5. removes direct staging and prints size/policy summary
 
 Safety:
   Requires --yes because it changes the direct helper/init layer.
   Setup wizard still protects existing source/state files from overwrite.
   Raw VLESS/subscription values are not printed after input.
   Xray-core update helper is manual-only and must not remain installed.
+  Use --keep-stage only for debugging.
 USAGE
 }
 
@@ -70,6 +72,7 @@ while [ "$#" -gt 0 ]; do
         --yes|-y) ASSUME_YES="1"; shift ;;
         --skip-setup|--no-setup) RUN_SETUP="skip"; shift ;;
         --force-setup) RUN_SETUP="force"; shift ;;
+        --keep-stage|--no-clean-stage) CLEAN_STAGE="0"; shift ;;
         -h|--help|help) usage; exit 0 ;;
         *) echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -226,6 +229,26 @@ generate_active_config_if_possible() {
     fi
 }
 
+cleanup_success_staging() {
+    echo
+    echo "== cleanup staging =="
+    if [ "$CLEAN_STAGE" != "1" ]; then
+        echo "Keeping staging by request (--keep-stage)."
+        return 0
+    fi
+    for d in \
+        /opt/tmp/xray-go-direct-install \
+        /opt/tmp/xray-go-helper-profile \
+        /tmp/xray-go-direct-install \
+        /tmp/xray-go-helper-profile
+    do
+        if [ -e "$d" ]; then
+            rm -rf "$d"
+            echo "[OK] removed: $d"
+        fi
+    done
+}
+
 print_final_summary() {
     echo
     echo "== Final one-command summary =="
@@ -269,6 +292,7 @@ run_remote_helper "direct full-lite apply" "$DIRECT_FULL_URL" --apply --yes
 run_setup_if_needed
 install_xray_if_needed
 generate_active_config_if_possible
+cleanup_success_staging
 print_final_summary
 
 echo
