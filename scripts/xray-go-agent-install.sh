@@ -1,13 +1,6 @@
 #!/opt/bin/sh
 set -eu
 
-# Установщик агента управления.
-#
-# Важно: агент НЕ ставит minimal_go/full_go и НЕ меняет профиль Xray.
-# Он только подключает роутер к control-server/боту и выполняет разрешённые
-# команды управления: статус, переключение слота, подписка/source, recovery,
-# логи, update scripts/update agent.
-
 REPO="${REPO:-Kuzz007/keenetic_xray_installer}"
 TAG="${TAG:-latest}"
 CONF="${CONF:-/opt/etc/xray/xray-go-agent.conf}"
@@ -23,24 +16,17 @@ ARG_POLL_INTERVAL=""
 
 usage() {
   cat <<EOF
-xray-go-agent-install — установка агента управления роутером
+Usage: xray-go-agent-install [options]
 
-Использование:
-  xray-go-agent-install [options]
+Options:
+  --server-url URL       VPS control server URL, example http://1.2.3.4:18090
+  --router-id ID         Router ID from control bot, latin only
+  --router-name NAME     Router display name
+  --agent-token TOKEN    Agent token from control bot
+  --poll-interval SEC    Poll interval seconds, default 10
+  -h, --help             Show this help
 
-Опции:
-  --server-url URL       URL control-server/VPS, пример http://1.2.3.4:18090
-  --router-id ID         ID роутера из бота/control-server, латиница/цифры/_/-
-  --router-name NAME     Отображаемое имя роутера
-  --agent-token TOKEN    Токен агента из бота/control-server
-  --poll-interval SEC    Интервал опроса сервера в секундах, по умолчанию 10
-  -h, --help             Показать справку
-
-Если обязательные опции не заданы, установщик спросит их интерактивно.
-
-Важно:
-  Этот скрипт ставит только агент управления.
-  Он НЕ ставит minimal_go/full_go и НЕ меняет профиль Xray.
+If required options are omitted, the installer asks interactively.
 EOF
 }
 
@@ -48,24 +34,24 @@ parse_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --server-url)
-        [ "$#" -ge 2 ] || { echo "ОШИБКА: --server-url требует значение" >&2; exit 1; }
+        [ "$#" -ge 2 ] || { echo "ERROR: --server-url requires value" >&2; exit 1; }
         ARG_SERVER_URL="$2"; shift 2 ;;
       --router-id)
-        [ "$#" -ge 2 ] || { echo "ОШИБКА: --router-id требует значение" >&2; exit 1; }
+        [ "$#" -ge 2 ] || { echo "ERROR: --router-id requires value" >&2; exit 1; }
         ARG_ROUTER_ID="$2"; shift 2 ;;
       --router-name)
-        [ "$#" -ge 2 ] || { echo "ОШИБКА: --router-name требует значение" >&2; exit 1; }
+        [ "$#" -ge 2 ] || { echo "ERROR: --router-name requires value" >&2; exit 1; }
         ARG_ROUTER_NAME="$2"; shift 2 ;;
       --agent-token)
-        [ "$#" -ge 2 ] || { echo "ОШИБКА: --agent-token требует значение" >&2; exit 1; }
+        [ "$#" -ge 2 ] || { echo "ERROR: --agent-token requires value" >&2; exit 1; }
         ARG_AGENT_TOKEN="$2"; shift 2 ;;
       --poll-interval)
-        [ "$#" -ge 2 ] || { echo "ОШИБКА: --poll-interval требует значение" >&2; exit 1; }
+        [ "$#" -ge 2 ] || { echo "ERROR: --poll-interval requires value" >&2; exit 1; }
         ARG_POLL_INTERVAL="$2"; shift 2 ;;
       -h|--help)
         usage; exit 0 ;;
       *)
-        echo "ОШИБКА: неизвестный аргумент: $1" >&2
+        echo "ERROR: unknown argument: $1" >&2
         usage >&2
         exit 1 ;;
     esac
@@ -109,8 +95,8 @@ detect_asset() {
     *mipsel*:*|*mipsle*:*|*mipselsf*:*) echo "xray-go-agent-linux-mipsle" ;;
     *:mips|*mips*:mips) echo "xray-go-agent-linux-mips" ;;
     *)
-      echo "ОШИБКА: неподдерживаемая архитектура роутера: entware=$opkg_arch kernel=$kernel_arch" >&2
-      echo "Поддерживаются: arm64/aarch64, mipsel/mipselsf и mips" >&2
+      echo "ERROR: unsupported router architecture: entware=$opkg_arch kernel=$kernel_arch" >&2
+      echo "Supported: arm64/aarch64, mipsel/mipselsf and mips" >&2
       exit 1
       ;;
   esac
@@ -121,18 +107,18 @@ install_binary() {
   url="https://github.com/${REPO}/releases/download/${TAG}/${asset}"
   mkdir -p "$(dirname "$BIN")"
   tmp="${BIN}.tmp.$$"
-  echo "Скачиваю агент: $url"
+  echo "Downloading: $url"
   if command -v curl >/dev/null 2>&1; then
     curl -fL --retry 2 --retry-delay 3 -o "$tmp" "$url"
   elif command -v wget >/dev/null 2>&1; then
     wget -O "$tmp" "$url"
   else
-    echo "ОШИБКА: нужен curl или wget" >&2
+    echo "ERROR: curl or wget required" >&2
     exit 1
   fi
   chmod +x "$tmp"
   mv "$tmp" "$BIN"
-  echo "Агент установлен: $BIN"
+  echo "Installed binary: $BIN"
 }
 
 write_config() {
@@ -151,14 +137,14 @@ write_config() {
     old_interval="${POLL_INTERVAL:-$old_interval}"
   fi
 
-  server_url="$(value_or_ask "$ARG_SERVER_URL" 'URL control-server/VPS, пример http://1.2.3.4:18090' "$old_server")"
-  router_id="$(value_or_ask "$ARG_ROUTER_ID" 'ID роутера из бота/control-server, латиница/цифры/_/-' "$old_id")"
-  router_name="$(value_or_ask "$ARG_ROUTER_NAME" 'Имя роутера в боте' "$old_name")"
-  agent_token="$(value_or_ask "$ARG_AGENT_TOKEN" 'Токен агента из бота/control-server' "$old_token")"
-  poll_interval="$(value_or_ask "$ARG_POLL_INTERVAL" 'Интервал опроса сервера, секунд' "$old_interval")"
+  server_url="$(value_or_ask "$ARG_SERVER_URL" 'VPS control server URL, example http://1.2.3.4:18090' "$old_server")"
+  router_id="$(value_or_ask "$ARG_ROUTER_ID" 'Router ID, latin only, same as VPS config' "$old_id")"
+  router_name="$(value_or_ask "$ARG_ROUTER_NAME" 'Router display name' "$old_name")"
+  agent_token="$(value_or_ask "$ARG_AGENT_TOKEN" 'Agent token from VPS control bot' "$old_token")"
+  poll_interval="$(value_or_ask "$ARG_POLL_INTERVAL" 'Poll interval seconds' "$old_interval")"
 
   if [ -z "$server_url" ] || [ -z "$router_id" ] || [ -z "$agent_token" ]; then
-    echo "ОШИБКА: SERVER_URL, ROUTER_ID и AGENT_TOKEN обязательны" >&2
+    echo "ERROR: SERVER_URL, ROUTER_ID and AGENT_TOKEN are required" >&2
     exit 1
   fi
 
@@ -172,7 +158,7 @@ POLL_INTERVAL="${poll_interval}"
 EOF
   chmod 600 "$tmp"
   mv "$tmp" "$CONF"
-  echo "Конфиг агента создан: $CONF"
+  echo "Created config: $CONF"
 }
 
 install_init() {
@@ -191,14 +177,12 @@ PATH=/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EOF
   chmod +x "$INIT"
   touch "$LOG"
-  echo "Init-сервис агента установлен: $INIT"
+  echo "Installed init service: $INIT"
 }
 
 main() {
   parse_args "$@"
   mkdir -p /opt/etc/xray /opt/var/log
-  echo "== Установка агента управления =="
-  echo "Профиль Xray не меняется. Агент только подключает роутер к боту/control-server."
   install_binary
   write_config
   install_init
@@ -206,7 +190,7 @@ main() {
     "$INIT" restart || "$INIT" start || true
   fi
   echo
-  echo "Готово. Проверки:"
+  echo "Done. Checks:"
   echo "  $INIT status"
   echo "  tail -n 50 $LOG"
   echo "  /opt/bin/xray-go-agent -config $CONF -once"
