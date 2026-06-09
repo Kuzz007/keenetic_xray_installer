@@ -148,16 +148,27 @@ install_profile_helper() {
 }
 
 profile_script_path() {
+    # Always prefer the fresh profile list from the repository. This prevents a
+    # stale installed /opt/bin/xray-go-helper-profiles from omitting new Minimal
+    # helpers such as xray-go-size-check. Fall back to the installed helper only
+    # if the fresh copy cannot be fetched.
+    mkdir -p "$STAGE_DIR"
+    tmp="${STAGE_DIR}/xray-go-helper-profiles.runtime"
+    if fetch_url "$PROFILE_URL" "$tmp"; then
+        verify_shell_helper "$tmp" "xray-go-helper-profiles"
+        chmod +x "$tmp"
+        echo "$tmp"
+        return 0
+    fi
+
     if [ -x "$PROFILE_CMD" ]; then
+        echo "WARN: using installed helper profile fallback: $PROFILE_CMD" >&2
         echo "$PROFILE_CMD"
         return 0
     fi
-    mkdir -p "$STAGE_DIR"
-    tmp="${STAGE_DIR}/xray-go-helper-profiles.runtime"
-    fetch_url "$PROFILE_URL" "$tmp"
-    verify_shell_helper "$tmp" "xray-go-helper-profiles"
-    chmod +x "$tmp"
-    echo "$tmp"
+
+    echo "ERROR: cannot fetch helper profile list and no installed fallback exists" >&2
+    return 1
 }
 
 cleanup_stage_dir() {
