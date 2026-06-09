@@ -39,7 +39,7 @@ FAILOVER_FAILURES_REQUIRED=2
 CHECK_RETRIES=2
 CHECK_RETRY_DELAY=2
 CHECK_URLS="http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204 http://www.gstatic.com/generate_204"
-AUTO_RECOVER_PRIMARY=0
+AUTO_RECOVER_PRIMARY=1
 RECOVERY_SUCCESSES_REQUIRED=2
 RECOVERY_COOLDOWN_CYCLES=2
 RECOVERY_TEST_PORT=18080
@@ -49,8 +49,14 @@ CONF
     chmod 600 "$WATCHDOG_CONF" 2>/dev/null || true
 else
     grep -q '^CHECK_URLS=' "$WATCHDOG_CONF" || echo 'CHECK_URLS="http://connectivitycheck.gstatic.com/generate_204 http://cp.cloudflare.com/generate_204 http://www.gstatic.com/generate_204"' >> "$WATCHDOG_CONF"
+    if grep -q '^AUTO_RECOVER_PRIMARY=' "$WATCHDOG_CONF"; then
+        sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=1/' "$WATCHDOG_CONF" 2>/dev/null || true
+    else
+        echo 'AUTO_RECOVER_PRIMARY=1' >> "$WATCHDOG_CONF"
+    fi
     grep -q '^POST_SWITCH_DELAY=' "$WATCHDOG_CONF" || echo 'POST_SWITCH_DELAY=5' >> "$WATCHDOG_CONF"
     grep -q '^PROXY0_REFRESH=' "$WATCHDOG_CONF" || echo 'PROXY0_REFRESH=0' >> "$WATCHDOG_CONF"
+    chmod 600 "$WATCHDOG_CONF" 2>/dev/null || true
 fi
 
 cat > "$WATCHDOG_INIT" <<INIT
@@ -175,10 +181,10 @@ echo "  - checks SOCKS 127.0.0.1:10808 every 15 seconds"
 echo "  - requires 2 failed daemon cycles before switching primary -> backup"
 echo "  - each cycle has 2 curl attempts with 2s retry delay"
 echo "  - waits 5 seconds after switch before post-switch health check"
-echo "  - backup -> primary recovery is disabled by default in helper installer"
+echo "  - backup -> primary recovery is enabled by default and rollback-safe"
 echo ""
-echo "Enable safe backup -> primary recovery:"
-echo "  sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=1/' $WATCHDOG_CONF"
+echo "Disable backup -> primary recovery if needed:"
+echo "  sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=0/' $WATCHDOG_CONF"
 echo "  $WATCHDOG_INIT restart"
 echo ""
 echo "Optional Proxy0 refresh after switch:"
