@@ -5,8 +5,9 @@ set -e
 #
 # Default stage: safe compatibility wrapper around the existing Auto Latest
 # selector. Direct-install v2 is available through public explicit aliases:
-# --direct-plan, --direct-apply --yes, and --direct-check. The old
-# --direct-*-experimental flags remain compatibility aliases.
+# --direct-plan, --direct-apply --yes, --direct-one-command --yes, and
+# --direct-check. The old --direct-*-experimental flags remain compatibility
+# aliases.
 
 REPO_BRANCH="${REPO_BRANCH:-main}"
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
@@ -14,6 +15,7 @@ AUTO_LATEST_URL="${AUTO_LATEST_URL:-${REPO_BASE}/xray_vless_failover_auto_latest
 DIRECT_INSTALL_URL="${DIRECT_INSTALL_URL:-${REPO_BASE}/scripts/xray-go-direct-install.sh}"
 DIRECT_INIT_URL="${DIRECT_INIT_URL:-${REPO_BASE}/scripts/xray-go-direct-init.sh}"
 DIRECT_FULL_URL="${DIRECT_FULL_URL:-${REPO_BASE}/scripts/xray-go-direct-full.sh}"
+DIRECT_ONE_COMMAND_URL="${DIRECT_ONE_COMMAND_URL:-${REPO_BASE}/scripts/xray-go-direct-one-command.sh}"
 DIRECT_UNINSTALL_URL="${DIRECT_UNINSTALL_URL:-${REPO_BASE}/scripts/xray-go-direct-uninstall.sh}"
 DIRECT_SETUP_URL="${DIRECT_SETUP_URL:-${REPO_BASE}/scripts/xray-go-direct-setup.sh}"
 
@@ -27,11 +29,12 @@ TMP_FILE="${TMP_DIR}/xray_vless_failover_auto_latest.$$"
 DIRECT_TMP_FILE="${TMP_DIR}/xray_go_direct_install.$$"
 DIRECT_INIT_TMP_FILE="${TMP_DIR}/xray_go_direct_init.$$"
 DIRECT_FULL_TMP_FILE="${TMP_DIR}/xray_go_direct_full.$$"
+DIRECT_ONE_COMMAND_TMP_FILE="${TMP_DIR}/xray_go_direct_one_command.$$"
 DIRECT_UNINSTALL_TMP_FILE="${TMP_DIR}/xray_go_direct_uninstall.$$"
 DIRECT_SETUP_TMP_FILE="${TMP_DIR}/xray_go_direct_setup.$$"
 
 cleanup() {
-    rm -f "$TMP_FILE" "$DIRECT_TMP_FILE" "$DIRECT_INIT_TMP_FILE" "$DIRECT_FULL_TMP_FILE" "$DIRECT_UNINSTALL_TMP_FILE" "$DIRECT_SETUP_TMP_FILE" 2>/dev/null || true
+    rm -f "$TMP_FILE" "$DIRECT_TMP_FILE" "$DIRECT_INIT_TMP_FILE" "$DIRECT_FULL_TMP_FILE" "$DIRECT_ONE_COMMAND_TMP_FILE" "$DIRECT_UNINSTALL_TMP_FILE" "$DIRECT_SETUP_TMP_FILE" 2>/dev/null || true
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -41,6 +44,7 @@ Keenetic Xray Go installer
 
 Usage:
   install.sh [auto_latest options]
+  install.sh --direct-one-command --yes
   install.sh --direct-plan
   install.sh --direct-apply --yes
   install.sh --direct-check
@@ -54,6 +58,7 @@ Default mode:
   xray_vless_failover_auto_latest.sh selector.
 
 Direct-install v2 public aliases:
+  --direct-one-command           Run one-command direct full-lite test flow; requires --yes
   --direct-plan                  Print full direct-install plan; make no changes
   --direct-apply                 Apply full direct sequence; requires --yes
   --direct-check                 Run direct-install read-only post-check
@@ -73,7 +78,7 @@ Low-level direct-install compatibility aliases:
   --direct-uninstall-experimental   Alias of --direct-uninstall-guarded
 
 Examples:
-  install.sh --detect-only
+  install.sh --direct-one-command --yes
   install.sh --direct-plan
   install.sh --direct-apply --yes
   install.sh --direct-check
@@ -94,7 +99,7 @@ fetch_url() {
     output="$2"
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL -H 'Cache-Control: no-cache' -o "$output" "$url"
+        curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' -o "$output" "$url"
         return $?
     fi
 
@@ -127,8 +132,9 @@ run_downloaded_script() {
     label="$3"
     shift 3
 
-    echo "Downloading $label: $url"
-    fetch_url "$url" "$output" || {
+    effective_url="$(cache_bust_url "$url")"
+    echo "Downloading $label: $effective_url"
+    fetch_url "$effective_url" "$output" || {
         echo "ERROR: failed to download $label." >&2
         exit 1
     }
@@ -158,6 +164,13 @@ case "${1:-}" in
     -h|--help|help)
         usage
         exit 0
+        ;;
+    --direct-one-command|--direct-test|--direct-install-test)
+        shift
+        echo "Keenetic Xray Go installer"
+        echo "Entrypoint: install.sh"
+        echo "Mode: direct one-command test"
+        run_downloaded_script "$DIRECT_ONE_COMMAND_URL" "$DIRECT_ONE_COMMAND_TMP_FILE" "direct one-command test helper" "$@"
         ;;
     --direct-experimental)
         shift
@@ -213,7 +226,7 @@ case "${1:-}" in
         echo "Keenetic Xray Go installer"
         echo "Entrypoint: install.sh"
         echo "Mode: direct setup plan"
-        run_downloaded_script "$(cache_bust_url "$DIRECT_SETUP_URL")" "$DIRECT_SETUP_TMP_FILE" "direct setup planner" "$@"
+        run_downloaded_script "$DIRECT_SETUP_URL" "$DIRECT_SETUP_TMP_FILE" "direct setup planner" "$@"
         ;;
     --direct-uninstall-plan|--direct-uninstall-dry-run)
         shift
