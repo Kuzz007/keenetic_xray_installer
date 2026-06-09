@@ -11,9 +11,9 @@ const routerOnlineTTL = 15 * time.Second
 
 func onlineState(lastSeen time.Time) (string, string) {
 	if !lastSeen.IsZero() && time.Since(lastSeen) < routerOnlineTTL {
-		return "🟢", "online"
+		return "🟢", "онлайн"
 	}
-	return "⚫", "offline"
+	return "⚫", "офлайн"
 }
 
 func heartbeatAge(lastSeen time.Time) string {
@@ -36,16 +36,19 @@ func heartbeatAge(lastSeen time.Time) string {
 func prettyMainMenuText() string {
 	return strings.TrimSpace(`🧭 Главное меню
 
-Выберите действие для управления роутерами и failover.`)
+Выберите действие для управления роутерами и переключением primary/backup.`)
 }
 
 func prettyRouterListHeader(total, online int) string {
-	return fmt.Sprintf("📡 Роутеры\n\n🟢 online: %d  •  ⚫ offline: %d  •  всего: %d", online, total-online, total)
+	return fmt.Sprintf("📡 Роутеры\n\n🟢 онлайн: %d  •  ⚫ офлайн: %d  •  всего: %d", online, total-online, total)
 }
 
 func prettyRouterListItem(name string, lastSeen time.Time, status string) string {
 	dot, state := onlineState(lastSeen)
 	lines := []string{fmt.Sprintf("%s %s — %s, heartbeat %s", dot, name, state, heartbeatAge(lastSeen))}
+	if profile := profileLabelFromStatus(status); profile != "" {
+		lines = append(lines, "   "+profile)
+	}
 	for _, part := range importantStatusParts(status) {
 		lines = append(lines, "   "+part)
 	}
@@ -54,7 +57,7 @@ func prettyRouterListItem(name string, lastSeen time.Time, status string) string
 
 func prettyRouterCard(rt *Router) string {
 	if rt == nil {
-		return "unknown router"
+		return "роутер не найден"
 	}
 	dot, state := onlineState(rt.LastSeen)
 	lines := []string{
@@ -63,9 +66,14 @@ func prettyRouterCard(rt *Router) string {
 		fmt.Sprintf("heartbeat: %s", heartbeatAge(rt.LastSeen)),
 		"",
 	}
+	if profile := profileLabelFromStatus(rt.Status); profile != "" {
+		lines = append(lines, "• "+profile)
+	}
 	parts := importantStatusParts(rt.Status)
 	if len(parts) == 0 {
-		lines = append(lines, "status: нет данных")
+		if profile == "" {
+			lines = append(lines, "status: нет данных")
+		}
 	} else {
 		for _, part := range parts {
 			lines = append(lines, "• "+part)
@@ -95,7 +103,7 @@ func prettyResultMessage(routerName string, res Result) string {
 
 func prettyResults(rt *Router) string {
 	if rt == nil {
-		return "unknown router"
+		return "роутер не найден"
 	}
 	if len(rt.Results) == 0 {
 		return "📬 Результатов пока нет"
@@ -142,11 +150,11 @@ func prettyDoctorJSON(s string) (string, bool) {
 		icon = "❌"
 	}
 	lines := []string{
-		fmt.Sprintf("%s Doctor JSON: %s", icon, status),
+		fmt.Sprintf("%s Диагностика JSON: %s", icon, status),
 		fmt.Sprintf("OK=%d WARN=%d FAIL=%d exit=%d", d.OKCount, d.WarnCount, d.FailCount, d.ExitCode),
 	}
 	if strings.TrimSpace(d.ActiveSlot) != "" {
-		lines = append(lines, "active slot: "+d.ActiveSlot)
+		lines = append(lines, "активный слот: "+d.ActiveSlot)
 	}
 	return strings.Join(lines, "\n"), true
 }
@@ -176,15 +184,15 @@ func prettySourceUpdateResult(res Result, out string) (string, bool) {
 	} else {
 		lines = append(lines, "❌ Источник не применён")
 	}
-	lines = append(lines, "", "Slot: "+slot, "Selector: "+selector, "Значение скрыто.")
+	lines = append(lines, "", "Слот: "+slot, "Selector: "+selector, "Значение скрыто.")
 	active := sourceResultValue(out, "active")
 	if active != "" {
-		lines = append(lines, "Active slot: "+active)
+		lines = append(lines, "Активный слот: "+active)
 	}
 	if !res.OK {
 		trimmed := strings.TrimSpace(out)
 		if trimmed != "" {
-			lines = append(lines, "", "Details:", limit(trimmed, 1200))
+			lines = append(lines, "", "Детали:", limit(trimmed, 1200))
 		}
 	}
 	return strings.Join(lines, "\n"), true
@@ -234,7 +242,7 @@ func importantStatusParts(status string) []string {
 	out := []string{}
 	for _, part := range strings.Split(status, ";") {
 		p := strings.TrimSpace(part)
-		if p == "" || strings.HasPrefix(p, "features:") || strings.HasPrefix(p, "capabilities:") || seen[p] {
+		if p == "" || strings.HasPrefix(p, "features:") || strings.HasPrefix(p, "capabilities:") || strings.HasPrefix(p, "profile:") || seen[p] {
 			continue
 		}
 		seen[p] = true
@@ -243,23 +251,54 @@ func importantStatusParts(status string) []string {
 	return out
 }
 
+func profileLabelFromStatus(status string) string {
+	profile := statusValue(status, "profile:")
+	if profile == "" {
+		features := featuresFromStatus(status)
+		switch {
+		case features["recovery"] || features["watchdog"] || features["history"]:
+			profile = "full_go"
+		case features["status"] || features["source_update"] || features["subscription_update"]:
+			profile = "minimal_go"
+		}
+	}
+	switch profile {
+	case "full_go", "full-go", "full", "full_lite", "full-lite":
+		return "🧩 Профиль: full_go"
+	case "minimal_go", "minimal-go", "minimal":
+		return "🧩 Профиль: minimal_go"
+	default:
+		return ""
+	}
+}
+
+func statusValue(status, prefix string) string {
+	for _, part := range strings.Split(status, ";") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(part, prefix))
+		}
+	}
+	return ""
+}
+
 func decorateStatusPart(part string) string {
 	lower := strings.ToLower(part)
 	switch {
 	case strings.Contains(lower, "health: ok"):
-		return "💚 " + part
+		return "💚 здоровье: OK"
 	case strings.Contains(lower, "health:"):
-		return "❤️ " + part
+		return "❤️ " + strings.Replace(part, "health:", "здоровье:", 1)
 	case strings.Contains(lower, "active slot") || strings.Contains(lower, "active:") || strings.Contains(lower, "активный слот"):
-		return "🔀 " + part
+		return "🔀 " + strings.NewReplacer("active slot:", "активный слот:", "active:", "активный слот:").Replace(part)
 	case strings.Contains(lower, "cron: running") || strings.Contains(lower, "crond: running"):
-		return "⏱ " + part
+		return "⏱ cron: запущен"
 	case strings.Contains(lower, "cron:") || strings.Contains(lower, "crond:"):
-		return "⚠️ " + part
+		return "⚠️ " + strings.NewReplacer("running", "запущен", "stopped", "остановлен").Replace(part)
 	case strings.Contains(lower, "agent:"):
 		return "🤖 " + part
 	case strings.Contains(lower, "hourly recovery"):
-		return "♻️ " + part
+		return "♻️ " + strings.NewReplacer("hourly recovery:", "hourly recovery:", "enabled", "включено", "disabled", "выключено").Replace(part)
 	default:
 		return part
 	}
