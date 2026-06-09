@@ -174,6 +174,12 @@ ensure_xray_backup_dir() {
 ensure_watchdog_conf() {
     mkdir -p "$XRAY_DIR"
     if [ -s "$WATCHDOG_CONF" ]; then
+        if grep -q '^AUTO_RECOVER_PRIMARY=' "$WATCHDOG_CONF" 2>/dev/null; then
+            sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY="1"/' "$WATCHDOG_CONF" 2>/dev/null || true
+        else
+            printf '%s\n' 'AUTO_RECOVER_PRIMARY="1"' >> "$WATCHDOG_CONF"
+        fi
+        chmod 600 "$WATCHDOG_CONF" 2>/dev/null || true
         return 0
     fi
 
@@ -186,7 +192,7 @@ CHECK_RETRY_DELAY="2"
 WATCHDOG_INTERVAL="15"
 FAILOVER_FAILURES_REQUIRED="2"
 RECOVERY_SUCCESSES_REQUIRED="2"
-AUTO_RECOVER_PRIMARY="0"
+AUTO_RECOVER_PRIMARY="1"
 RECOVERY_TEST_PORT="18080"
 RECOVERY_COOLDOWN_CYCLES="2"
 POST_SWITCH_DELAY="5"
@@ -268,13 +274,6 @@ print_final_summary() {
     fi
 
     echo
-    if [ -x /opt/bin/vless-go-recover ]; then
-        /opt/bin/vless-go-recover --mode full status || true
-    else
-        echo "WARN: /opt/bin/vless-go-recover not found"
-    fi
-
-    echo
     if [ -x /opt/bin/vless-go-doctor ]; then
         /opt/bin/vless-go-doctor || true
     else
@@ -282,70 +281,64 @@ print_final_summary() {
     fi
 }
 
-run_first_setup() {
-    if [ "$FORCE_SETUP" != "1" ] && already_configured; then
-        echo "Existing primary and backup profiles detected; skipping first-run setup."
-        echo "Use --force-setup to replace them, or run failover-go for menu management."
+write_source_file() {
+    path="$1"
+    value="$2"
+    tmp="$path.tmp.$$"
+    umask 077
+    printf '%s\n' "$value" > "$tmp"
+    mv -f "$tmp" "$path"
+    chmod 600 "$path" 2>/dev/null || true
+}
+
+run_setup() {
+    if already_configured && [ "$FORCE_SETUP" != "1" ]; then
+        echo "Existing Go failover setup detected. Skipping first-run setup."
+        echo "Use --force-setup to replace primary/backup sources."
+        ensure_watchdog_conf
+        ensure_xray_ready
+        print_final_summary
         return 0
     fi
 
     need_exec /opt/bin/vless-go-failover
     need_exec /opt/bin/vless-go-watchdog
-    need_exec /opt/bin/vless-go-recover
-    need_exec /opt/bin/vless-go-doctor
 
-    echo
-    echo "Go/Entware first-run setup"
-    echo "Private links are stored under /opt/etc/xray and are not printed back."
-    echo
+    echo ""
+    echo "Initial Go failover setup"
+    echo "Raw VLESS/subscription values will not be printed after entry."
+    echo ""
 
-    primary_value="$(prompt_source primary "${PRIMARY_URL:-}")"
-    primary_selector="$(prompt_selector primary "$primary_value" "${PRIMARY_SELECTOR:-}")" || { echo "ERROR: invalid primary selector" >&2; exit 1; }
+    PRIMARY_URL_VALUE="$(prompt_source primary "${PRIMARY_URL:-}")"
+    PRIMARY_SELECTOR_VALUE="$(prompt_selector primary "$PRIMARY_URL_VALUE" "${PRIMARY_SELECTOR:-}")"
+    BACKUP_URL_VALUE="$(prompt_source backup "${BACKUP_URL:-}")"
+    BACKUP_SELECTOR_VALUE="$(prompt_selector backup "$BACKUP_URL_VALUE" "${BACKUP_SELECTOR:-}")"
 
-    backup_value="$(prompt_source backup "${BACKUP_URL:-}")"
-    backup_selector="$(prompt_selector backup "$backup_value" "${BACKUP_SELECTOR:-}")" || { echo "ERROR: invalid backup selector" >&2; exit 1; }
+    mkdir -p "$XRAY_DIR"
+    ensure_xray_backup_dir
+    write_source_file "$XRAY_DIR/vless-go.primary" "$PRIMARY_URL_VALUE"
+    write_source_file "$XRAY_DIR/vless-go.backup" "$BACKUP_URL_VALUE"
+    write_source_file "$XRAY_DIR/vless-go.primary.selector" "$PRIMARY_SELECTOR_VALUE"
+    write_source_file "$XRAY_DIR/vless-go.backup.selector" "$BACKUP_SELECTOR_VALUE"
+    write_source_file "$XRAY_DIR/vless-go.active" primary
+    write_source_file "$XRAY_DIR/vless-go.source" "$PRIMARY_URL_VALUE"
 
-    echo
-    echo "Saving primary profile..."
-    /opt/bin/vless-go-failover set-primary "$primary_value" --selector "$primary_selector"
-
-    echo "Saving backup profile..."
-    /opt/bin/vless-go-failover set-backup "$backup_value" --selector "$backup_selector"
+    ensure_watchdog_conf
 
     echo "Applying primary profile..."
     if [ "$NO_RESTART" = "1" ]; then
         /opt/bin/vless-go-failover switch primary --no-restart
     else
         /opt/bin/vless-go-failover switch primary
+        ensure_xray_ready
+        /opt/etc/init.d/S26vless-go-watchdog restart >/dev/null 2>&1 || /opt/etc/init.d/S26vless-go-watchdog start >/dev/null 2>&1 || true
     fi
 
-    ensure_xray_backup_dir
-    ensure_watchdog_conf
-    ensure_xray_ready
-
-    echo "Starting watchdog..."
-    if [ -x /opt/etc/init.d/S26vless-go-watchdog ]; then
-        /opt/etc/init.d/S26vless-go-watchdog start || true
-    else
-        echo "WARN: watchdog init not found: /opt/etc/init.d/S26vless-go-watchdog" >&2
-    fi
-
-    echo "Enabling hourly recovery..."
-    /opt/bin/vless-go-recover --mode full enable-hourly || true
-
-    ensure_xray_ready
-
-    echo
-    echo "Installation and first-run setup complete."
     print_final_summary
-    echo
-    echo "Use 'failover-go' later to open the management menu."
 }
 
 run_feed_install
 
 if [ "$DO_SETUP" = "1" ]; then
-    run_first_setup
-else
-    echo "Setup skipped. Use 'failover-go' for menu management or rerun with --force-setup."
+    run_setup
 fi
