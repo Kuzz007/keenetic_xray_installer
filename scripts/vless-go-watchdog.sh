@@ -73,6 +73,53 @@ active_slot() {
     [ -s "$ACTIVE_STORE" ] && sed -n '1p' "$ACTIVE_STORE" || echo "unknown"
 }
 
+selector_file() {
+    case "$1" in
+        primary|backup) echo "$XRAY_DIR/vless-go.$1.selector" ;;
+        *) return 1 ;;
+    esac
+}
+
+validate_selector() {
+    VALUE="$1"
+    case "$VALUE" in
+        first|'') return 0 ;;
+        index:*)
+            IDX="${VALUE#index:}"
+            case "$IDX" in
+                ''|*[!0-9]*|0) return 1 ;;
+                *) return 0 ;;
+            esac
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+slot_selector() {
+    SLOT="$1"
+    FILE="$(selector_file "$SLOT")" || { echo first; return 0; }
+    VALUE="$(sed -n '1p' "$FILE" 2>/dev/null || true)"
+    VALUE="${VALUE:-first}"
+    validate_selector "$VALUE" || VALUE="first"
+    printf '%s\n' "$VALUE"
+}
+
+resolver_selector_args() {
+    SELECTOR="$1"
+    case "$SELECTOR" in
+        first|'') printf '%s\n' "-first" ;;
+        index:*)
+            IDX="${SELECTOR#index:}"
+            if ! "$GO_RESOLVER" -h 2>&1 | grep -q -- '-select-index'; then
+                log "Recovery probe primary не может использовать selector $SELECTOR: Go resolver не поддерживает -select-index"
+                return 1
+            fi
+            printf '%s\n' "-select-index $IDX"
+            ;;
+        *) printf '%s\n' "-first" ;;
+    esac
+}
+
 get_xray_bin() {
     if command -v xray >/dev/null 2>&1; then command -v xray
     elif [ -x /opt/bin/xray ]; then echo "/opt/bin/xray"
@@ -202,6 +249,19 @@ switch_to() {
     return 0
 }
 
+rollback_to_backup_after_failed_recovery() {
+    [ -s "$BACKUP_STORE" ] || { log "Rollback на backup невозможен: backup не настроен"; return 1; }
+    log "Rollback recovery: возвращаемся на backup после неудачного backup -> primary"
+    if switch_to backup daemon_recovery_rollback && check_socks; then
+        log "Rollback recovery на backup OK"
+        history_log daemon_recovery_rollback from=primary to=backup result=ok
+        return 0
+    fi
+    log "Rollback recovery на backup не прошёл health-check"
+    history_log failed_recovery_rollback from=primary to=backup reason=post_rollback_health_failed
+    return 1
+}
+
 probe_primary() {
     [ -s "$PRIMARY_STORE" ] || { log "Основной источник не настроен; probe primary невозможен."; return 1; }
     [ -x "$GO_RESOLVER" ] || { log "Go resolver/generator не найден: $GO_RESOLVER"; return 1; }
@@ -210,6 +270,8 @@ probe_primary() {
     [ -n "$XRAY_BIN" ] || { log "Xray binary не найден; probe primary невозможен."; return 1; }
 
     PRIMARY_VALUE="$(sed -n '1p' "$PRIMARY_STORE")"
+    PRIMARY_SELECTOR="$(slot_selector primary)"
+    SELECTOR_ARGS="$(resolver_selector_args "$PRIMARY_SELECTOR")" || return 1
     TMP_CONFIG="/opt/tmp/vless-go-recovery-primary.$$.$RANDOM.json"
     TMP_RESOLVER_LOG="/tmp/vless-go-recovery-resolver.$$"
     TMP_XRAY_LOG="/tmp/vless-go-recovery-xray.$$"
@@ -225,10 +287,13 @@ probe_primary() {
         rm -f "$TMP_CONFIG" "$TMP_RESOLVER_LOG" "$TMP_XRAY_LOG" 2>/dev/null || true
     }
 
+    log "Recovery probe primary использует selector: $PRIMARY_SELECTOR"
     set +e
+    # Intentionally use word splitting for SELECTOR_ARGS: either '-first' or '-select-index N'.
+    # shellcheck disable=SC2086
     "$GO_RESOLVER" -input "$PRIMARY_VALUE" -output "$TMP_CONFIG" \
         -listen "127.0.0.1" -port "$RECOVERY_TEST_PORT" \
-        -profile "vless-recovery-test" -first >"$TMP_RESOLVER_LOG" 2>&1
+        -profile "vless-recovery-test" $SELECTOR_ARGS >"$TMP_RESOLVER_LOG" 2>&1
     RC="$?"
     set -e
     cat "$TMP_RESOLVER_LOG" >> "$DETAIL_LOG_FILE" 2>/dev/null || true
@@ -348,12 +413,19 @@ handle_daemon_backup() {
 
     if [ "$DAEMON_RECOVERY_SUCCESS_COUNT" -ge "$RECOVERY_SUCCESSES_REQUIRED" ]; then
         log "Достигнут порог recovery; переключение backup -> primary"
-        if switch_to primary daemon_recovery && check_socks; then
-            log "Daemon recovery на primary OK"
-            history_log daemon_recovery from=backup to=primary result=ok successes="$RECOVERY_SUCCESSES_REQUIRED"
+        if switch_to primary daemon_recovery; then
+            if check_socks; then
+                log "Daemon recovery на primary OK"
+                history_log daemon_recovery from=backup to=primary result=ok successes="$RECOVERY_SUCCESSES_REQUIRED"
+            else
+                log "Daemon recovery на primary не прошёл health-check; выполняем rollback на backup"
+                history_log failed_recovery source=daemon from=backup to=primary reason=post_switch_health_failed
+                rollback_to_backup_after_failed_recovery || true
+            fi
         else
-            log "Daemon recovery на primary не прошёл health-check"
-            history_log failed_recovery source=daemon from=backup to=primary reason=post_switch_health_failed
+            log "Daemon recovery switch на primary не выполнился; проверяем необходимость rollback на backup"
+            history_log failed_recovery source=daemon from=backup to=primary reason=switch_failed
+            [ "$(active_slot)" = "backup" ] || rollback_to_backup_after_failed_recovery || true
         fi
         DAEMON_RECOVERY_SUCCESS_COUNT="0"
         DAEMON_RECOVERY_COOLDOWN="$RECOVERY_COOLDOWN_CYCLES"
