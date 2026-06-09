@@ -12,6 +12,8 @@ set -eu
 #   full-lite = minimal + watchdog/recovery/summary/basic checks/history/cleanup
 #   manual    = helpers that must not be installed by Minimal/full-lite expansion
 #
+# SOCKS auth is intentionally not installed by Minimal/full-lite. Plain local
+# SOCKS is the default. Auth can be added later as an explicit optional helper.
 # Xray-core update is manual-only because it can create large Xray binary backups.
 
 REPO_BRANCH="${REPO_BRANCH:-main}"
@@ -23,8 +25,6 @@ GO_UPDATE_CMD="${GO_UPDATE_CMD:-/opt/bin/vless-go-update}"
 GO_UPDATE_URL="${GO_UPDATE_URL:-${RAW_BASE}/scripts/vless-go-update.sh}"
 GO_FAILOVER_CMD="${GO_FAILOVER_CMD:-/opt/bin/vless-go-failover}"
 GO_FAILOVER_URL="${GO_FAILOVER_URL:-${RAW_BASE}/scripts/vless-go-failover.sh}"
-GO_SOCKS_AUTH_CMD="${GO_SOCKS_AUTH_CMD:-/opt/bin/vless-go-socks-auth}"
-GO_SOCKS_AUTH_URL="${GO_SOCKS_AUTH_URL:-${RAW_BASE}/scripts/vless-go-socks-auth.sh}"
 FAILOVER_GO_CMD="${FAILOVER_GO_CMD:-/opt/bin/failover-go}"
 FAILOVER_GO_URL="${FAILOVER_GO_URL:-${RAW_BASE}/scripts/failover-go.sh}"
 MANIFEST_CMD="${MANIFEST_CMD:-/opt/bin/xray-go-manifest}"
@@ -61,6 +61,8 @@ DIRECT_FULL_UPDATE_URL="${DIRECT_FULL_UPDATE_URL:-${RAW_BASE}/scripts/xray-go-di
 DIRECT_UNINSTALL_CMD="${DIRECT_UNINSTALL_CMD:-/opt/bin/xray-go-direct-uninstall}"
 DIRECT_UNINSTALL_URL="${DIRECT_UNINSTALL_URL:-${RAW_BASE}/scripts/xray-go-direct-uninstall.sh}"
 
+SOCKS_AUTH_CMD="${SOCKS_AUTH_CMD:-/opt/bin/vless-go-socks-auth}"
+SOCKS_AUTH_URL="${SOCKS_AUTH_URL:-${RAW_BASE}/scripts/vless-go-socks-auth.sh}"
 XRAY_CORE_UPDATE_CMD="${XRAY_CORE_UPDATE_CMD:-/opt/bin/vless-go-xray-core-update}"
 XRAY_CORE_UPDATE_URL="${XRAY_CORE_UPDATE_URL:-${RAW_BASE}/scripts/vless-go-xray-core-update.sh}"
 
@@ -69,7 +71,6 @@ emit_minimal_helpers() {
 exec|$XRAY_GO_CMD|$XRAY_GO_URL|xray-go wrapper
 exec|$GO_UPDATE_CMD|$GO_UPDATE_URL|vless-go-update helper
 exec|$GO_FAILOVER_CMD|$GO_FAILOVER_URL|vless-go-failover helper
-exec|$GO_SOCKS_AUTH_CMD|$GO_SOCKS_AUTH_URL|vless-go-socks-auth helper
 exec|$FAILOVER_GO_CMD|$FAILOVER_GO_URL|failover-go menu
 exec|$MANIFEST_CMD|$MANIFEST_URL|manifest helper
 exec|$GO_SIZE_CHECK_CMD|$GO_SIZE_CHECK_URL|size-check helper
@@ -102,6 +103,12 @@ exec|$XRAY_CORE_UPDATE_CMD|$XRAY_CORE_UPDATE_URL|Xray-core updater helper
 EOF_MANUAL
 }
 
+emit_optional_auth_helpers() {
+    cat <<EOF_AUTH
+exec|$SOCKS_AUTH_CMD|$SOCKS_AUTH_URL|SOCKS auth helper
+EOF_AUTH
+}
+
 emit_full_helpers() {
     emit_full_lite_helpers
     emit_manual_helpers
@@ -115,6 +122,7 @@ Usage:
   xray-go-helper-profiles minimal
   xray-go-helper-profiles full-lite
   xray-go-helper-profiles manual
+  xray-go-helper-profiles auth
   xray-go-helper-profiles full
 
 Output format:
@@ -123,6 +131,8 @@ Output format:
 Policy:
   minimal includes xray-go-setup, xray-go-size-check and xray-go-space-gate for first-run setup and post-install adaptive expansion.
   minimal/full-lite exclude vless-go-xray-core-update.
+  minimal/full-lite also exclude vless-go-socks-auth; local SOCKS is plain by default.
+  SOCKS auth can be installed later explicitly via the auth profile.
   Xray-core updater is manual-only and appears only in manual/full.
 USAGE
 }
@@ -139,6 +149,9 @@ case "$profile" in
         ;;
     manual|maintenance)
         emit_manual_helpers
+        ;;
+    auth|socks-auth)
+        emit_optional_auth_helpers
         ;;
     full)
         emit_full_helpers
