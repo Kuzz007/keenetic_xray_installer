@@ -200,11 +200,11 @@ run_update() {
 
     OLD_SLOT="$(sed -n '1p' "$ACTIVE_STORE" 2>/dev/null || echo unknown)"
 
+    # Important safety rule:
+    # Do not change active/source state before config generation and validation succeed.
+    # vless-go-update writes $SOURCE_STORE only after successful resolver + xray -test.
+    # ACTIVE_STORE is written below only after vless-go-update returns 0.
     mkdir -p "$XRAY_DIR"
-    printf '%s\n' "$SOURCE_VALUE" > "$SOURCE_STORE"
-    chmod 600 "$SOURCE_STORE" 2>/dev/null || true
-    printf '%s\n' "$SLOT" > "$ACTIVE_STORE"
-    chmod 600 "$ACTIVE_STORE" 2>/dev/null || true
 
     set +e
     if [ "$NO_RESTART" = "1" ]; then
@@ -217,8 +217,14 @@ run_update() {
 
     if [ "$RC" -ne 0 ]; then
         history_log failed_switch action="$ACTION" from="$OLD_SLOT" to="$SLOT" selector="$SELECTOR" rc="$RC"
+        echo "ОШИБКА: переключение на $SLOT не применено; active/source state не изменён." >&2
         exit "$RC"
     fi
+
+    printf '%s\n' "$SOURCE_VALUE" > "$SOURCE_STORE"
+    chmod 600 "$SOURCE_STORE" 2>/dev/null || true
+    printf '%s\n' "$SLOT" > "$ACTIVE_STORE"
+    chmod 600 "$ACTIVE_STORE" 2>/dev/null || true
 
     case "$ACTION" in
         switch) history_log manual_switch from="$OLD_SLOT" to="$SLOT" selector="$SELECTOR" no_restart="$NO_RESTART" ;;
