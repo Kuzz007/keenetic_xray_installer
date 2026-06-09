@@ -6,17 +6,24 @@ set -e
 # This orchestrates the already separated layers from a single command:
 #   1. direct full-lite code/helper/init apply
 #   2. interactive setup wizard only when state/source files are missing
-#   3. size/policy summary
+#   3. initial Xray binary install when missing
+#   4. active config generation and service restart when possible
+#   5. size/policy summary
 #
-# It does not install/update Xray-core yet. Xray-core update remains manual-only.
+# Xray-core update remains manual-only. Initial install runs only when Xray is
+# missing and does not install vless-go-xray-core-update.
 
 REPO_BRANCH="${REPO_BRANCH:-main}"
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
 DIRECT_FULL_URL="${DIRECT_FULL_URL:-${REPO_BASE}/scripts/xray-go-direct-full.sh}"
+XRAY_INITIAL_URL="${XRAY_INITIAL_URL:-${REPO_BASE}/scripts/xray-go-xray-initial-install.sh}"
 SETUP_WIZARD_CMD="${SETUP_WIZARD_CMD:-/opt/bin/xray-go-setup}"
 SIZE_CHECK_CMD="${SIZE_CHECK_CMD:-/opt/bin/xray-go-size-check}"
+FAILOVER_CMD="${FAILOVER_CMD:-/opt/bin/vless-go-failover}"
 XRAY_CORE_UPDATE_CMD="${XRAY_CORE_UPDATE_CMD:-/opt/bin/vless-go-xray-core-update}"
 XRAY_BIN="${XRAY_BIN:-/opt/sbin/xray}"
+XRAY_INIT="${XRAY_INIT:-/opt/etc/init.d/S24xray}"
+WATCHDOG_INIT="${WATCHDOG_INIT:-/opt/etc/init.d/S26vless-go-watchdog}"
 GO_RESOLVER="${GO_RESOLVER:-/opt/bin/xray-failover-go}"
 TMP_DIR="${TMPDIR:-/opt/tmp}"
 
@@ -28,6 +35,7 @@ ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 PRIMARY_SELECTOR="$XRAY_DIR/vless-go.primary.selector"
 BACKUP_SELECTOR="$XRAY_DIR/vless-go.backup.selector"
 MANIFEST_FILE="$XRAY_DIR/xray-go.manifest"
+CONFIG_FILE="$XRAY_DIR/config.json"
 
 MODE="apply"
 ASSUME_YES="0"
@@ -44,7 +52,9 @@ Usage:
 What it does:
   1. installs/updates direct full-lite code/helper/init layer
   2. runs interactive setup wizard only if source/state files are missing
-  3. prints size/policy summary
+  3. installs Xray binary only if missing
+  4. generates active config and restarts Xray/watchdog when possible
+  5. prints size/policy summary
 
 Safety:
   Requires --yes because it changes the direct helper/init layer.
@@ -178,11 +188,50 @@ run_setup_if_needed() {
     print_state_summary
 }
 
+install_xray_if_needed() {
+    echo
+    echo "== initial Xray install =="
+    if [ -x "$XRAY_BIN" ] || command -v xray >/dev/null 2>&1 || [ -x /opt/bin/xray ]; then
+        echo "Xray binary already exists; initial install helper will run as no-op/compatibility check."
+    fi
+    run_remote_helper "initial Xray install" "$XRAY_INITIAL_URL" --apply --yes
+}
+
+generate_active_config_if_possible() {
+    echo
+    echo "== generate active Xray config =="
+    if ! state_ready; then
+        echo "[WARN] state/source files incomplete; skipping config generation."
+        return 0
+    fi
+    if [ ! -x "$FAILOVER_CMD" ]; then
+        echo "[WARN] failover helper missing; skipping config generation: $FAILOVER_CMD"
+        return 0
+    fi
+    if ! command -v xray >/dev/null 2>&1 && [ ! -x "$XRAY_BIN" ] && [ ! -x /opt/bin/xray ]; then
+        echo "[WARN] Xray binary missing; skipping config generation."
+        return 0
+    fi
+
+    "$FAILOVER_CMD" update-active --no-restart
+
+    if [ -x "$XRAY_INIT" ] && [ -s "$CONFIG_FILE" ]; then
+        echo "Restarting Xray after config generation..."
+        "$XRAY_INIT" restart || "$XRAY_INIT" start || true
+    fi
+
+    if [ -x "$WATCHDOG_INIT" ]; then
+        echo "Restarting watchdog after Xray/config update..."
+        "$WATCHDOG_INIT" restart || true
+    fi
+}
+
 print_final_summary() {
     echo
     echo "== Final one-command summary =="
     [ -x "$GO_RESOLVER" ] && echo "[OK] Go resolver: $GO_RESOLVER" || echo "[FAIL] Go resolver missing: $GO_RESOLVER"
     [ -s "$MANIFEST_FILE" ] && echo "[OK] manifest: $MANIFEST_FILE" || echo "[FAIL] manifest missing: $MANIFEST_FILE"
+    [ -s "$CONFIG_FILE" ] && echo "[OK] Xray config: $CONFIG_FILE" || echo "[WARN] Xray config missing: $CONFIG_FILE"
 
     if [ -x "$XRAY_CORE_UPDATE_CMD" ]; then
         echo "[FAIL] manual-only Xray-core updater is installed unexpectedly: $XRAY_CORE_UPDATE_CMD"
@@ -192,9 +241,13 @@ print_final_summary() {
 
     if [ -x "$XRAY_BIN" ]; then
         echo "[OK] Xray binary: $XRAY_BIN"
+        "$XRAY_BIN" version 2>/dev/null | sed -n '1,2p' || true
+    elif command -v xray >/dev/null 2>&1; then
+        found="$(command -v xray)"
+        echo "[OK] Xray binary: $found"
+        "$found" version 2>/dev/null | sed -n '1,2p' || true
     else
         echo "[WARN] Xray binary missing: $XRAY_BIN"
-        echo "      Initial Xray-core install is not part of this one-command test yet."
     fi
 
     if [ -x "$SIZE_CHECK_CMD" ]; then
@@ -209,10 +262,13 @@ cat <<EOF_INTRO
 == Xray Go one-command direct install test ==
 Repository branch: $REPO_BRANCH
 Direct full-lite helper: $DIRECT_FULL_URL
+Initial Xray helper: $XRAY_INITIAL_URL
 EOF_INTRO
 
 run_remote_helper "direct full-lite apply" "$DIRECT_FULL_URL" --apply --yes
 run_setup_if_needed
+install_xray_if_needed
+generate_active_config_if_possible
 print_final_summary
 
 echo
