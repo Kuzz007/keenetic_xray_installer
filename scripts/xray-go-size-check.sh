@@ -134,7 +134,6 @@ CORE_HELPERS_KB="$(path_kb \
     /opt/bin/xray-go \
     /opt/bin/vless-go-update \
     /opt/bin/vless-go-failover \
-    /opt/bin/vless-go-socks-auth \
     /opt/bin/failover-go \
     /opt/bin/xray-go-manifest \
     /opt/bin/xray-go-size-check \
@@ -145,7 +144,8 @@ CORE_HELPERS_KB="$(path_kb \
 # Minimal state/config is intentionally a precise file list, not the whole
 # /opt/etc/xray directory. Existing full installs may keep large routing data,
 # old generated artifacts, or user files there; those must not inflate the
-# Minimal Go <=40 MB core budget.
+# Minimal Go <=40 MB core budget. SOCKS auth config is optional-only and is not
+# part of default Minimal/full-lite.
 STATE_CONFIG_KB="$(path_kb \
     "$XRAY_DIR/config.json" \
     "$XRAY_DIR/xray-go.manifest" \
@@ -156,8 +156,7 @@ STATE_CONFIG_KB="$(path_kb \
     "$XRAY_DIR/vless-go.backup" \
     "$XRAY_DIR/vless-go.active" \
     "$XRAY_DIR/vless-go.primary.selector" \
-    "$XRAY_DIR/vless-go.backup.selector" \
-    "$XRAY_DIR/vless-go-socks-auth.conf")"
+    "$XRAY_DIR/vless-go.backup.selector")"
 XRAY_DIR_TOTAL_KB="$(path_kb "$XRAY_DIR")"
 EXTRA_XRAY_DIR_KB=0
 if [ "$XRAY_DIR_TOTAL_KB" -gt "$STATE_CONFIG_KB" ]; then
@@ -179,6 +178,7 @@ OPTIONAL_HELPERS_KB="$(path_kb \
     /opt/bin/xray-go-direct-full \
     /opt/bin/xray-go-direct-uninstall)"
 
+OPTIONAL_AUTH_KB="$(path_kb /opt/bin/vless-go-socks-auth "$XRAY_DIR/vless-go-socks-auth.conf")"
 MANUAL_ONLY_KB="$(path_kb /opt/bin/vless-go-xray-core-update)"
 
 INIT_CRON_KB="$(path_kb \
@@ -217,6 +217,7 @@ if [ "$JSON" = 1 ]; then
     printf ',"minimal_core_kb":%s' "$MINIMAL_CORE_KB"
     printf ',"full_steady_kb":%s' "$FULL_STEADY_KB"
     printf ',"manual_only_kb":%s' "$MANUAL_ONLY_KB"
+    printf ',"optional_auth_kb":%s' "$OPTIONAL_AUTH_KB"
     printf ',"minimal_state_config_kb":%s' "$STATE_CONFIG_KB"
     printf ',"extra_xray_dir_kb":%s' "$EXTRA_XRAY_DIR_KB"
     printf ',"reclaimable_kb":%s' "$RECLAIMABLE_KB"
@@ -249,6 +250,7 @@ print_component "minimal core helpers" "$CORE_HELPERS_KB"
 print_component "minimal state/config" "$STATE_CONFIG_KB"
 print_component "extra xray dir data" "$EXTRA_XRAY_DIR_KB"
 print_component "optional/full-lite helpers" "$OPTIONAL_HELPERS_KB"
+print_component "optional SOCKS-auth" "$OPTIONAL_AUTH_KB"
 print_component "manual-only helpers" "$MANUAL_ONLY_KB"
 print_component "init/cron" "$INIT_CRON_KB"
 print_component "logs" "$LOG_KB"
@@ -260,6 +262,7 @@ echo
 echo "== Budget estimate =="
 printf '  %-32s %8s MB  [%s <= %s MB]\n' "minimal core estimate:" "$(kb_to_mb_1dp "$MINIMAL_CORE_KB")" "$MINIMAL_STATUS" "$MINIMAL_BUDGET_MB"
 printf '  %-32s %8s MB  [%s <= %s MB]\n' "full-lite steady estimate:" "$(kb_to_mb_1dp "$FULL_STEADY_KB")" "$FULL_STATUS" "$FULL_BUDGET_MB"
+printf '  %-32s %8s MB\n' "optional SOCKS-auth:" "$(kb_to_mb_1dp "$OPTIONAL_AUTH_KB")"
 printf '  %-32s %8s MB\n' "manual-only helpers:" "$(kb_to_mb_1dp "$MANUAL_ONLY_KB")"
 printf '  %-32s %8s MB  [%s <= %s MB]\n' "full-lite + reclaimable:" "$(kb_to_mb_1dp "$FULL_WITH_RECLAIMABLE_KB")" "$FULL_WITH_RECLAIMABLE_STATUS" "$FULL_BUDGET_MB"
 printf '  %-32s %8s MB (%s KB)\n' "reclaimable estimate:" "$(kb_to_mb_1dp "$RECLAIMABLE_KB")" "$RECLAIMABLE_KB"
@@ -275,6 +278,7 @@ echo "Minimal Go must keep subscriptions/bot-link flow and fit the 40 MB target.
 echo "Minimal state/config counts only xray-go core files, not the whole /opt/etc/xray directory."
 echo "xray-go-setup, xray-go-size-check and xray-go-space-gate are part of Minimal so the installer can run first-run setup and post-install adaptive expansion."
 echo "Post-install expansion may add watchdog/recovery/summary/basic checks if space allows."
+echo "SOCKS auth is optional-only and excluded from Minimal/full-lite by default."
 echo "Xray-core update helper is manual-only and excluded from Minimal/full-lite auto expansion."
 echo "Xray-core update may create large Xray binary backups and must stay explicit opt-in."
 
@@ -299,6 +303,10 @@ fi
 
 if [ "$EXTRA_XRAY_DIR_KB" -gt 1024 ]; then
     echo "[INFO] Extra /opt/etc/xray data detected ($(kb_to_mb_1dp "$EXTRA_XRAY_DIR_KB") MB). It is excluded from Minimal budget; inspect before cleanup."
+fi
+
+if [ "$OPTIONAL_AUTH_KB" -gt 0 ]; then
+    echo "[INFO] Optional SOCKS-auth files present ($(kb_to_mb_1dp "$OPTIONAL_AUTH_KB") MB). They are excluded from Minimal/full-lite budgets."
 fi
 
 if [ "$MANUAL_ONLY_KB" -gt 0 ]; then
