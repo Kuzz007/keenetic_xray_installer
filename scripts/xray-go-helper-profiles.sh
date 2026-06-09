@@ -8,7 +8,7 @@ set -eu
 # and manual-only maintenance.
 #
 # Policy:
-#   minimal   = subscriptions + selector + primary/backup + Proxy0/SOCKS5 + size-check
+#   minimal   = subscriptions + selector + primary/backup + Proxy0/SOCKS5 + size-check + space-gate
 #   full-lite = minimal + watchdog/recovery/summary/basic checks/history/cleanup
 #   manual    = helpers that must not be installed by Minimal/full-lite expansion
 #
@@ -33,6 +33,8 @@ LOCK_HELPER="${LOCK_HELPER:-/opt/libexec/vless-go-lock.sh}"
 LOCK_HELPER_URL="${LOCK_HELPER_URL:-${RAW_BASE}/scripts/vless-go-lock.sh}"
 GO_SIZE_CHECK_CMD="${GO_SIZE_CHECK_CMD:-/opt/bin/xray-go-size-check}"
 GO_SIZE_CHECK_URL="${GO_SIZE_CHECK_URL:-${RAW_BASE}/scripts/xray-go-size-check.sh}"
+GO_SPACE_GATE_CMD="${GO_SPACE_GATE_CMD:-/opt/bin/xray-go-space-gate}"
+GO_SPACE_GATE_URL="${GO_SPACE_GATE_URL:-${RAW_BASE}/scripts/xray-go-space-gate.sh}"
 
 GO_WATCHDOG_CMD="${GO_WATCHDOG_CMD:-/opt/bin/vless-go-watchdog}"
 GO_WATCHDOG_URL="${GO_WATCHDOG_URL:-${RAW_BASE}/scripts/vless-go-watchdog.sh}"
@@ -69,6 +71,7 @@ exec|$GO_SOCKS_AUTH_CMD|$GO_SOCKS_AUTH_URL|vless-go-socks-auth helper
 exec|$FAILOVER_GO_CMD|$FAILOVER_GO_URL|failover-go menu
 exec|$MANIFEST_CMD|$MANIFEST_URL|manifest helper
 exec|$GO_SIZE_CHECK_CMD|$GO_SIZE_CHECK_URL|size-check helper
+exec|$GO_SPACE_GATE_CMD|$GO_SPACE_GATE_URL|space-gate helper
 read|$LOCK_HELPER|$LOCK_HELPER_URL|lock helper
 EOF_MINIMAL
 }
@@ -115,7 +118,7 @@ Output format:
   mode|target_path|source_url|label
 
 Policy:
-  minimal includes xray-go-size-check for post-install space-gate.
+  minimal includes xray-go-size-check and xray-go-space-gate for post-install adaptive expansion.
   minimal/full-lite exclude vless-go-xray-core-update.
   Xray-core updater is manual-only and appears only in manual/full.
 USAGE
