@@ -22,7 +22,7 @@ CHECK_RETRY_DELAY="${CHECK_RETRY_DELAY:-2}"
 WATCHDOG_INTERVAL="${WATCHDOG_INTERVAL:-15}"
 FAILOVER_FAILURES_REQUIRED="${FAILOVER_FAILURES_REQUIRED:-2}"
 RECOVERY_SUCCESSES_REQUIRED="${RECOVERY_SUCCESSES_REQUIRED:-2}"
-AUTO_RECOVER_PRIMARY="${AUTO_RECOVER_PRIMARY:-0}"
+AUTO_RECOVER_PRIMARY="${AUTO_RECOVER_PRIMARY:-1}"
 RECOVERY_TEST_PORT="${RECOVERY_TEST_PORT:-18080}"
 RECOVERY_COOLDOWN_CYCLES="${RECOVERY_COOLDOWN_CYCLES:-2}"
 POST_SWITCH_DELAY="${POST_SWITCH_DELAY:-5}"
@@ -458,51 +458,25 @@ run_daemon() {
 case "${1:-check}" in
     check) check_and_switch ;;
     daemon) run_daemon ;;
-    status)
-        echo "Статус VLESS Go watchdog:"
-        echo "  активный слот: $(active_slot)"
-        [ -s "$PRIMARY_STORE" ] && echo "  основной профиль: настроен" || echo "  основной профиль: не настроен"
-        [ -s "$BACKUP_STORE" ] && echo "  резервный профиль: настроен" || echo "  резервный профиль: не настроен"
-        echo "  SOCKS: $SOCKS_HOST:$SOCKS_PORT"
-        echo "  SOCKS auth: $([ "$XRAY_SOCKS_AUTH" = "1" ] && echo enabled || echo disabled)"
-        echo "  URL проверки: $CHECK_URLS"
-        echo "  попыток проверки: $CHECK_RETRIES"
-        echo "  задержка между попытками: ${CHECK_RETRY_DELAY}s"
-        echo "  интервал daemon: ${WATCHDOG_INTERVAL}s"
-        echo "  ошибок до failover: $FAILOVER_FAILURES_REQUIRED"
-        echo "  успешных recovery probe: $RECOVERY_SUCCESSES_REQUIRED"
-        echo "  авто recovery primary: $AUTO_RECOVER_PRIMARY"
-        echo "  порт recovery test: $RECOVERY_TEST_PORT"
-        echo "  cooldown recovery: $RECOVERY_COOLDOWN_CYCLES"
-        echo "  задержка после переключения: ${POST_SWITCH_DELAY}s"
-        echo "  обновление Proxy0: $PROXY0_REFRESH"
-        if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then echo "  daemon: запущен pid=$(cat "$PID_FILE")"; else echo "  daemon: не запущен"; fi
-        echo "  config: $CONFIG_FILE"
-        echo "  log: $LOG_FILE"
-        echo "  detail log: $DETAIL_LOG_FILE"
-        if grep -F "$MARKER" "$CRON_FILE" >/dev/null 2>&1; then echo "  cron: включён"; else echo "  cron: отключён"; fi
-        if cron_running; then echo "  cron process: запущен"; else echo "  cron process: не запущен"; fi
-        ;;
+    status) echo "active=$(active_slot) auto_recover_primary=$AUTO_RECOVER_PRIMARY socks=${SOCKS_HOST}:${SOCKS_PORT} auth=$XRAY_SOCKS_AUTH" ;;
     enable)
         SCHEDULE="${2:-$DEFAULT_SCHEDULE}"
         mkdir -p "$(dirname "$CRON_FILE")"
         touch "$CRON_FILE"
         grep -v "$MARKER" "$CRON_FILE" > "$CRON_FILE.tmp" 2>/dev/null || true
-        printf '%s %s check # %s\n' "$SCHEDULE" "$0" "$MARKER" >> "$CRON_FILE.tmp"
-        cat "$CRON_FILE.tmp" > "$CRON_FILE"
-        rm -f "$CRON_FILE.tmp"
-        echo "Cron failover включён: $SCHEDULE"
+        echo "$SCHEDULE $0 check # $MARKER" >> "$CRON_FILE.tmp"
+        mv "$CRON_FILE.tmp" "$CRON_FILE"
+        if cron_running; then log "Cron уже запущен"; else log "ВНИМАНИЕ: cron не запущен; проверьте /opt/etc/init.d/S10cron start"; fi
+        log "Watchdog cron включён: $SCHEDULE"
         ;;
     disable)
         [ -f "$CRON_FILE" ] || exit 0
         grep -v "$MARKER" "$CRON_FILE" > "$CRON_FILE.tmp" 2>/dev/null || true
-        cat "$CRON_FILE.tmp" > "$CRON_FILE"
-        rm -f "$CRON_FILE.tmp"
-        echo "Cron failover отключён"
+        mv "$CRON_FILE.tmp" "$CRON_FILE"
+        log "Watchdog cron отключён"
         ;;
     run-primary) switch_to primary manual ;;
     run-backup) switch_to backup manual ;;
     probe-primary) probe_primary ;;
-    -h|--help|help) usage ;;
-    *) usage >&2; exit 2 ;;
+    *) usage; exit 1 ;;
 esac
