@@ -8,6 +8,7 @@ set -eu
 # explicit via vless-go-xray-core-update.
 
 XRAY_BIN_TARGET="${XRAY_BIN_TARGET:-/opt/sbin/xray}"
+XRAY_BIN_COMPAT="${XRAY_BIN_COMPAT:-/opt/bin/xray}"
 XRAY_CONFIG="${XRAY_CONFIG:-/opt/etc/xray/config.json}"
 XRAY_INIT="${XRAY_INIT:-/opt/etc/init.d/S24xray}"
 TMP_CLEANUP_DIRS="${TMP_CLEANUP_DIRS:-/opt/tmp/xray-go-direct-install /opt/tmp/xray-go-helper-profile}"
@@ -91,14 +92,30 @@ cleanup_staging() {
     done
 }
 
-ensure_xray_target_path() {
+link_or_copy_xray() {
+    src="$1"
+    dst="$2"
+    [ -n "$src" ] || return 1
+    [ -x "$src" ] || return 1
+    [ "$src" = "$dst" ] && return 0
+    mkdir -p "$(dirname "$dst")"
+    if [ ! -e "$dst" ]; then
+        ln -s "$src" "$dst" 2>/dev/null || cp "$src" "$dst"
+        chmod +x "$dst" 2>/dev/null || true
+        echo "Xray compatibility path created: $dst -> $src"
+    fi
+}
+
+ensure_xray_target_paths() {
     found="$(get_xray_bin)"
     [ -n "$found" ] || return 1
-    mkdir -p "$(dirname "$XRAY_BIN_TARGET")"
-    if [ "$found" != "$XRAY_BIN_TARGET" ] && [ ! -e "$XRAY_BIN_TARGET" ]; then
-        ln -s "$found" "$XRAY_BIN_TARGET" 2>/dev/null || cp "$found" "$XRAY_BIN_TARGET"
-        chmod +x "$XRAY_BIN_TARGET" 2>/dev/null || true
-        echo "Xray compatibility path created: $XRAY_BIN_TARGET -> $found"
+    link_or_copy_xray "$found" "$XRAY_BIN_TARGET" || true
+    # Some existing helpers search command -v xray or /opt/bin/xray, while newer
+    # direct checks prefer /opt/sbin/xray. Keep both paths compatible.
+    if [ -x "$XRAY_BIN_TARGET" ]; then
+        link_or_copy_xray "$XRAY_BIN_TARGET" "$XRAY_BIN_COMPAT" || true
+    else
+        link_or_copy_xray "$found" "$XRAY_BIN_COMPAT" || true
     fi
 }
 
@@ -142,6 +159,7 @@ cat <<EOF_INTRO
 == Xray Go initial Xray install ==
 Mode: $MODE
 Target path: $XRAY_BIN_TARGET
+Compat path: $XRAY_BIN_COMPAT
 Init script: $XRAY_INIT
 EOF_INTRO
 
@@ -153,7 +171,7 @@ if [ "$MODE" = "dry-run" ]; then
 fi
 
 if [ -n "$(get_xray_bin)" ]; then
-    ensure_xray_target_path || true
+    ensure_xray_target_paths || true
     install_xray_init
     echo "Xray already installed; no binary install/update performed."
     exit 0
@@ -179,7 +197,7 @@ else
     exit 1
 fi
 
-ensure_xray_target_path || { echo "ERROR: Xray package installed but xray binary was not found" >&2; exit 1; }
+ensure_xray_target_paths || { echo "ERROR: Xray package installed but xray binary was not found" >&2; exit 1; }
 install_xray_init
 
 XRAY_BIN="$(get_xray_bin)"
