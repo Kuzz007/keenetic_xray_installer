@@ -123,6 +123,8 @@ print_component() {
     printf '  %-32s %8s MB\n' "$label:" "$(kb_to_mb_1dp "$kb")"
 }
 
+XRAY_DIR="${XRAY_DIR:-/opt/etc/xray}"
+
 XRAY_BIN="$(xray_bin_path)"
 XRAY_BIN_KB=0
 [ -n "$XRAY_BIN" ] && XRAY_BIN_KB="$(path_kb "$XRAY_BIN")"
@@ -138,7 +140,27 @@ CORE_HELPERS_KB="$(path_kb \
     /opt/bin/xray-go-size-check \
     /opt/libexec/vless-go-lock.sh)"
 
-STATE_CONFIG_KB="$(path_kb /opt/etc/xray)"
+# Minimal state/config is intentionally a precise file list, not the whole
+# /opt/etc/xray directory. Existing full installs may keep large routing data,
+# old generated artifacts, or user files there; those must not inflate the
+# Minimal Go <=40 MB core budget.
+STATE_CONFIG_KB="$(path_kb \
+    "$XRAY_DIR/config.json" \
+    "$XRAY_DIR/xray-go.manifest" \
+    "$XRAY_DIR/xray-go.direct-install.plan" \
+    "$XRAY_DIR/xray-go.direct-init.plan" \
+    "$XRAY_DIR/vless-go.source" \
+    "$XRAY_DIR/vless-go.primary" \
+    "$XRAY_DIR/vless-go.backup" \
+    "$XRAY_DIR/vless-go.active" \
+    "$XRAY_DIR/vless-go.primary.selector" \
+    "$XRAY_DIR/vless-go.backup.selector" \
+    "$XRAY_DIR/vless-go-socks-auth.conf")"
+XRAY_DIR_TOTAL_KB="$(path_kb "$XRAY_DIR")"
+EXTRA_XRAY_DIR_KB=0
+if [ "$XRAY_DIR_TOTAL_KB" -gt "$STATE_CONFIG_KB" ]; then
+    EXTRA_XRAY_DIR_KB=$((XRAY_DIR_TOTAL_KB - STATE_CONFIG_KB))
+fi
 
 MINIMAL_CORE_KB=$((XRAY_BIN_KB + GO_RESOLVER_KB + CORE_HELPERS_KB + STATE_CONFIG_KB))
 
@@ -193,6 +215,8 @@ if [ "$JSON" = 1 ]; then
     printf ',"minimal_core_kb":%s' "$MINIMAL_CORE_KB"
     printf ',"full_steady_kb":%s' "$FULL_STEADY_KB"
     printf ',"manual_only_kb":%s' "$MANUAL_ONLY_KB"
+    printf ',"minimal_state_config_kb":%s' "$STATE_CONFIG_KB"
+    printf ',"extra_xray_dir_kb":%s' "$EXTRA_XRAY_DIR_KB"
     printf ',"reclaimable_kb":%s' "$RECLAIMABLE_KB"
     printf ',"full_with_reclaimable_kb":%s' "$FULL_WITH_RECLAIMABLE_KB"
     printf ',"minimal_status":"%s"' "$MINIMAL_STATUS"
@@ -220,7 +244,8 @@ print_component "Xray binary" "$XRAY_BIN_KB"
 [ -n "$XRAY_BIN" ] && echo "    path: $XRAY_BIN"
 print_component "Go resolver" "$GO_RESOLVER_KB"
 print_component "minimal core helpers" "$CORE_HELPERS_KB"
-print_component "state/config" "$STATE_CONFIG_KB"
+print_component "minimal state/config" "$STATE_CONFIG_KB"
+print_component "extra xray dir data" "$EXTRA_XRAY_DIR_KB"
 print_component "optional/full-lite helpers" "$OPTIONAL_HELPERS_KB"
 print_component "manual-only helpers" "$MANUAL_ONLY_KB"
 print_component "init/cron" "$INIT_CRON_KB"
@@ -245,6 +270,7 @@ printf '  %-32s %8s MB\n' "/opt free:" "$(kb_to_mb_1dp "${OPT_FREE_KB:-0}")"
 echo
 echo "== Policy =="
 echo "Minimal Go must keep subscriptions/bot-link flow and fit the 40 MB target."
+echo "Minimal state/config counts only xray-go core files, not the whole /opt/etc/xray directory."
 echo "xray-go-size-check is part of Minimal so the installer can run post-install space-gate."
 echo "Post-install expansion may add watchdog/recovery/summary/basic checks if space allows."
 echo "Xray-core update helper is manual-only and excluded from Minimal/full-lite auto expansion."
@@ -267,6 +293,10 @@ elif [ "$FULL_STATUS" = WARN ]; then
     echo "[WARN] Full-lite steady estimate is near budget. Auto-expansion should be conservative."
 else
     echo "[OK] Full-lite steady estimate is within budget."
+fi
+
+if [ "$EXTRA_XRAY_DIR_KB" -gt 1024 ]; then
+    echo "[INFO] Extra /opt/etc/xray data detected ($(kb_to_mb_1dp "$EXTRA_XRAY_DIR_KB") MB). It is excluded from Minimal budget; inspect before cleanup."
 fi
 
 if [ "$MANUAL_ONLY_KB" -gt 0 ]; then
