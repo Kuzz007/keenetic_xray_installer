@@ -4,7 +4,7 @@ import "strings"
 
 func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 	if cb.From.ID != s.cfg.AdminUserID {
-		s.answerCallback(cb.ID, "Доступ запрещён")
+		s.answerCallback(cb.ID, "Access denied")
 		return
 	}
 	chatID := s.cfg.AdminUserID
@@ -134,9 +134,7 @@ func (s *Server) editMenuOnly(callbackID string, chatID int64, messageID int, te
 	if messageID > 0 && s.editMessageWithKeyboard(chatID, messageID, text, keyboard) {
 		return true
 	}
-	if callbackID != "" {
-		s.answerCallback(callbackID, "Не удалось обновить это сообщение. Открой /menu заново.")
-	}
+	s.answerCallback(callbackID, "Не удалось обновить это сообщение. Открой /menu заново.")
 	return false
 }
 
@@ -175,7 +173,7 @@ func (s *Server) agentInstallMenuView(routerID string) (string, inlineKeyboard, 
 	rt := s.cfg.Routers[routerID]
 	s.mu.Unlock()
 	if rt == nil {
-		return "⚠️ Роутер не найден: " + routerID, s.routersKeyboardWithUpdateScripts(), false
+		return "⚠️ Router not found: " + routerID, s.routersKeyboardWithUpdateScripts(), false
 	}
 	msg := strings.TrimSpace("📦 Установка агента\n\n📡 " + rt.Name + "\nID: " + rt.ID + "\n\nРекомендуемый вариант: ⚙️ Auto install.\n\nОн сам определит архитектуру роутера и выберет агент:\n• ARM64 / aarch64 → Go-agent\n• MIPS / MT7621 / старые Keenetic → Legacy shell-agent\n\n🧩 Legacy shell-agent оставлен как ручной вариант для диагностики и старых MIPS.")
 	return msg, agentInstallKeyboard(routerID), true
