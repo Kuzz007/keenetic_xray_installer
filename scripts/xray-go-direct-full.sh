@@ -11,8 +11,10 @@ set -e
 # Policy:
 #   full-lite must not install vless-go-xray-core-update. Xray-core update remains
 #   manual-only and explicit.
+#   full-lite must not install SOCKS auth by default. Local SOCKS is plain unless
+#   auth is added later explicitly.
 
-XRAY_GO_DIRECT_FULL_VERSION="${XRAY_GO_DIRECT_FULL_VERSION:-0.1.2-direct-full-profile-aware}"
+XRAY_GO_DIRECT_FULL_VERSION="${XRAY_GO_DIRECT_FULL_VERSION:-0.1.3-direct-full-no-socks-auth}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
 DIRECT_INSTALL_URL="${DIRECT_INSTALL_URL:-${REPO_BASE}/scripts/xray-go-direct-install.sh}"
@@ -30,6 +32,8 @@ CRON_FILE="${CRON_FILE:-/opt/var/spool/cron/crontabs/root}"
 RECOVERY_CRON_SCHEDULE="${RECOVERY_CRON_SCHEDULE:-7 * * * *}"
 RECOVERY_CRON_MARKER="${RECOVERY_CRON_MARKER:-vless-go-hourly-recover}"
 XRAY_CORE_UPDATE_CMD="${XRAY_CORE_UPDATE_CMD:-/opt/bin/vless-go-xray-core-update}"
+SOCKS_AUTH_CMD="${SOCKS_AUTH_CMD:-/opt/bin/vless-go-socks-auth}"
+SOCKS_AUTH_CONF="${SOCKS_AUTH_CONF:-/opt/etc/xray/vless-go-socks-auth.conf}"
 TMP_DIR="${TMPDIR:-/opt/tmp}"
 
 MODE="dry-run"
@@ -62,6 +66,7 @@ Notes:
 
 Policy:
   full-lite excludes vless-go-xray-core-update. Xray-core update is manual-only.
+  full-lite excludes SOCKS auth by default. SOCKS auth is optional-only.
 USAGE
 }
 
@@ -231,6 +236,23 @@ remove_manual_only_helper_if_present() {
     fi
 }
 
+remove_socks_auth_if_present() {
+    echo
+    echo "== full-lite SOCKS auth policy =="
+    if [ -e "$SOCKS_AUTH_CMD" ] || [ -L "$SOCKS_AUTH_CMD" ]; then
+        rm -f "$SOCKS_AUTH_CMD"
+        echo "Removed optional SOCKS auth helper from full-lite layer: $SOCKS_AUTH_CMD"
+    else
+        echo "[OK] optional SOCKS auth helper absent from full-lite layer."
+    fi
+    if [ -e "$SOCKS_AUTH_CONF" ]; then
+        rm -f "$SOCKS_AUTH_CONF"
+        echo "Removed SOCKS auth config from default full-lite layer: $SOCKS_AUTH_CONF"
+    else
+        echo "[OK] SOCKS auth config absent."
+    fi
+}
+
 direct_full_post_check() {
     echo
     echo "== Direct full-lite post-check =="
@@ -256,7 +278,6 @@ direct_full_post_check() {
         /opt/bin/xray-go \
         /opt/bin/vless-go-update \
         /opt/bin/vless-go-failover \
-        /opt/bin/vless-go-socks-auth \
         /opt/bin/failover-go \
         /opt/bin/xray-go-size-check \
         /opt/bin/xray-go-space-gate \
@@ -276,6 +297,13 @@ direct_full_post_check() {
         fail=$((fail + 1))
     else
         echo "[OK] manual-only Xray-core updater absent from full-lite layer"
+    fi
+
+    if [ -e "$SOCKS_AUTH_CMD" ] || [ -e "$SOCKS_AUTH_CONF" ]; then
+        echo "[FAIL] SOCKS auth must be absent from default full-lite layer"
+        fail=$((fail + 1))
+    else
+        echo "[OK] SOCKS auth absent from default full-lite layer"
     fi
 
     [ "$fail" -eq 0 ] || exit 1
@@ -335,6 +363,11 @@ if [ -x "$XRAY_CORE_UPDATE_CMD" ]; then
 else
     echo "[OK] manual-only helper absent: $XRAY_CORE_UPDATE_CMD"
 fi
+if [ -e "$SOCKS_AUTH_CMD" ] || [ -e "$SOCKS_AUTH_CONF" ]; then
+    echo "[WARN] SOCKS auth currently present and will be removed from default full-lite"
+else
+    echo "[OK] SOCKS auth absent from default full-lite state"
+fi
 
 echo
 echo "== Planned full-lite direct-install sequence =="
@@ -343,13 +376,14 @@ cat <<'EOF_STEPS'
 2. install Go resolver binary only when current binary does not match manifest sha256
 3. install profile-aware full-lite helpers
 4. remove stale manual-only Xray-core updater helper if present
-5. write direct manifest
-6. run profile-aware direct full-lite post-check
-7. stage/install watchdog init/service layer
-8. enable hourly recovery cron by marker
-9. restart watchdog daemon so updated helper logic is active
-10. run direct-init post-check after restart
-11. print final xray-go commands for user validation
+5. remove stale SOCKS auth helper/config from default full-lite if present
+6. write direct manifest
+7. run profile-aware direct full-lite post-check
+8. stage/install watchdog init/service layer
+9. enable hourly recovery cron by marker
+10. restart watchdog daemon so updated helper logic is active
+11. run direct-init post-check after restart
+12. print final xray-go commands for user validation
 EOF_STEPS
 
 if [ "$SHOW_COMMANDS" = "1" ]; then
@@ -359,7 +393,7 @@ if [ "$SHOW_COMMANDS" = "1" ]; then
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-detect-only
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --install-binary
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/xray-go-direct-helper-profile.sh | sh -s -- --profile full-lite --apply --yes
-rm -f /opt/bin/vless-go-xray-core-update
+rm -f /opt/bin/vless-go-xray-core-update /opt/bin/vless-go-socks-auth /opt/etc/xray/vless-go-socks-auth.conf
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --write-manifest -y
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-experimental --install-watchdog-init -y
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-experimental --enable-recovery-cron --schedule '$RECOVERY_CRON_SCHEDULE' -y
@@ -393,6 +427,7 @@ run_remote_helper "direct detect-only" "$DIRECT_INSTALL_URL" --detect-only
 maybe_install_binary
 run_remote_helper "direct install profile-aware full-lite helpers" "$HELPER_PROFILE_URL" --profile full-lite --apply --yes
 remove_manual_only_helper_if_present
+remove_socks_auth_if_present
 run_remote_helper "direct write manifest" "$DIRECT_INSTALL_URL" --write-manifest -y
 direct_full_post_check
 run_remote_helper "direct init install watchdog" "$DIRECT_INIT_URL" --install-watchdog-init -y
@@ -404,6 +439,7 @@ echo
 echo "Direct full-lite apply complete."
 echo "No first-run setup was executed. VLESS sources were not edited."
 echo "Xray-core updater helper was not installed by full-lite."
+echo "SOCKS auth was not installed by default full-lite."
 echo "Watchdog daemon was restarted after helper/init update."
 echo "Final validation commands:"
 echo "  xray-go manifest"
