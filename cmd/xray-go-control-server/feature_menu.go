@@ -9,8 +9,7 @@ func featuresFromStatus(status string) routerFeatures {
 	idx := strings.Index(status, "features:")
 	if idx < 0 {
 		// Backward compatibility: old agents did not report features,
-		// so keep showing the normal control menu. New profile-install buttons are
-		// shown only when the agent explicitly advertises profile_install.
+		// so keep showing the normal control menu.
 		features["legacy_full_menu"] = true
 		return features
 	}
@@ -102,13 +101,6 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 	}
 	if len(updateRow) > 0 {
 		rows = append(rows, updateRow)
-	}
-
-	if f["profile_install"] {
-		rows = append(rows, []inlineButton{
-			{Text: "🧩 minimal_go", CallbackData: "install-profile:minimal_go:" + routerID},
-			{Text: "🚀 full_go", CallbackData: "install-profile:full_go:" + routerID},
-		})
 	}
 
 	if f.has("reboot") {
