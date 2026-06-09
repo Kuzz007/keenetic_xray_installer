@@ -90,11 +90,45 @@ patch_xhttp_support() {
             print "if [ \"$TYPE\" = \"tcp\" ] && [ -n \"$HEADER_TYPE\" ] && [ \"$HEADER_TYPE\" != \"none\" ]; then"
             next
         }
+        $0 == "    cat > \"$FAILOVER_MENU_CMD\" <<'\''MENU'\''" {
+            in_menu=1
+            print
+            next
+        }
+        in_menu && $0 == "#!/bin/sh" && !menu_guard_done {
+            print
+            print ""
+            print "if [ ! -t 0 ]; then"
+            print "    echo \"failover menu is interactive only.\""
+            print "    echo \"Use vless-failover-status for non-interactive status checks.\""
+            print "    exit 2"
+            print "fi"
+            print ""
+            menu_guard_done=1
+            next
+        }
+        in_menu && $0 == "    IFS= read -r _" {
+            print "    IFS= read -r _ || exit 0"
+            next
+        }
+        in_menu && $0 == "    IFS= read -r choice" {
+            print "    if ! IFS= read -r choice; then"
+            print "        echo \"EOF: exiting failover menu.\""
+            print "        exit 0"
+            print "    fi"
+            next
+        }
+        in_menu && $0 == "MENU" { in_menu=0 }
         { print }
     ' "$OUT" > "$PATCHED"
 
     if ! grep -q '"xhttpSettings"' "$PATCHED"; then
         echo "ERROR: failed to patch Minimal installer with XHTTP support." >&2
+        return 1
+    fi
+
+    if ! grep -q 'failover menu is interactive only' "$PATCHED"; then
+        echo "ERROR: failed to patch Minimal menu non-interactive guard." >&2
         return 1
     fi
 
