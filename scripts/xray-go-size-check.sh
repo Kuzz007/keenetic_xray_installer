@@ -139,6 +139,7 @@ CORE_HELPERS_KB="$(path_kb \
     /opt/bin/xray-go-manifest \
     /opt/bin/xray-go-size-check \
     /opt/bin/xray-go-space-gate \
+    /opt/bin/xray-go-setup \
     /opt/libexec/vless-go-lock.sh)"
 
 # Minimal state/config is intentionally a precise file list, not the whole
@@ -272,7 +273,7 @@ echo
 echo "== Policy =="
 echo "Minimal Go must keep subscriptions/bot-link flow and fit the 40 MB target."
 echo "Minimal state/config counts only xray-go core files, not the whole /opt/etc/xray directory."
-echo "xray-go-size-check and xray-go-space-gate are part of Minimal so the installer can run post-install adaptive expansion."
+echo "xray-go-setup, xray-go-size-check and xray-go-space-gate are part of Minimal so the installer can run first-run setup and post-install adaptive expansion."
 echo "Post-install expansion may add watchdog/recovery/summary/basic checks if space allows."
 echo "Xray-core update helper is manual-only and excluded from Minimal/full-lite auto expansion."
 echo "Xray-core update may create large Xray binary backups and must stay explicit opt-in."
