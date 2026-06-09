@@ -135,6 +135,7 @@ CORE_HELPERS_KB="$(path_kb \
     /opt/bin/vless-go-socks-auth \
     /opt/bin/failover-go \
     /opt/bin/xray-go-manifest \
+    /opt/bin/xray-go-size-check \
     /opt/libexec/vless-go-lock.sh)"
 
 STATE_CONFIG_KB="$(path_kb /opt/etc/xray)"
@@ -152,8 +153,7 @@ OPTIONAL_HELPERS_KB="$(path_kb \
     /opt/bin/vless-go-cleanup \
     /opt/bin/vless-go-auto-update \
     /opt/bin/xray-go-direct-full \
-    /opt/bin/xray-go-direct-uninstall \
-    /opt/bin/xray-go-size-check)"
+    /opt/bin/xray-go-direct-uninstall)"
 
 MANUAL_ONLY_KB="$(path_kb /opt/bin/vless-go-xray-core-update)"
 
@@ -245,6 +245,7 @@ printf '  %-32s %8s MB\n' "/opt free:" "$(kb_to_mb_1dp "${OPT_FREE_KB:-0}")"
 echo
 echo "== Policy =="
 echo "Minimal Go must keep subscriptions/bot-link flow and fit the 40 MB target."
+echo "xray-go-size-check is part of Minimal so the installer can run post-install space-gate."
 echo "Post-install expansion may add watchdog/recovery/summary/basic checks if space allows."
 echo "Xray-core update helper is manual-only and excluded from Minimal/full-lite auto expansion."
 echo "Xray-core update may create large Xray binary backups and must stay explicit opt-in."
