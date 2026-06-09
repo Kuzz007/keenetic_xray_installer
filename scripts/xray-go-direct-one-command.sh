@@ -7,11 +7,13 @@ set -e
 #   1. direct full-lite code/helper/init apply
 #   2. interactive setup wizard only when state/source files are missing
 #   3. initial Xray binary install when missing
-#   4. active config generation and service restart when possible
-#   5. staging cleanup and size/policy summary
+#   4. disable/remove SOCKS auth leftovers
+#   5. active config generation and service restart when possible
+#   6. staging cleanup and size/policy summary
 #
 # Xray-core update remains manual-only. Initial install runs only when Xray is
 # missing and does not install vless-go-xray-core-update.
+# SOCKS auth is optional only and is removed from the default one-command flow.
 
 REPO_BRANCH="${REPO_BRANCH:-main}"
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
@@ -21,6 +23,7 @@ SETUP_WIZARD_CMD="${SETUP_WIZARD_CMD:-/opt/bin/xray-go-setup}"
 SIZE_CHECK_CMD="${SIZE_CHECK_CMD:-/opt/bin/xray-go-size-check}"
 FAILOVER_CMD="${FAILOVER_CMD:-/opt/bin/vless-go-failover}"
 XRAY_CORE_UPDATE_CMD="${XRAY_CORE_UPDATE_CMD:-/opt/bin/vless-go-xray-core-update}"
+SOCKS_AUTH_CMD="${SOCKS_AUTH_CMD:-/opt/bin/vless-go-socks-auth}"
 XRAY_BIN="${XRAY_BIN:-/opt/sbin/xray}"
 XRAY_INIT="${XRAY_INIT:-/opt/etc/init.d/S24xray}"
 WATCHDOG_INIT="${WATCHDOG_INIT:-/opt/etc/init.d/S26vless-go-watchdog}"
@@ -36,6 +39,7 @@ PRIMARY_SELECTOR="$XRAY_DIR/vless-go.primary.selector"
 BACKUP_SELECTOR="$XRAY_DIR/vless-go.backup.selector"
 MANIFEST_FILE="$XRAY_DIR/xray-go.manifest"
 CONFIG_FILE="$XRAY_DIR/config.json"
+SOCKS_AUTH_CONF="$XRAY_DIR/vless-go-socks-auth.conf"
 
 MODE="apply"
 ASSUME_YES="0"
@@ -54,14 +58,16 @@ What it does:
   1. installs/updates direct full-lite code/helper/init layer
   2. runs interactive setup wizard only if source/state files are missing
   3. installs Xray binary only if missing
-  4. generates active config and restarts Xray/watchdog when possible
-  5. removes direct staging and prints size/policy summary
+  4. removes default SOCKS auth leftovers
+  5. generates active config and restarts Xray/watchdog when possible
+  6. removes direct staging and prints size/policy summary
 
 Safety:
   Requires --yes because it changes the direct helper/init layer.
   Setup wizard still protects existing source/state files from overwrite.
   Raw VLESS/subscription values are not printed after input.
   Xray-core update helper is manual-only and must not remain installed.
+  SOCKS auth is plain/no-auth by default; add auth later explicitly if needed.
   Use --keep-stage only for debugging.
 USAGE
 }
@@ -200,6 +206,23 @@ install_xray_if_needed() {
     run_remote_helper "initial Xray install" "$XRAY_INITIAL_URL" --apply --yes
 }
 
+remove_socks_auth_defaults() {
+    echo
+    echo "== SOCKS auth default policy =="
+    if [ -e "$SOCKS_AUTH_CONF" ]; then
+        rm -f "$SOCKS_AUTH_CONF"
+        echo "[OK] removed SOCKS auth config: $SOCKS_AUTH_CONF"
+    else
+        echo "[OK] SOCKS auth config absent"
+    fi
+    if [ -e "$SOCKS_AUTH_CMD" ] || [ -L "$SOCKS_AUTH_CMD" ]; then
+        rm -f "$SOCKS_AUTH_CMD"
+        echo "[OK] removed optional SOCKS auth helper: $SOCKS_AUTH_CMD"
+    else
+        echo "[OK] SOCKS auth helper absent"
+    fi
+}
+
 generate_active_config_if_possible() {
     echo
     echo "== generate active Xray config =="
@@ -262,6 +285,12 @@ print_final_summary() {
         echo "[OK] manual-only Xray-core updater absent"
     fi
 
+    if [ -e "$SOCKS_AUTH_CONF" ] || [ -x "$SOCKS_AUTH_CMD" ]; then
+        echo "[FAIL] SOCKS auth leftover detected"
+    else
+        echo "[OK] SOCKS auth disabled/absent"
+    fi
+
     if [ -x "$XRAY_BIN" ]; then
         echo "[OK] Xray binary: $XRAY_BIN"
         "$XRAY_BIN" version 2>/dev/null | sed -n '1,2p' || true
@@ -291,6 +320,7 @@ EOF_INTRO
 run_remote_helper "direct full-lite apply" "$DIRECT_FULL_URL" --apply --yes
 run_setup_if_needed
 install_xray_if_needed
+remove_socks_auth_defaults
 generate_active_config_if_possible
 cleanup_success_staging
 print_final_summary
