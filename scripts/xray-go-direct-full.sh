@@ -1,17 +1,23 @@
 #!/bin/sh
 set -e
 
-# xray-go-direct-full - experimental full direct-install orchestrator.
+# xray-go-direct-full - full-lite direct-install orchestrator.
 #
 # Default mode is read-only dry-run. Apply mode is explicit and requires --yes.
-# The orchestrator runs already validated direct-install/direct-init helpers in a
-# safe order. It does not run first setup and does not edit VLESS sources.
+# The orchestrator installs/updates the Go resolver, installs profile-aware
+# full-lite helpers, writes a direct manifest, and manages watchdog/recovery init.
+# It does not run first setup and does not edit VLESS sources.
+#
+# Policy:
+#   full-lite must not install vless-go-xray-core-update. Xray-core update remains
+#   manual-only and explicit.
 
-XRAY_GO_DIRECT_FULL_VERSION="${XRAY_GO_DIRECT_FULL_VERSION:-0.1.1-direct-full-watchdog-restart}"
+XRAY_GO_DIRECT_FULL_VERSION="${XRAY_GO_DIRECT_FULL_VERSION:-0.1.2-direct-full-profile-aware}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
 DIRECT_INSTALL_URL="${DIRECT_INSTALL_URL:-${REPO_BASE}/scripts/xray-go-direct-install.sh}"
 DIRECT_INIT_URL="${DIRECT_INIT_URL:-${REPO_BASE}/scripts/xray-go-direct-init.sh}"
+HELPER_PROFILE_URL="${HELPER_PROFILE_URL:-${REPO_BASE}/scripts/xray-go-direct-helper-profile.sh}"
 
 GO_RESOLVER="${GO_RESOLVER:-/opt/bin/xray-failover-go}"
 MANIFEST_FILE="${MANIFEST_FILE:-/opt/etc/xray/xray-go.manifest}"
@@ -23,6 +29,7 @@ RECOVERY_CMD="${RECOVERY_CMD:-/opt/bin/vless-go-recover}"
 CRON_FILE="${CRON_FILE:-/opt/var/spool/cron/crontabs/root}"
 RECOVERY_CRON_SCHEDULE="${RECOVERY_CRON_SCHEDULE:-7 * * * *}"
 RECOVERY_CRON_MARKER="${RECOVERY_CRON_MARKER:-vless-go-hourly-recover}"
+XRAY_CORE_UPDATE_CMD="${XRAY_CORE_UPDATE_CMD:-/opt/bin/vless-go-xray-core-update}"
 TMP_DIR="${TMPDIR:-/opt/tmp}"
 
 MODE="dry-run"
@@ -31,15 +38,15 @@ ASSUME_YES="0"
 
 usage() {
     cat <<'USAGE'
-xray-go-direct-full - experimental full direct-install orchestrator
+xray-go-direct-full - full-lite direct-install orchestrator
 
 Usage:
   xray-go-direct-full --dry-run
   xray-go-direct-full --apply --yes
 
 Modes:
-  --dry-run              Print full v2 direct-install plan; make no changes
-  --apply                Run the verified direct full sequence; requires --yes
+  --dry-run              Print full-lite direct-install plan; make no changes
+  --apply                Run the verified direct full-lite sequence; requires --yes
 
 Options:
   --schedule '7 * * * *' Recovery cron schedule
@@ -48,10 +55,13 @@ Options:
   -h, --help             Show help
 
 Notes:
-  Apply mode installs/updates direct binary, helpers, manifest, watchdog init and
-  recovery cron using the smaller direct helpers. It does not run first setup and
+  Apply mode installs/updates direct binary, profile-aware full-lite helpers,
+  manifest, watchdog init and recovery cron. It does not run first setup and
   does not edit VLESS sources. It restarts the watchdog service after helper/init
   updates so the daemon uses the freshly installed recovery logic.
+
+Policy:
+  full-lite excludes vless-go-xray-core-update. Xray-core update is manual-only.
 USAGE
 }
 
@@ -124,12 +134,21 @@ check_line() {
     fi
 }
 
+cache_bust_url() {
+    url="$1"
+    cb="$(date +%s 2>/dev/null || echo $$)"
+    case "$url" in
+        *\?*) printf '%s&cb=%s\n' "$url" "$cb" ;;
+        *) printf '%s?cb=%s\n' "$url" "$cb" ;;
+    esac
+}
+
 fetch_url() {
     url="$1"
     output="$2"
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL -H 'Cache-Control: no-cache' -o "$output" "$url"
+        curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' -o "$output" "$url"
         return $?
     fi
 
@@ -153,10 +172,11 @@ run_remote_helper() {
 
     mkdir -p "$TMP_DIR"
     tmp="${TMP_DIR}/xray-go-direct-full-$(echo "$label" | tr ' /' '__').$$.sh"
+    effective_url="$(cache_bust_url "$url")"
     echo
     echo "== $label =="
-    echo "Downloading: $url"
-    fetch_url "$url" "$tmp"
+    echo "Downloading: $effective_url"
+    fetch_url "$effective_url" "$tmp"
     looks_like_shell_script "$tmp" || { echo "ERROR: downloaded $label is not a shell script" >&2; rm -f "$tmp" 2>/dev/null || true; exit 1; }
     sh -n "$tmp" || { echo "ERROR: downloaded $label failed sh -n" >&2; rm -f "$tmp" 2>/dev/null || true; exit 1; }
     chmod +x "$tmp"
@@ -200,6 +220,67 @@ maybe_install_binary() {
     run_remote_helper "direct install binary" "$DIRECT_INSTALL_URL" --install-binary
 }
 
+remove_manual_only_helper_if_present() {
+    echo
+    echo "== full-lite manual-only policy =="
+    if [ -e "$XRAY_CORE_UPDATE_CMD" ] || [ -L "$XRAY_CORE_UPDATE_CMD" ]; then
+        rm -f "$XRAY_CORE_UPDATE_CMD"
+        echo "Removed manual-only helper from full-lite layer: $XRAY_CORE_UPDATE_CMD"
+    else
+        echo "[OK] manual-only Xray-core updater is absent from full-lite layer."
+    fi
+}
+
+direct_full_post_check() {
+    echo
+    echo "== Direct full-lite post-check =="
+    fail=0
+
+    if [ -x "$GO_RESOLVER" ]; then
+        echo "[OK] Go resolver executable: $GO_RESOLVER"
+    else
+        echo "[FAIL] Go resolver missing: $GO_RESOLVER"
+        fail=$((fail + 1))
+    fi
+
+    if [ -s "$MANIFEST_FILE" ]; then
+        echo "[OK] manifest present: $MANIFEST_FILE"
+        mode="$(manifest_value INSTALL_MODE)"
+        [ "$mode" = "direct" ] && echo "[OK] manifest install mode: direct" || echo "[WARN] manifest install mode: ${mode:-unknown}"
+    else
+        echo "[FAIL] manifest missing: $MANIFEST_FILE"
+        fail=$((fail + 1))
+    fi
+
+    for helper in \
+        /opt/bin/xray-go \
+        /opt/bin/vless-go-update \
+        /opt/bin/vless-go-failover \
+        /opt/bin/vless-go-socks-auth \
+        /opt/bin/failover-go \
+        /opt/bin/xray-go-size-check \
+        /opt/bin/xray-go-space-gate \
+        /opt/bin/xray-go-setup \
+        /opt/bin/vless-go-watchdog \
+        /opt/bin/vless-go-recover \
+        /opt/bin/vless-go-doctor \
+        /opt/bin/vless-go-doctor-summary \
+        /opt/bin/vless-go-privacy-check \
+        /opt/bin/xray-go-safety-check
+    do
+        [ -x "$helper" ] && echo "[OK] helper executable: $helper" || echo "[WARN] helper missing: $helper"
+    done
+
+    if [ -x "$XRAY_CORE_UPDATE_CMD" ]; then
+        echo "[FAIL] manual-only helper must not be installed by full-lite: $XRAY_CORE_UPDATE_CMD"
+        fail=$((fail + 1))
+    else
+        echo "[OK] manual-only Xray-core updater absent from full-lite layer"
+    fi
+
+    [ "$fail" -eq 0 ] || exit 1
+}
+
 ENTWARE_ARCH="${ENTWARE_ARCH:-$(detect_entware_arch)}"
 [ -n "$ENTWARE_ARCH" ] || ENTWARE_ARCH="$(uname -m 2>/dev/null || echo unknown)"
 GO_ASSET_NAME="${GO_ASSET_NAME:-$(asset_name_for_arch "$ENTWARE_ARCH") }"
@@ -217,6 +298,7 @@ Repository branch: $REPO_BRANCH
 Entware architecture: $ENTWARE_ARCH
 Go asset: ${GO_ASSET_NAME:-unsupported}
 Direct install helper: $DIRECT_INSTALL_URL
+Helper profile installer: $HELPER_PROFILE_URL
 Direct init helper: $DIRECT_INIT_URL
 Recovery cron schedule: $RECOVERY_CRON_SCHEDULE
 EOF_PLAN
@@ -248,20 +330,26 @@ if [ -f "$CRON_FILE" ] && grep -q "$RECOVERY_CRON_MARKER" "$CRON_FILE" 2>/dev/nu
 else
     echo "[WARN] recovery cron marker not found: $RECOVERY_CRON_MARKER"
 fi
+if [ -x "$XRAY_CORE_UPDATE_CMD" ]; then
+    echo "[WARN] manual-only helper currently present and will be removed from full-lite: $XRAY_CORE_UPDATE_CMD"
+else
+    echo "[OK] manual-only helper absent: $XRAY_CORE_UPDATE_CMD"
+fi
 
 echo
-echo "== Planned full direct-install sequence =="
+echo "== Planned full-lite direct-install sequence =="
 cat <<'EOF_STEPS'
 1. direct-install detect-only
 2. install Go resolver binary only when current binary does not match manifest sha256
-3. install shell helpers after staging + sh -n verification
-4. write direct manifest
-5. run direct post-check
-6. stage/install watchdog init/service layer
-7. enable hourly recovery cron by marker
-8. restart watchdog daemon so updated helper logic is active
-9. run direct-init post-check after restart
-10. print final xray-go commands for user validation
+3. install profile-aware full-lite helpers
+4. remove stale manual-only Xray-core updater helper if present
+5. write direct manifest
+6. run profile-aware direct full-lite post-check
+7. stage/install watchdog init/service layer
+8. enable hourly recovery cron by marker
+9. restart watchdog daemon so updated helper logic is active
+10. run direct-init post-check after restart
+11. print final xray-go commands for user validation
 EOF_STEPS
 
 if [ "$SHOW_COMMANDS" = "1" ]; then
@@ -270,19 +358,19 @@ if [ "$SHOW_COMMANDS" = "1" ]; then
     cat <<EOF_CMDS
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-detect-only
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --install-binary
-curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --install-helpers
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/xray-go-direct-helper-profile.sh | sh -s -- --profile full-lite --apply --yes
+rm -f /opt/bin/vless-go-xray-core-update
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --write-manifest -y
-curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-experimental --post-check
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-experimental --install-watchdog-init -y
-/opt/etc/init.d/S26vless-go-watchdog restart
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-experimental --enable-recovery-cron --schedule '$RECOVERY_CRON_SCHEDULE' -y
+/opt/etc/init.d/S26vless-go-watchdog restart
 curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh -s -- --direct-init-post-check
 EOF_CMDS
 fi
 
 if [ "$MODE" = "dry-run" ]; then
     echo
-    echo "Direct full dry-run complete. No changes made."
+    echo "Direct full-lite dry-run complete. No changes made."
     exit 0
 fi
 
@@ -300,22 +388,25 @@ fi
 [ -n "$GO_ASSET_NAME" ] || { echo "ERROR: unsupported architecture for Go resolver: $ENTWARE_ARCH" >&2; exit 1; }
 
 echo
-echo "== Applying full direct-install sequence =="
+echo "== Applying full-lite direct-install sequence =="
 run_remote_helper "direct detect-only" "$DIRECT_INSTALL_URL" --detect-only
 maybe_install_binary
-run_remote_helper "direct install helpers" "$DIRECT_INSTALL_URL" --install-helpers
+run_remote_helper "direct install profile-aware full-lite helpers" "$HELPER_PROFILE_URL" --profile full-lite --apply --yes
+remove_manual_only_helper_if_present
 run_remote_helper "direct write manifest" "$DIRECT_INSTALL_URL" --write-manifest -y
-run_remote_helper "direct post-check" "$DIRECT_INSTALL_URL" --post-check
+direct_full_post_check
 run_remote_helper "direct init install watchdog" "$DIRECT_INIT_URL" --install-watchdog-init -y
 run_remote_helper "direct init enable recovery cron" "$DIRECT_INIT_URL" --enable-recovery-cron --schedule "$RECOVERY_CRON_SCHEDULE" -y
 restart_watchdog_if_present
 run_remote_helper "direct init post-check" "$DIRECT_INIT_URL" --post-check
 
 echo
-echo "Direct full apply complete."
+echo "Direct full-lite apply complete."
 echo "No first-run setup was executed. VLESS sources were not edited."
+echo "Xray-core updater helper was not installed by full-lite."
 echo "Watchdog daemon was restarted after helper/init update."
 echo "Final validation commands:"
 echo "  xray-go manifest"
 echo "  xray-go recover status"
 echo "  xray-go doctor --support"
+echo "  xray-go size-check"
