@@ -141,7 +141,7 @@ xray-go uninstall --dry-run
 
 ---
 
-## Что установлено в Full Go
+## Что установлено в Full Go и Minimal Go
 
 Full Go подходит для обычной установки на USB/SSD или при достаточном месте во встроенной памяти.
 
@@ -149,6 +149,7 @@ Full Go подходит для обычной установки на USB/SSD �
 
 - прямые `vless://` ссылки;
 - HTTP/HTTPS subscription sources;
+- bot/sub-link flow;
 - выбор профиля из подписки;
 - основной и резервный профиль;
 - automatic failover;
@@ -162,7 +163,7 @@ Full Go подходит для обычной установки на USB/SSD �
 - menu helper `failover-go`;
 - единый wrapper `xray-go`.
 
-Minimal Go остаётся лёгким профилем для роутеров с малым `/opt`: без тяжёлых зависимостей, без `python3`, без подписок и без cron, но с primary/backup, failover, Proxy0 и SOCKS5.
+Minimal Go остаётся лёгким профилем для роутеров с малым `/opt`. Цель Minimal Go — installed footprint до 40 MB, но с сохранением HTTP/HTTPS подписок, bot/sub-link flow, выбора профиля из подписки, primary/backup, manual failover, Proxy0 и SOCKS5. Экономия достигается не удалением подписок, а отсутствием тяжёлого watchdog/recovery/cron/doctor/history/update-core/Web UI/Agent слоя.
 
 Подробнее о профилях: `docs/modes.md`.
 
@@ -219,76 +220,12 @@ Web UI не входит в базовую установку и ставитс�
 vless-go-web-install
 ```
 
-Для существующих установок:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/vless-go-web-install.sh | sh
-```
-
-Web UI должен быть доступен только в доверенной локальной сети. Подробности: `docs/web-ui.md`.
+Web UI должен быть доступен только из доверенной локальной сети и не является частью обязательного router core.
 
 ---
 
-## Совместимость v1: IPK/feed и legacy
+## Legacy / old_go
 
-IPK/feed остаётся v1 compatibility mode для существующих Full Go установок. Новая v2-линия развивается вокруг direct-install.
+`legacy/` и `old_go/` заморожены. Они остаются для истории и совместимости, но v2-разработка идёт через `install.sh`, Full/Minimal Go profiles и direct-install.
 
-Legacy и old_go считаются frozen archive:
-
-- не переписываются;
-- не оптимизируются;
-- не являются основным путём новой установки;
-- остаются как fallback для старых систем.
-
-Подробности:
-
-- `docs/opkg-feed-v1.md`
-- `docs/legacy.md`
-
----
-
-## Требования
-
-- роутер Keenetic;
-- установленный Entware;
-- компонент KeeneticOS `Proxy client`;
-- SSH-доступ к роутеру;
-- доступ в интернет с роутера.
-
----
-
-## Логи и история
-
-```sh
-xray-go logs watchdog
-xray-go logs watchdog --follow
-xray-go history
-xray-go history --follow
-tail -n 80 /opt/var/log/vless-go-recover.log
-```
-
-History и support diagnostics не должны хранить raw VLESS URL, UUID, server address или subscription URL.
-
----
-
-## Если мало места в `/opt`
-
-Проверь свободное место:
-
-```sh
-df -h /opt
-```
-
-Безопасный preview очистки:
-
-```sh
-xray-go cleanup --dry-run
-```
-
-Очистка:
-
-```sh
-xray-go cleanup
-```
-
-После очистки можно снова запустить installer через `install.sh`. Auto Latest выберет Full Go или Minimal Go по текущему состоянию `/opt`.
+Подробности: `docs/legacy.md`.
