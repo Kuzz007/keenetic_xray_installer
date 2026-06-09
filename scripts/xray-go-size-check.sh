@@ -135,7 +135,7 @@ CORE_HELPERS_KB="$(path_kb \
     /opt/bin/vless-go-socks-auth \
     /opt/bin/failover-go \
     /opt/bin/xray-go-manifest \
-    /opt/libexec/vless-go-lock.sh 2>/dev/null || echo 0)"
+    /opt/libexec/vless-go-lock.sh)"
 
 STATE_CONFIG_KB="$(path_kb /opt/etc/xray)"
 
@@ -154,18 +154,18 @@ OPTIONAL_HELPERS_KB="$(path_kb \
     /opt/bin/vless-go-xray-core-update \
     /opt/bin/xray-go-direct-full \
     /opt/bin/xray-go-direct-uninstall \
-    /opt/bin/xray-go-size-check 2>/dev/null || echo 0)"
+    /opt/bin/xray-go-size-check)"
 
 INIT_CRON_KB="$(path_kb \
     /opt/etc/init.d/S24xray \
     /opt/etc/init.d/S26vless-go-watchdog \
-    /opt/var/spool/cron/crontabs/root 2>/dev/null || echo 0)"
+    /opt/var/spool/cron/crontabs/root)"
 
 LOG_KB="$(path_kb \
     /opt/var/log/vless-go-watchdog.log \
     /opt/var/log/vless-go-watchdog-detail.log \
     /opt/var/log/vless-go-recover.log \
-    /opt/var/log/vless-go-history.log 2>/dev/null || echo 0)"
+    /opt/var/log/vless-go-history.log)"
 
 XRAY_BACKUP_KB="$(glob_kb /opt/sbin/xray.bak* /opt/sbin/xray.*.bak /opt/bin/xray.bak*)"
 GO_BACKUP_KB="$(glob_kb /opt/bin/xray-failover-go.bak*)"
@@ -231,7 +231,7 @@ echo "== Budget estimate =="
 printf '  %-32s %8s MB  [%s <= %s MB]\n' "minimal core estimate:" "$(kb_to_mb_1dp "$MINIMAL_CORE_KB")" "$MINIMAL_STATUS" "$MINIMAL_BUDGET_MB"
 printf '  %-32s %8s MB  [%s <= %s MB]\n' "full steady estimate:" "$(kb_to_mb_1dp "$FULL_STEADY_KB")" "$FULL_STATUS" "$FULL_BUDGET_MB"
 printf '  %-32s %8s MB  [%s <= %s MB]\n' "full + reclaimable:" "$(kb_to_mb_1dp "$FULL_WITH_RECLAIMABLE_KB")" "$FULL_WITH_RECLAIMABLE_STATUS" "$FULL_BUDGET_MB"
-printf '  %-32s %8s MB\n' "reclaimable estimate:" "$(kb_to_mb_1dp "$RECLAIMABLE_KB")"
+printf '  %-32s %8s MB (%s KB)\n' "reclaimable estimate:" "$(kb_to_mb_1dp "$RECLAIMABLE_KB")" "$RECLAIMABLE_KB"
 
 echo
 echo "== /opt filesystem =="
@@ -264,5 +264,7 @@ else
 fi
 
 if [ "$RECLAIMABLE_KB" -gt 0 ]; then
-    echo "[INFO] Reclaimable files detected. Use cleanup dry-run before deciding profile expansion."
+    echo "[INFO] Reclaimable files detected (${RECLAIMABLE_KB} KB). Use cleanup dry-run before deciding profile expansion."
+else
+    echo "[OK] No reclaimable backup/staging files detected by this check."
 fi
