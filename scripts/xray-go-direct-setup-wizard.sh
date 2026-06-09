@@ -131,7 +131,10 @@ valid_socks_auth() {
 
 read_line() {
     prompt="$1"
-    printf '%s' "$prompt"
+    # Prompt must go to stderr because callers capture stdout with command
+    # substitution. If printed to stdout, the prompt is swallowed into the
+    # variable and looks like the wizard is hanging.
+    printf '%s' "$prompt" >&2
     IFS= read -r value || value=""
     trim_value "$value"
 }
@@ -222,7 +225,6 @@ echo "SOCKS auth:     $SOCKS_AUTH"
 
 fetch_setup
 
-COMMON_ARGS=""
 if [ "$MODE" = "apply" ]; then
     echo
     echo "== Applying phase-1 write-state via guarded setup helper =="
