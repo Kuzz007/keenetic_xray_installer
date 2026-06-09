@@ -4,7 +4,7 @@ import "strings"
 
 func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 	if cb.From.ID != s.cfg.AdminUserID {
-		s.answerCallback(cb.ID, "Access denied")
+		s.answerCallback(cb.ID, "Доступ запрещён")
 		return
 	}
 	chatID := s.cfg.AdminUserID
@@ -33,6 +33,14 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.editMenuOnly(cb.ID, chatID, messageID, text+"\n\n"+s.routerList(), s.routersKeyboardWithUpdateScripts())
 	case data == "add_router_help":
 		s.startAddRouterWizard(chatID)
+	case strings.HasPrefix(data, "install-profile:"):
+		parts := strings.SplitN(data, ":", 3)
+		if len(parts) == 3 {
+			s.setActiveMenu(parts[2], chatID, messageID)
+			s.enqueueProfileInstall(chatID, messageID, parts[2], parts[1])
+			return
+		}
+		s.editMenuOnly(cb.ID, chatID, messageID, "Некорректная кнопка профиля установки", mainMenuKeyboard())
 	case strings.HasPrefix(data, "routes-custom:"):
 		routerID := strings.TrimPrefix(data, "routes-custom:")
 		s.startCustomRoutesWizard(chatID, routerID)
@@ -134,7 +142,9 @@ func (s *Server) editMenuOnly(callbackID string, chatID int64, messageID int, te
 	if messageID > 0 && s.editMessageWithKeyboard(chatID, messageID, text, keyboard) {
 		return true
 	}
-	s.answerCallback(callbackID, "Не удалось обновить это сообщение. Открой /menu заново.")
+	if callbackID != "" {
+		s.answerCallback(callbackID, "Не удалось обновить это сообщение. Открой /menu заново.")
+	}
 	return false
 }
 
@@ -173,7 +183,7 @@ func (s *Server) agentInstallMenuView(routerID string) (string, inlineKeyboard, 
 	rt := s.cfg.Routers[routerID]
 	s.mu.Unlock()
 	if rt == nil {
-		return "⚠️ Router not found: " + routerID, s.routersKeyboardWithUpdateScripts(), false
+		return "⚠️ Роутер не найден: " + routerID, s.routersKeyboardWithUpdateScripts(), false
 	}
 	msg := strings.TrimSpace("📦 Установка агента\n\n📡 " + rt.Name + "\nID: " + rt.ID + "\n\nРекомендуемый вариант: ⚙️ Auto install.\n\nОн сам определит архитектуру роутера и выберет агент:\n• ARM64 / aarch64 → Go-agent\n• MIPS / MT7621 / старые Keenetic → Legacy shell-agent\n\n🧩 Legacy shell-agent оставлен как ручной вариант для диагностики и старых MIPS.")
 	return msg, agentInstallKeyboard(routerID), true
