@@ -14,7 +14,7 @@ set -e
 #   full-lite must not install SOCKS auth by default. Local SOCKS is plain unless
 #   auth is added later explicitly.
 
-XRAY_GO_DIRECT_FULL_VERSION="${XRAY_GO_DIRECT_FULL_VERSION:-0.1.3-direct-full-no-socks-auth}"
+XRAY_GO_DIRECT_FULL_VERSION="${XRAY_GO_DIRECT_FULL_VERSION:-0.1.4-direct-full-guardrail-text}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
 DIRECT_INSTALL_URL="${DIRECT_INSTALL_URL:-${REPO_BASE}/scripts/xray-go-direct-install.sh}"
@@ -370,7 +370,7 @@ else
 fi
 
 echo
-echo "== Planned full-lite direct-install sequence =="
+echo "== Planned full direct-install sequence =="
 cat <<'EOF_STEPS'
 1. direct-install detect-only
 2. install Go resolver binary only when current binary does not match manifest sha256
@@ -404,7 +404,7 @@ fi
 
 if [ "$MODE" = "dry-run" ]; then
     echo
-    echo "Direct full-lite dry-run complete. No changes made."
+    echo "Direct full dry-run complete. No changes made."
     exit 0
 fi
 
