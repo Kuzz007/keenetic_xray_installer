@@ -114,6 +114,83 @@ FAILOVER_COMPAT
     echo "Minimal Go failover compatibility wrapper installed: /opt/bin/failover"
 }
 
+install_minimal_common_safety_patch() {
+    common="/opt/libexec/minimal-go-common.sh"
+    [ -f "$common" ] || return 0
+    grep -q 'minimal-go-safe-switch-v2' "$common" 2>/dev/null && return 0
+
+    cp "$common" "$common.before-safe-switch.$(date +%Y%m%d-%H%M%S 2>/dev/null || echo backup)" 2>/dev/null || true
+
+    cat >> "$common" <<'SAFE_SWITCH'
+
+# minimal-go-safe-switch-v2
+# Override switch_slot from the pinned backend: rollback config if the post-start
+# SOCKS health check fails, and give slow transports such as XHTTP a few retries.
+switch_slot() {
+  slot="$1"
+  source="$(source_for_slot "$slot")" || return 1
+  tmp="$TMP_DIR/minimal-go-$slot.$$.json"
+  old="$TMP_DIR/minimal-go-before-switch.$$.json"
+
+  generate_config "$slot" "$source" "$SOCKS_LISTEN" "$SOCKS_PORT" "$tmp" || return 1
+  test_config "$tmp" || return 1
+  cp "$XRAY_CONFIG" "$old" 2>/dev/null || true
+  cp "$tmp" "$XRAY_CONFIG"
+  chmod 600 "$XRAY_CONFIG" 2>/dev/null || true
+
+  rollback_config() {
+    rc="$1"
+    reason="$2"
+    echo "ERROR: switch target=$slot failed: $reason" >&2
+    if [ -s "$old" ]; then
+      echo "Rolling back previous Xray config..." >&2
+      cp "$old" "$XRAY_CONFIG"
+      chmod 600 "$XRAY_CONFIG" 2>/dev/null || true
+      "$XRAY_INIT" restart >/dev/null 2>&1 || "$XRAY_INIT" start >/dev/null 2>&1 || true
+      wait_socks >/dev/null 2>&1 || true
+    fi
+    rm -f "$tmp" "$old" 2>/dev/null || true
+    return "$rc"
+  }
+
+  if ! "$XRAY_INIT" restart && ! "$XRAY_INIT" start; then
+    rollback_config 1 "xray restart failed"
+    return 1
+  fi
+
+  if ! wait_socks; then
+    rollback_config 1 "SOCKS did not listen on port $SOCKS_PORT"
+    return 1
+  fi
+
+  ok=0
+  i=1
+  while [ "$i" -le 4 ]; do
+    if health_check "127.0.0.1" "$SOCKS_PORT"; then
+      ok=1
+      break
+    fi
+    echo "WARN: health check failed after switch target=$slot attempt=$i/4" >&2
+    sleep 3
+    i=$((i+1))
+  done
+
+  if [ "$ok" != "1" ]; then
+    rollback_config 1 "SOCKS health check failed"
+    return 1
+  fi
+
+  echo "$slot" > "$ACTIVE_STORE"
+  write_history "switch target=$slot"
+  rm -f "$tmp" "$old" 2>/dev/null || true
+  return 0
+}
+SAFE_SWITCH
+
+    chmod 644 "$common" 2>/dev/null || true
+    echo "Minimal Go safe switch patch installed: rollback on failed health check"
+}
+
 echo "Downloading Minimal Go backend..."
 fetch_plain || { echo "ERROR: failed to download Minimal Go backend: $PLAIN_URL" >&2; exit 1; }
 
@@ -136,6 +213,7 @@ set -e
 
 if [ "$RC" -eq 0 ]; then
     install_minimal_failover_compat || true
+    install_minimal_common_safety_patch || true
 fi
 
 exit "$RC"
