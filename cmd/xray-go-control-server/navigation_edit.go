@@ -69,6 +69,25 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 			return
 		}
 		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
+	case strings.HasPrefix(data, "mux-enable:"):
+		s.enqueueMuxPreset(cb.ID, chatID, messageID, data)
+	case strings.HasPrefix(data, "mux-status:"):
+		s.enqueueMuxSimple(cb.ID, chatID, messageID, data, "mux_status", "mux-status")
+	case strings.HasPrefix(data, "mux-snapshot:"):
+		s.enqueueMuxSimple(cb.ID, chatID, messageID, data, "mux_snapshot", "mux-snapshot")
+	case strings.HasPrefix(data, "mux-disable:"):
+		s.enqueueMuxSimple(cb.ID, chatID, messageID, data, "mux_disable", "mux-disable")
+	case strings.HasPrefix(data, "mux-rollback:"):
+		s.enqueueMuxSimple(cb.ID, chatID, messageID, data, "mux_rollback", "mux-rollback")
+	case strings.HasPrefix(data, "mux:"):
+		routerID := strings.TrimPrefix(data, "mux:")
+		s.setActiveMenu(routerID, chatID, messageID)
+		text, kb, ok := s.muxMenuView(routerID)
+		if !ok {
+			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboardWithUpdateScripts())
+			return
+		}
+		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
 	case strings.HasPrefix(data, "install:"):
 		routerID := strings.TrimPrefix(data, "install:")
 		s.setActiveMenu(routerID, chatID, messageID)
