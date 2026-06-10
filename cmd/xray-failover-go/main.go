@@ -20,7 +20,7 @@ import (
 
 const userAgent = "Keenetic-Xray-Failover-Go/0.1"
 
-var version = "0.1.3-go-experimental"
+var version = "0.1.4-go-xhttp"
 
 type cliOptions struct {
 	input          string
@@ -155,7 +155,7 @@ func main() {
 		fmt.Printf("Server: %s\n", selected.Server)
 	}
 	fmt.Printf("Port: %d\n", selected.Port)
-	fmt.Printf("Transport: %s\n", valueOrDefault(selected.Params["type"], "tcp"))
+	fmt.Printf("Transport: %s\n", normalizedNetwork(selected.Params))
 	fmt.Printf("Security: %s\n", valueOrDefault(selected.Params["security"], "none"))
 	fmt.Printf("SOCKS5: %s:%d\n", opts.listenHost, opts.listenPort)
 }
@@ -384,8 +384,8 @@ func parseVLESS(raw string) (vlessProfile, error) {
 }
 
 func (p vlessProfile) Label(private bool) string {
-	transport := valueOrDefault(p.Params["type"], "tcp")
-	security := valueOrDefault(p.Params["security"], "none")	
+	transport := normalizedNetwork(p.Params)
+	security := valueOrDefault(p.Params["security"], "none")
 	server := p.Server
 	if private {
 		server = "<hidden>"
@@ -398,7 +398,7 @@ func (p vlessProfile) Info(index int, private bool) profileInfo {
 		Index:     index,
 		Name:      p.Name,
 		Port:      p.Port,
-		Transport: valueOrDefault(p.Params["type"], "tcp"),
+		Transport: normalizedNetwork(p.Params),
 		Security:  valueOrDefault(p.Params["security"], "none"),
 	}
 	if !private {
@@ -433,7 +433,7 @@ func promptChoice(count int) (int, error) {
 }
 
 func buildXrayConfig(profile vlessProfile, opts cliOptions) (map[string]interface{}, error) {
-	network := valueOrDefault(profile.Params["type"], "tcp")
+	network := normalizedNetwork(profile.Params)
 	security := valueOrDefault(profile.Params["security"], "none")
 	encryption := valueOrDefault(profile.Params["encryption"], "none")
 
@@ -502,11 +502,12 @@ func buildXrayConfig(profile vlessProfile, opts cliOptions) (map[string]interfac
 			"path": valueOrDefault(profile.Params["path"], "/"),
 			"host": valueOrDefault(profile.Params["host"], profile.Server),
 		}
-	case "splithttp":
-		stream["splithttpSettings"] = map[string]interface{}{
-			"path": valueOrDefault(profile.Params["path"], "/"),
-			"host": valueOrDefault(profile.Params["host"], profile.Server),
+	case "xhttp":
+		settings, err := buildXHTTPSettings(profile)
+		if err != nil {
+			return nil, err
 		}
+		stream["xhttpSettings"] = settings
 	}
 
 	return map[string]interface{}{
@@ -542,6 +543,27 @@ func buildXrayConfig(profile vlessProfile, opts cliOptions) (map[string]interfac
 	}, nil
 }
 
+func buildXHTTPSettings(profile vlessProfile) (map[string]interface{}, error) {
+	settings := map[string]interface{}{
+		"path": valueOrDefault(profile.Params["path"], "/"),
+		"mode": valueOrDefault(profile.Params["mode"], "auto"),
+	}
+
+	if host := profile.Params["host"]; host != "" {
+		settings["host"] = host
+	}
+
+	if extraRaw := strings.TrimSpace(profile.Params["extra"]); extraRaw != "" {
+		var extra interface{}
+		if err := json.Unmarshal([]byte(extraRaw), &extra); err != nil {
+			return nil, fmt.Errorf("invalid xhttp extra JSON: %w", err)
+		}
+		settings["extra"] = extra
+	}
+
+	return settings, nil
+}
+
 func writeJSON(path string, value interface{}) error {
 	if err := os.MkdirAll(parentDir(path), 0755); err != nil {
 		return err
@@ -563,6 +585,16 @@ func parentDir(path string) string {
 		return "."
 	}
 	return path[:idx]
+}
+
+func normalizedNetwork(params map[string]string) string {
+	network := valueOrDefault(params["type"], "tcp")
+	switch strings.ToLower(network) {
+	case "splithttp":
+		return "xhttp"
+	default:
+		return network
+	}
 }
 
 func valueOrDefault(value, fallback string) string {
