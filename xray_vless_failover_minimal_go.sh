@@ -191,6 +191,43 @@ SAFE_SWITCH
     echo "Minimal Go safe switch patch installed: rollback on failed health check"
 }
 
+install_recover_status_proxy0_wrapper() {
+    recover="/opt/bin/vless-go-recover"
+    real="/opt/bin/vless-go-recover.real"
+    [ -x "$recover" ] || return 0
+    grep -q 'vless-go-recover-status-proxy0-v1' "$recover" 2>/dev/null && return 0
+
+    cp "$recover" "$real" 2>/dev/null || return 0
+    chmod +x "$real" 2>/dev/null || true
+
+    cat > "$recover" <<'RECOVER_PROXY0_WRAPPER'
+#!/bin/sh
+# vless-go-recover-status-proxy0-v1
+REAL="/opt/bin/vless-go-recover.real"
+[ -x "$REAL" ] || { echo "ERROR: missing $REAL" >&2; exit 1; }
+
+is_minimal=0
+is_status=0
+prev=""
+for arg in "$@"; do
+  [ "$arg" = "status" ] && is_status=1
+  [ "$arg" = "--mode=minimal" ] && is_minimal=1
+  if [ "$prev" = "--mode" ] && [ "$arg" = "minimal" ]; then
+    is_minimal=1
+  fi
+  prev="$arg"
+done
+
+if [ "$is_status" = "1" ] && [ "$is_minimal" = "1" ]; then
+  "$REAL" --mode minimal proxy0 >/dev/null 2>&1 || true
+fi
+
+exec "$REAL" "$@"
+RECOVER_PROXY0_WRAPPER
+    chmod +x "$recover"
+    echo "Minimal Go recovery status wrapper installed: Doctor refreshes Proxy0 before status"
+}
+
 echo "Downloading Minimal Go backend..."
 fetch_plain || { echo "ERROR: failed to download Minimal Go backend: $PLAIN_URL" >&2; exit 1; }
 
@@ -214,6 +251,7 @@ set -e
 if [ "$RC" -eq 0 ]; then
     install_minimal_failover_compat || true
     install_minimal_common_safety_patch || true
+    install_recover_status_proxy0_wrapper || true
 fi
 
 exit "$RC"
