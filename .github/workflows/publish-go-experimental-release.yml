@@ -43,6 +43,74 @@ jobs:
           sed -i 's/const agentVersion = "0.1.4-go-experimental"/const agentVersion = "0.2.0-unified"/' cmd/xray-go-agent/main.go
           sed -i 's/const agentVersion = "0.1.5-go-experimental"/const agentVersion = "0.2.0-unified"/' cmd/xray-go-agent/main.go
           sed -i 's/const agentVersion = "0.2.0-unified-test"/const agentVersion = "0.2.0-unified"/' cmd/xray-go-agent/main.go
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("cmd/xray-go-agent/main.go")
+          text = path.read_text()
+          text = text.replace('const agentVersion = "0.2.0-unified"', 'const agentVersion = "0.2.1-mux-rollback"')
+
+          needle = '''\tcase "update_subscription":
+          \t\treturn updateSubscription()
+          \tcase "set_primary_source":'''
+          repl = '''\tcase "update_subscription":
+          \t\treturn updateSubscription()
+          \tcase "mux_status":
+          \t\treturn muxStatus(c.Selector, c.Source)
+          \tcase "mux_snapshot":
+          \t\treturn muxSnapshot(c.Selector, c.Source)
+          \tcase "mux_enable":
+          \t\treturn muxSet(c.Selector, c.Source, true)
+          \tcase "mux_disable":
+          \t\treturn muxSet(c.Selector, c.Source, false)
+          \tcase "mux_rollback":
+          \t\treturn muxRollback(c.Selector, c.Source)
+          \tcase "set_primary_source":'''
+          if needle not in text:
+              raise SystemExit("mux dispatch insertion point not found")
+          text = text.replace(needle, repl)
+
+          needle = '''\tlines = append(lines, agentLine, capabilityLine, featureLine)'''
+          repl = '''\tif muxLine := muxStatusLine(); muxLine != "" {
+          \t\tlines = append(lines, muxLine)
+          \t}
+          \tlines = append(lines, agentLine, capabilityLine, featureLine)'''
+          if needle not in text:
+              raise SystemExit("mux status line insertion point not found")
+          text = text.replace(needle, repl)
+
+          needle = '''\tif exists(routesCatalogPath) {
+          \t\tfeatures = append(features, "routes_catalog")
+          \t}
+          \tif len(features) == 0 {'''
+          repl = '''\tif exists(routesCatalogPath) {
+          \t\tfeatures = append(features, "routes_catalog")
+          \t}
+          \tif muxSupported() {
+          \t\tfeatures = append(features, "mux_config")
+          \t}
+          \tif len(features) == 0 {'''
+          if needle not in text:
+              raise SystemExit("mux feature insertion point not found")
+          text = text.replace(needle, repl)
+
+          needle = '''\tif has["routes_catalog"] {
+          \t\tcapabilities = append(capabilities, "routes_list", "routes_preview", "routes_apply", "routes_apply_custom", "routes_remove")
+          \t}
+          \treturn capabilities'''
+          repl = '''\tif has["routes_catalog"] {
+          \t\tcapabilities = append(capabilities, "routes_list", "routes_preview", "routes_apply", "routes_apply_custom", "routes_remove")
+          \t}
+          \tif has["mux_config"] {
+          \t\tcapabilities = append(capabilities, "mux_status", "mux_snapshot", "mux_enable", "mux_disable", "mux_rollback")
+          \t}
+          \treturn capabilities'''
+          if needle not in text:
+              raise SystemExit("mux capability insertion point not found")
+          text = text.replace(needle, repl)
+          path.write_text(text)
+          PY
+          gofmt -w cmd/xray-go-agent/main.go cmd/xray-go-agent/mux_config.go cmd/xray-go-control-server/*.go
 
           CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH=arm64 \
             go build -trimpath -ldflags "-s -w" \
@@ -123,11 +191,13 @@ jobs:
           xray-go-control-server-linux-arm64
           ```
 
-          Current package line: `v0.2.0-unified`.
+          Current package line: `v0.2.1-mux-rollback`.
 
           Includes:
 
           - unified Go router agent path for arm64/aarch64, mipsel/mipselsf/mipsle and mips
+          - safe Mux controls through the Telegram control bot: status, rollback point, enable, disable, rollback
+          - Mux changes are applied only to the router client Xray outbound with config test, Xray restart and automatic restore on failure
           - unified `xray-go` command wrapper
           - support-safe `xray-go doctor --support`
           - quiet hourly recovery helpers for Full Go and Minimal Go
