@@ -26,7 +26,7 @@ usage() {
 Usage: xray_vless_failover_go.sh [options]
 
 Default mode:
-  Install/update Go/Entware edition, ask for primary and backup VLESS/subscription URLs,
+  Install/update Go/Entware edition, ask for primary and optionally backup VLESS/subscription URLs,
   apply primary profile, start watchdog and enable hourly recovery.
 
 Options:
@@ -40,7 +40,7 @@ Options:
 
 Environment overrides:
   PRIMARY_URL            Primary VLESS link or subscription URL
-  BACKUP_URL             Backup VLESS link or subscription URL
+  BACKUP_URL             Optional backup VLESS link or subscription URL
   PRIMARY_SELECTOR       Primary selector: first, index:N, or N
   BACKUP_SELECTOR        Backup selector: first, index:N, or N
   GO_PLAIN_URL           Feed bootstrap URL override
@@ -121,15 +121,24 @@ show_profiles_hint() {
 prompt_source() {
     slot="$1"
     env_value="$2"
+    required="${3:-1}"
     if [ -n "$env_value" ]; then
         printf '%s' "$env_value"
         return 0
     fi
 
     while true; do
-        read_tty "Enter $slot VLESS link or subscription URL: "
+        if [ "$required" = "1" ]; then
+            read_tty "Enter $slot VLESS link or subscription URL: "
+        else
+            read_tty "Enter $slot VLESS link or subscription URL [empty = skip]: "
+        fi
         if [ -n "$REPLY" ]; then
             printf '%s' "$REPLY"
+            return 0
+        fi
+        if [ "$required" != "1" ]; then
+            printf '%s' ""
             return 0
         fi
         echo "ERROR: $slot URL cannot be empty." >&2
@@ -299,18 +308,25 @@ run_first_setup() {
     echo "Private links are stored under /opt/etc/xray and are not printed back."
     echo
 
-    primary_value="$(prompt_source primary "${PRIMARY_URL:-}")"
+    primary_value="$(prompt_source primary "${PRIMARY_URL:-}" 1)"
     primary_selector="$(prompt_selector primary "$primary_value" "${PRIMARY_SELECTOR:-}")" || { echo "ERROR: invalid primary selector" >&2; exit 1; }
 
-    backup_value="$(prompt_source backup "${BACKUP_URL:-}")"
-    backup_selector="$(prompt_selector backup "$backup_value" "${BACKUP_SELECTOR:-}")" || { echo "ERROR: invalid backup selector" >&2; exit 1; }
+    backup_value="$(prompt_source backup "${BACKUP_URL:-}" 0)"
+    if [ -n "$backup_value" ]; then
+        backup_selector="$(prompt_selector backup "$backup_value" "${BACKUP_SELECTOR:-}")" || { echo "ERROR: invalid backup selector" >&2; exit 1; }
+    else
+        backup_selector=""
+        echo "Backup profile skipped. You can add it later with: failover-go set-backup URL --selector first"
+    fi
 
     echo
     echo "Saving primary profile..."
     /opt/bin/vless-go-failover set-primary "$primary_value" --selector "$primary_selector"
 
-    echo "Saving backup profile..."
-    /opt/bin/vless-go-failover set-backup "$backup_value" --selector "$backup_selector"
+    if [ -n "$backup_value" ]; then
+        echo "Saving backup profile..."
+        /opt/bin/vless-go-failover set-backup "$backup_value" --selector "$backup_selector"
+    fi
 
     echo "Applying primary profile..."
     if [ "$NO_RESTART" = "1" ]; then
