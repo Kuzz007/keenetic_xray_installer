@@ -327,12 +327,41 @@ probe_primary() {
     return 1
 }
 
+recover_primary_once() {
+    [ "$AUTO_RECOVER_PRIMARY" = "1" ] || { log "Auto recovery primary disabled: AUTO_RECOVER_PRIMARY=$AUTO_RECOVER_PRIMARY"; return 1; }
+    [ -s "$PRIMARY_STORE" ] || { log "Основной профиль не настроен; recovery primary невозможен."; return 1; }
+    log "Проверка восстановления primary на временном SOCKS порту $RECOVERY_TEST_PORT"
+    if ! probe_primary; then
+        log "Recovery probe primary FAILED"
+        return 1
+    fi
+    log "Recovery probe primary OK; переключение backup -> primary"
+    if switch_to primary cron_recovery; then
+        if check_socks; then
+            log "Recovery на primary OK"
+            history_log cron_recovery from=backup to=primary result=ok
+            return 0
+        fi
+        log "Recovery на primary не прошёл health-check; выполняем rollback на backup"
+        history_log failed_recovery source=cron from=backup to=primary reason=post_switch_health_failed
+        rollback_to_backup_after_failed_recovery || true
+        return 1
+    fi
+    log "Recovery switch на primary не выполнился"
+    history_log failed_recovery source=cron from=backup to=primary reason=switch_failed
+    [ "$(active_slot)" = "backup" ] || rollback_to_backup_after_failed_recovery || true
+    return 1
+}
+
 check_and_switch() {
     SLOT="$(active_slot)"
     log "Проверка активного слота: $SLOT через SOCKS $SOCKS_HOST:$SOCKS_PORT"
 
     if check_socks; then
         log "Проверка связи OK на $SLOT"
+        if [ "$SLOT" = "backup" ]; then
+            recover_primary_once || true
+        fi
         return 0
     fi
 
@@ -346,7 +375,16 @@ check_and_switch() {
         return 1
     fi
 
-    log "Активный слот не primary; автоматическое переключение не выполняется."
+    if [ "$SLOT" = "backup" ]; then
+        recover_primary_once || true
+        if check_socks; then
+            return 0
+        fi
+        log "Backup и primary recovery не восстановили связь"
+        return 1
+    fi
+
+    log "Активный слот неизвестен; автоматическое переключение не выполняется."
     return 1
 }
 
@@ -389,7 +427,8 @@ handle_daemon_backup() {
     else
         DAEMON_BACKUP_FAIL_COUNT="$((DAEMON_BACKUP_FAIL_COUNT + 1))"
         DAEMON_RECOVERY_SUCCESS_COUNT="0"
-        log "Daemon health FAIL на backup: подряд ошибок $DAEMON_BACKUP_FAIL_COUNT; остаёмся на backup и пропускаем probe primary в этом цикле"
+        log "Daemon health FAIL на backup: подряд ошибок $DAEMON_BACKUP_FAIL_COUNT; проверяем primary recovery"
+        recover_primary_once || true
         return 0
     fi
 
