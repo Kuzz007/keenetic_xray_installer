@@ -14,6 +14,7 @@ XRAY_DIR="/opt/etc/xray"
 XRAY_CONFIG="$XRAY_DIR/config.json"
 XRAY_INIT="/opt/etc/init.d/S24xray"
 WATCHDOG_CONF="$XRAY_DIR/vless-go-watchdog.conf"
+WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
 
 DO_SETUP="1"
 NO_RESTART="0"
@@ -217,6 +218,15 @@ EOF_CONF
     echo "Default VLESS Go watchdog config created: $WATCHDOG_CONF"
 }
 
+restart_watchdog_if_present() {
+    [ -x "$WATCHDOG_INIT" ] || return 0
+    if "$WATCHDOG_INIT" restart >/dev/null 2>&1 || "$WATCHDOG_INIT" start >/dev/null 2>&1; then
+        echo "VLESS Go watchdog restarted to apply script/config updates"
+    else
+        echo "WARN: failed to restart VLESS Go watchdog: $WATCHDOG_INIT" >&2
+    fi
+}
+
 ensure_xray_init() {
     [ -s "$XRAY_CONFIG" ] || return 0
     if [ -x "$XRAY_INIT" ]; then
@@ -307,6 +317,7 @@ run_first_setup() {
         echo "Existing primary and backup profiles detected; skipping first-run setup."
         echo "Use --force-setup to replace them, or run failover-go for menu management."
         ensure_watchdog_conf
+        restart_watchdog_if_present
         return 0
     fi
 
@@ -352,11 +363,7 @@ run_first_setup() {
     ensure_xray_ready
 
     echo "Starting watchdog..."
-    if [ -x /opt/etc/init.d/S26vless-go-watchdog ]; then
-        /opt/etc/init.d/S26vless-go-watchdog start || true
-    else
-        echo "WARN: watchdog init not found: /opt/etc/init.d/S26vless-go-watchdog" >&2
-    fi
+    restart_watchdog_if_present
 
     echo "Enabling hourly recovery..."
     /opt/bin/vless-go-recover --mode full enable-hourly || true
@@ -376,5 +383,6 @@ if [ "$DO_SETUP" = "1" ]; then
     run_first_setup
 else
     ensure_watchdog_conf
+    restart_watchdog_if_present
     echo "Setup skipped. Use 'failover-go' for menu management or rerun with --force-setup."
 fi
