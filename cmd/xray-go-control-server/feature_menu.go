@@ -62,6 +62,12 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 	if f.has("subscription_update") || f.has("source_update") {
 		routeRow = append(routeRow, inlineButton{Text: "🔄 Подписка", CallbackData: "refresh-subscription:" + routerID})
 	}
+	// Mux is shown only for agents that explicitly advertise mux_config.
+	// Old legacy agents keep the normal full menu but do not receive a button
+	// for commands they cannot safely execute.
+	if f["mux_config"] {
+		routeRow = append(routeRow, inlineButton{Text: "⚙️ Mux", CallbackData: "mux:" + routerID})
+	}
 	if f.has("routes_catalog") {
 		routeRow = append(routeRow, inlineButton{Text: "🧭 Маршруты", CallbackData: "routes:" + routerID})
 	}
