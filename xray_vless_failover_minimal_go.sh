@@ -10,9 +10,8 @@ REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_
 PLAIN_URL="${MINIMAL_GO_PLAIN_URL:-${REPO_BASE}/xray_vless_failover_minimal.sh}"
 TMP_DIR="${TMP_DIR:-/opt/tmp}"
 OUT="$TMP_DIR/xray_vless_failover_minimal_go.plain.$$"
-PATCHED="$TMP_DIR/xray_vless_failover_minimal_go.xhttp.$$"
 
-cleanup() { rm -f "$OUT" "$PATCHED" 2>/dev/null || true; }
+cleanup() { rm -f "$OUT" 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
 
 mkdir -p "$TMP_DIR"
@@ -30,114 +29,123 @@ fetch_plain() {
     return 1
 }
 
-patch_xhttp_support() {
-    awk '
-        $0 == "if [ \"$TYPE\" != \"tcp\" ]; then" {
-            print "case \"$TYPE\" in"
-            print "    tcp|xhttp) ;;"
-            print "    splithttp) TYPE=\"xhttp\" ;;"
-            print "    *)"
-            print "        echo \"ERROR: minimal edition currently supports only type=tcp or type=xhttp.\""
-            print "        exit 1"
-            print "        ;;"
-            print "esac"
-            skip_type_check=1
-            next
-        }
-        skip_type_check {
-            if ($0 == "fi") skip_type_check=0
-            next
-        }
-        /sed .*%2F/ && /%20/ {
-            sub("s/%20/ /Ig", "s/%20/ /Ig; s/%7B/{/Ig; s/%7D/}/Ig; s/%22/\\\"/Ig; s/%5B/[/Ig; s/%5D/]/Ig; s/%2C/,/Ig; s/%2B/+/Ig; s/%7C/|/Ig; s/%25/%/Ig", $0)
-        }
-        $0 == "HEADER_TYPE=\"$(get_param headerType)\"" {
-            print
-            print "XHTTP_PATH=\"$(get_param path)\""
-            print "XHTTP_HOST=\"$(get_param host)\""
-            print "XHTTP_MODE=\"$(get_param mode)\""
-            print "XHTTP_EXTRA=\"$(get_param extra)\""
-            next
-        }
-        $0 == "[ -n \"$SPX\" ] || SPX=\"%2F\"" {
-            print
-            print "if [ \"$TYPE\" = \"splithttp\" ]; then TYPE=\"xhttp\"; fi"
-            next
-        }
-        $0 == "HEADER_TYPE_E=\"$(json_escape \"$HEADER_TYPE\")\"" {
-            print
-            print "XHTTP_PATH_D=\"$(url_decode_light \"$XHTTP_PATH\")\""
-            print "XHTTP_HOST_D=\"$(url_decode_light \"$XHTTP_HOST\")\""
-            print "XHTTP_EXTRA_D=\"$(url_decode_light \"$XHTTP_EXTRA\")\""
-            print "[ -n \"$XHTTP_PATH_D\" ] || XHTTP_PATH_D=\"/\""
-            print "[ -n \"$XHTTP_MODE\" ] || XHTTP_MODE=\"auto\""
-            print "XHTTP_PATH_E=\"$(json_escape \"$XHTTP_PATH_D\")\""
-            print "XHTTP_HOST_E=\"$(json_escape \"$XHTTP_HOST_D\")\""
-            print "XHTTP_MODE_E=\"$(json_escape \"$XHTTP_MODE\")\""
-            next
-        }
-        $0 == "if [ -n \"$HEADER_TYPE\" ] && [ \"$HEADER_TYPE\" != \"none\" ]; then" {
-            print "if [ \"$TYPE\" = \"xhttp\" ]; then"
-            print "cat <<EOF"
-            print "        ,"
-            print "        \"xhttpSettings\": {"
-            print "          \"path\": \"$XHTTP_PATH_E\"$(if [ -n \"$XHTTP_HOST_D\" ]; then printf '\'',\\n          \"host\": \"%s\"'\'' \"$XHTTP_HOST_E\"; fi),"
-            print "          \"mode\": \"$XHTTP_MODE_E\"$(if [ -n \"$XHTTP_EXTRA_D\" ]; then printf '\'',\\n          \"extra\": %s'\'' \"$XHTTP_EXTRA_D\"; fi)"
-            print "        }"
-            print "EOF"
-            print "fi"
-            print ""
-            print "if [ \"$TYPE\" = \"tcp\" ] && [ -n \"$HEADER_TYPE\" ] && [ \"$HEADER_TYPE\" != \"none\" ]; then"
-            next
-        }
-        $0 == "    cat > \"$FAILOVER_MENU_CMD\" <<'\''MENU'\''" {
-            in_menu=1
-            print
-            next
-        }
-        in_menu && $0 == "#!/bin/sh" && !menu_guard_done {
-            print
-            print ""
-            print "if [ ! -t 0 ]; then"
-            print "    echo \"failover menu is interactive only.\""
-            print "    echo \"Use vless-failover-status for non-interactive status checks.\""
-            print "    exit 2"
-            print "fi"
-            print ""
-            menu_guard_done=1
-            next
-        }
-        in_menu && $0 == "    IFS= read -r _" {
-            print "    IFS= read -r _ || exit 0"
-            next
-        }
-        in_menu && $0 == "    IFS= read -r choice" {
-            print "    if ! IFS= read -r choice; then"
-            print "        echo \"EOF: exiting failover menu.\""
-            print "        exit 0"
-            print "    fi"
-            next
-        }
-        in_menu && $0 == "MENU" { in_menu=0 }
-        { print }
-    ' "$OUT" > "$PATCHED"
+install_fixed_menu() {
+    MENU_BIN="/opt/bin/failover"
+    [ -x /opt/bin/xray-failover-switch ] || return 0
+    [ -x /opt/bin/vless-failover-status ] || return 0
+    mkdir -p /opt/bin
 
-    if ! grep -q '"xhttpSettings"' "$PATCHED"; then
-        echo "ERROR: failed to patch Minimal installer with XHTTP support." >&2
-        return 1
-    fi
+    cat > "$MENU_BIN" <<'MENU'
+#!/bin/sh
 
-    if ! grep -q 'failover menu is interactive only' "$PATCHED"; then
-        echo "ERROR: failed to patch Minimal menu non-interactive guard." >&2
-        return 1
-    fi
+LOGFILE="/opt/var/log/xray-vless-failover.log"
+HISTORY_LOG="/opt/var/log/xray-vless-switch-history.log"
 
-    mv "$PATCHED" "$OUT"
+pause() {
+    echo
+    printf "Нажмите Enter для возврата в меню..."
+    IFS= read -r _
+}
+
+manual_switch_menu() {
+    while true; do
+        clear
+        echo "======================================"
+        echo " Ручное переключение профиля"
+        echo "======================================"
+        echo "1 Переключиться на Основной"
+        echo "2 Переключиться на Резервный"
+        echo "0 Отмена"
+        echo "======================================"
+        printf "Выберите пункт: "
+        IFS= read -r target_choice
+
+        case "$target_choice" in
+            1)
+                /opt/bin/xray-failover-switch primary
+                return
+                ;;
+            2)
+                /opt/bin/xray-failover-switch backup
+                return
+                ;;
+            0)
+                echo "Отмена."
+                return
+                ;;
+            *)
+                echo "Неверный пункт."
+                pause
+                ;;
+        esac
+    done
+}
+
+show_menu() {
+    clear
+    echo "======================================"
+    echo " Xray VLESS Failover Minimal"
+    echo "======================================"
+    echo "1 Обновление VLESS-ссылок"
+    echo "2 Лог в реальном времени"
+    echo "3 Диагностика"
+    echo "4 История переключений"
+    echo "5 Ручное переключение профиля"
+    echo "0 Выход"
+    echo "======================================"
+    printf "Выберите пункт: "
+}
+
+while true; do
+    show_menu
+    IFS= read -r choice
+
+    case "$choice" in
+        1)
+            /opt/bin/vless-failover-update
+            pause
+            ;;
+        2)
+            if [ -f "$LOGFILE" ]; then
+                tail -f "$LOGFILE"
+            else
+                echo "Лог не найден: $LOGFILE"
+                pause
+            fi
+            ;;
+        3)
+            /opt/bin/vless-failover-status
+            pause
+            ;;
+        4)
+            if [ -f "$HISTORY_LOG" ]; then
+                tail -n 80 "$HISTORY_LOG"
+            else
+                echo "История переключений пока пуста."
+            fi
+            pause
+            ;;
+        5)
+            manual_switch_menu
+            pause
+            ;;
+        0)
+            echo "Выход."
+            exit 0
+            ;;
+        *)
+            echo "Неверный пункт."
+            pause
+            ;;
+    esac
+done
+MENU
+    chmod +x "$MENU_BIN"
+    echo "Minimal Go menu updated: manual switch now asks for primary/backup."
 }
 
 echo "Downloading Minimal plain installer..."
 fetch_plain || { echo "ERROR: failed to download Minimal installer: $PLAIN_URL" >&2; exit 1; }
-patch_xhttp_support || exit 1
 
 if ! head -n 1 "$OUT" | grep -Eq '^#!/bin/sh|^#!/opt/bin/sh'; then
     echo "ERROR: downloaded Minimal installer does not look like a shell script: $PLAIN_URL" >&2
@@ -151,4 +159,11 @@ if ! sh -n "$OUT"; then
 fi
 
 chmod +x "$OUT"
-exec sh "$OUT" "$@"
+sh "$OUT" "$@"
+RC="$?"
+
+if [ "$RC" -eq 0 ]; then
+    install_fixed_menu || true
+fi
+
+exit "$RC"
