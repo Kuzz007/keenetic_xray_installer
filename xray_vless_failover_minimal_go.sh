@@ -191,47 +191,24 @@ SAFE_SWITCH
     echo "Minimal Go safe switch patch installed: rollback on failed health check"
 }
 
-install_recover_status_proxy0_wrapper() {
+remove_recover_status_proxy0_wrapper() {
     recover="/opt/bin/vless-go-recover"
     real="/opt/bin/vless-go-recover.real"
-    [ -x "$recover" ] || return 0
-    grep -q 'vless-go-recover-status-proxy0-v1' "$recover" 2>/dev/null && return 0
-
-    cp "$recover" "$real" 2>/dev/null || return 0
-    chmod +x "$real" 2>/dev/null || true
-
-    cat > "$recover" <<'RECOVER_PROXY0_WRAPPER'
-#!/bin/sh
-# vless-go-recover-status-proxy0-v1
-REAL="/opt/bin/vless-go-recover.real"
-[ -x "$REAL" ] || { echo "ERROR: missing $REAL" >&2; exit 1; }
-
-is_minimal=0
-is_status=0
-prev=""
-for arg in "$@"; do
-  [ "$arg" = "status" ] && is_status=1
-  [ "$arg" = "--mode=minimal" ] && is_minimal=1
-  if [ "$prev" = "--mode" ] && [ "$arg" = "minimal" ]; then
-    is_minimal=1
-  fi
-  prev="$arg"
-done
-
-if [ "$is_status" = "1" ] && [ "$is_minimal" = "1" ]; then
-  "$REAL" --mode minimal proxy0 >/dev/null 2>&1 || true
-fi
-
-exec "$REAL" "$@"
-RECOVER_PROXY0_WRAPPER
-    chmod +x "$recover"
-    echo "Minimal Go recovery status wrapper installed: Doctor refreshes Proxy0 before status"
+    [ -f "$recover" ] || return 0
+    if grep -q 'vless-go-recover-status-proxy0-v1' "$recover" 2>/dev/null && [ -s "$real" ]; then
+        cp "$real" "$recover" 2>/dev/null || return 0
+        chmod +x "$recover" 2>/dev/null || true
+        echo "Minimal Go recovery status wrapper removed: status is fast again"
+    fi
 }
 
 install_minimal_daemon_recovery_patch() {
     daemon="/opt/bin/xray-minimal-go-failover-daemon"
     [ -x "$daemon" ] || return 0
-    grep -q 'minimal-go-daemon-recover-primary-v2' "$daemon" 2>/dev/null && return 0
+    if grep -q 'minimal-go-daemon-recover-primary-v2' "$daemon" 2>/dev/null; then
+        echo "Minimal Go daemon recovery patch already installed"
+        return 0
+    fi
     cp "$daemon" "$daemon.before-recover-primary.$(date +%Y%m%d-%H%M%S 2>/dev/null || echo backup)" 2>/dev/null || true
 
     cat > "$daemon" <<'MINIMAL_DAEMON'
@@ -311,6 +288,16 @@ MINIMAL_DAEMON
     echo "Minimal Go daemon recovery patch installed: failed backup can recover to primary"
 }
 
+restart_minimal_daemon_if_present() {
+    init="/opt/etc/init.d/S25xray-minimal-go-failover"
+    [ -x "$init" ] || return 0
+    if "$init" restart >/dev/null 2>&1 || "$init" start >/dev/null 2>&1; then
+        echo "Minimal Go failover daemon restarted to apply script patches"
+    else
+        echo "WARN: failed to restart Minimal Go failover daemon: $init" >&2
+    fi
+}
+
 echo "Downloading Minimal Go backend..."
 fetch_plain || { echo "ERROR: failed to download Minimal Go backend: $PLAIN_URL" >&2; exit 1; }
 
@@ -334,8 +321,9 @@ set -e
 if [ "$RC" -eq 0 ]; then
     install_minimal_failover_compat || true
     install_minimal_common_safety_patch || true
-    install_recover_status_proxy0_wrapper || true
+    remove_recover_status_proxy0_wrapper || true
     install_minimal_daemon_recovery_patch || true
+    restart_minimal_daemon_if_present || true
 fi
 
 exit "$RC"
