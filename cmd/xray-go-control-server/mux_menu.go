@@ -25,6 +25,7 @@ func muxKeyboard(routerID string) inlineKeyboard {
 	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
 		{{Text: "📍 Статус", CallbackData: "mux-status:" + routerID}, {Text: "💾 Точка отката", CallbackData: "mux-snapshot:" + routerID}},
 		{{Text: "✅ ON 4", CallbackData: "mux-enable:" + routerID + ":4"}, {Text: "✅ ON 8", CallbackData: "mux-enable:" + routerID + ":8"}, {Text: "✅ ON 16", CallbackData: "mux-enable:" + routerID + ":16"}},
+		{{Text: "✅ ON 32", CallbackData: "mux-enable:" + routerID + ":32"}},
 		{{Text: "❌ Выключить", CallbackData: "mux-disable:" + routerID}, {Text: "↩️ Откат", CallbackData: "mux-rollback:" + routerID}},
 		{{Text: "⬅️ Назад", CallbackData: "router:" + routerID}, {Text: "🏠 Главное меню", CallbackData: "menu"}},
 	}}
