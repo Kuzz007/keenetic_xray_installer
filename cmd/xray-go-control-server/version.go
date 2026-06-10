@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-const controlServerVersion = "0.1.6-mux-menu"
+const controlServerVersion = "0.1.7-mux32"
 
 var buildCommit = "dev"
 var buildTime = "unknown"
