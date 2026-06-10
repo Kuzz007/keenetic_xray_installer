@@ -17,7 +17,7 @@ func (s *Server) muxMenuView(routerID string) (string, inlineKeyboard, bool) {
 	if strings.TrimSpace(name) == "" {
 		name = routerID
 	}
-	text := strings.TrimSpace("⚙️ Mux\n\n📡 " + name + "\nID: " + routerID + "\n\nРекомендуемый безопасный порядок:\n1. Нажми 💾 Точка отката.\n2. Проверь 📍 Статус.\n3. Для теста включи ✅ ON 8.\n\nАгент изменит только клиентский outbound Xray на роутере, проверит config test, перезапустит Xray и при ошибке вернёт backup.")
+	text := strings.TrimSpace("⚙️ Mux\n\n📡 " + name + "\nID: " + routerID + "\n\nРекомендуемый безопасный порядок:\n1. Нажми 💾 Точка отката.\n2. Проверь 📍 Статус.\n3. Для теста включи ✅ ON 8.\n\nПамятка по режимам:\n• ON 4 — осторожно, меньше риска.\n• ON 8 — оптимальный старт.\n• ON 16 — агрессивнее, больше мелких запросов.\n• ON 32 — эксперимент, только для сравнения.\n\nАгент изменит только клиентский outbound Xray на роутере, проверит config test, перезапустит Xray и при ошибке вернёт backup.")
 	return text, muxKeyboard(routerID), true
 }
 
