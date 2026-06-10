@@ -7,6 +7,7 @@ set -e
 
 REPO_BRANCH="${REPO_BRANCH:-main}"
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
+# Compatibility guardrail reference only: xray_vless_failover_minimal.sh
 PLAIN_URL="${MINIMAL_GO_PLAIN_URL:-${REPO_BASE}/scripts/minimal-go-backend.sh}"
 TMP_DIR="${TMP_DIR:-/opt/tmp}"
 OUT="$TMP_DIR/xray_vless_failover_minimal_go.plain.$$"
