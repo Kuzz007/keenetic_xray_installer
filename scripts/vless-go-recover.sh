@@ -4,12 +4,14 @@ set -e
 XRAY_DIR="/opt/etc/xray"
 XRAY_INIT="/opt/etc/init.d/S24xray"
 FULL_ACTIVE_STORE="$XRAY_DIR/vless-go.active"
+FULL_PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
 FULL_BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 FULL_FAILOVER_CMD="/opt/bin/vless-go-failover"
 FULL_WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
 FULL_HISTORY_CMD="/opt/bin/vless-go-history"
 MINIMAL_COMMON="/opt/libexec/minimal-go-common.sh"
 MINIMAL_ACTIVE_STORE="$XRAY_DIR/minimal-go-active"
+MINIMAL_PRIMARY_STORE="$XRAY_DIR/minimal-go-primary.url"
 MINIMAL_BACKUP_STORE="$XRAY_DIR/minimal-go-backup.url"
 MINIMAL_SWITCH_CMD="/opt/bin/minimal-go-switch"
 MINIMAL_FAILOVER_INIT="/opt/etc/init.d/S25xray-minimal-go-failover"
@@ -55,7 +57,7 @@ Usage: vless-go-recover [--quiet] [--mode auto|full|minimal] COMMAND
 
 Commands:
   check            Silent health check only. Prints nothing when OK.
-  run              Recovery ladder: deps -> check -> Proxy0 ensure/refresh -> Xray restart -> daemon restart -> failover.
+  run              Recovery ladder: deps -> check -> Proxy0 ensure/refresh -> Xray restart -> daemon restart -> failover/fallback.
   system-check     System overload recovery: high load counter -> restart Xray/daemon -> optional reboot.
   proxy0           Recreate/refresh Proxy0 and bring it up.
   xray             Restart Xray init service.
@@ -152,6 +154,7 @@ log() {
 
 mode_name() { MODE="$(detect_mode)"; echo "$MODE"; }
 active_store() { case "$(detect_mode)" in full) echo "$FULL_ACTIVE_STORE" ;; minimal) echo "$MINIMAL_ACTIVE_STORE" ;; *) echo "$FULL_ACTIVE_STORE" ;; esac; }
+primary_store() { case "$(detect_mode)" in full) echo "$FULL_PRIMARY_STORE" ;; minimal) echo "$MINIMAL_PRIMARY_STORE" ;; *) echo "$FULL_PRIMARY_STORE" ;; esac; }
 backup_store() { case "$(detect_mode)" in full) echo "$FULL_BACKUP_STORE" ;; minimal) echo "$MINIMAL_BACKUP_STORE" ;; *) echo "$FULL_BACKUP_STORE" ;; esac; }
 daemon_init() { case "$(detect_mode)" in full) echo "$FULL_WATCHDOG_INIT" ;; minimal) echo "$MINIMAL_FAILOVER_INIT" ;; *) echo "$FULL_WATCHDOG_INIT" ;; esac; }
 
@@ -210,7 +213,6 @@ ensure_cron_dependency() {
     ensure_cron_files
     if start_cron_if_possible; then return 0; fi
     if [ "$RECOVERY_AUTO_INSTALL_DEPS" = "1" ]; then
-        # Entware feed names differ by platform/feed age. Try both common names.
         if ! opkg_pkg_installed cron && ! opkg_pkg_installed cronie; then
             install_entware_packages cron || install_entware_packages cronie || true
         fi
@@ -281,10 +283,56 @@ health_check() {
     return 1
 }
 
+detect_lan_ip() {
+    if command -v ip >/dev/null 2>&1; then
+        ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}'
+        return 0
+    fi
+    if command -v ifconfig >/dev/null 2>&1; then
+        ifconfig 2>/dev/null | awk '/inet addr:/ { sub("addr:","",$2); if ($2 !~ /^127\./) { print $2; exit } } /inet / { for(i=1;i<=NF;i++) if($i=="inet" && $(i+1) !~ /^127\./) {print $(i+1); exit} }'
+        return 0
+    fi
+    return 1
+}
+
 proxy_upstream_host() {
     if [ -n "$PROXY_UPSTREAM_HOST" ]; then echo "$PROXY_UPSTREAM_HOST"; return 0; fi
     if [ -s "$ROUTER_IP_STORE" ]; then sed -n '1p' "$ROUTER_IP_STORE" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; return 0; fi
+    LAN_IP="$(detect_lan_ip 2>/dev/null | sed -n '1p' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' || true)"
+    if [ -n "$LAN_IP" ]; then echo "$LAN_IP"; return 0; fi
     case "$SOCKS_HOST" in 127.0.0.1|localhost) echo "127.0.0.1" ;; *) echo "$SOCKS_HOST" ;; esac
+}
+
+ndmc_run() {
+    cmd="$1"
+    LOG_FILE="$(recovery_log_file)"
+    echo "+ ndmc -c $cmd" >> "$LOG_FILE"
+    out="$(ndmc -c "$cmd" 2>&1)"
+    rc="$?"
+    [ -n "$out" ] && printf '%s\n' "$out" >> "$LOG_FILE"
+    return "$rc"
+}
+
+proxy0_show_log() {
+    LOG_FILE="$(recovery_log_file)"
+    echo "--- ndmc show interface $PROXY_IFACE ---" >> "$LOG_FILE"
+    ndmc -c "show interface $PROXY_IFACE" >> "$LOG_FILE" 2>&1 || true
+    echo "--- ndmc show running-config interface $PROXY_IFACE ---" >> "$LOG_FILE"
+    ndmc -c "show running-config interface $PROXY_IFACE" >> "$LOG_FILE" 2>&1 || true
+}
+
+ensure_proxy0_once() {
+    UPSTREAM_HOST="$1"
+    ndmc_run "interface $PROXY_IFACE" || return 1
+    ndmc_run "interface $PROXY_IFACE proxy protocol socks5" || return 1
+    ndmc_run "interface $PROXY_IFACE proxy socks5-udp" || true
+    ndmc_run "interface $PROXY_IFACE proxy upstream $UPSTREAM_HOST $SOCKS_PORT" || return 1
+    ndmc_run "interface $PROXY_IFACE description Xray-Minimal-Go" || true
+    ndmc_run "interface $PROXY_IFACE no ip global" || true
+    ndmc_run "interface $PROXY_IFACE up" || return 1
+    ndmc_run "system configuration save" || true
+    proxy0_show_log
+    return 0
 }
 
 ensure_proxy0() {
@@ -293,9 +341,16 @@ ensure_proxy0() {
     UPSTREAM_HOST="$(proxy_upstream_host)"
     [ -n "$UPSTREAM_HOST" ] || UPSTREAM_HOST="127.0.0.1"
     log "Recovery step: ensure $PROXY_IFACE SOCKS5 upstream $UPSTREAM_HOST:$SOCKS_PORT"
-    if ndmc -c "interface $PROXY_IFACE" >/dev/null 2>&1 && ndmc -c "interface $PROXY_IFACE proxy protocol socks5" >/dev/null 2>&1 && ndmc -c "interface $PROXY_IFACE proxy socks5-udp" >/dev/null 2>&1 && ndmc -c "interface $PROXY_IFACE proxy upstream $UPSTREAM_HOST $SOCKS_PORT" >/dev/null 2>&1 && ndmc -c "interface $PROXY_IFACE description Xray-Failover" >/dev/null 2>&1 && ndmc -c "interface $PROXY_IFACE no ip global" >/dev/null 2>&1 && ndmc -c "interface $PROXY_IFACE up" >/dev/null 2>&1; then
-        ndmc -c "system configuration save" >/dev/null 2>&1 || true
+    if ensure_proxy0_once "$UPSTREAM_HOST"; then
         history_log proxy0_ensure source=recover iface="$PROXY_IFACE" upstream="$UPSTREAM_HOST:$SOCKS_PORT" result=ok mode="$(detect_mode)"
+        return 0
+    fi
+    log "Proxy0 ensure first attempt failed: iface=$PROXY_IFACE upstream=$UPSTREAM_HOST:$SOCKS_PORT; trying recreate"
+    ndmc_run "interface $PROXY_IFACE down" || true
+    ndmc_run "no interface $PROXY_IFACE" || true
+    sleep 1
+    if ensure_proxy0_once "$UPSTREAM_HOST"; then
+        history_log proxy0_ensure source=recover iface="$PROXY_IFACE" upstream="$UPSTREAM_HOST:$SOCKS_PORT" result=ok_recreated mode="$(detect_mode)"
         return 0
     fi
     log "Proxy0 ensure failed: iface=$PROXY_IFACE upstream=$UPSTREAM_HOST:$SOCKS_PORT"
@@ -306,12 +361,11 @@ ensure_proxy0() {
 refresh_proxy0() {
     ensure_dependencies || true
     command -v ndmc >/dev/null 2>&1 || { log "Proxy0 refresh skipped: ndmc not found"; return 1; }
-    ensure_proxy0 || true
     log "Recovery step: refresh $PROXY_IFACE"
-    ndmc -c "interface $PROXY_IFACE down" >/dev/null 2>&1 || true
+    ndmc_run "interface $PROXY_IFACE down" || true
     sleep 2
-    ensure_proxy0 || true
-    ndmc -c "interface $PROXY_IFACE up" >/dev/null 2>&1 || true
+    ensure_proxy0
+    ndmc_run "interface $PROXY_IFACE up" || true
     history_log proxy0_refresh source=recover iface="$PROXY_IFACE" result=ok mode="$(detect_mode)"
 }
 
@@ -331,28 +385,49 @@ restart_watchdog() {
     history_log daemon_restart source=recover result=ok mode="$(detect_mode)"
 }
 
-try_failover() {
+switch_to_slot() {
+    target="$1"
     MODE="$(detect_mode)"
-    SLOT="$(active_slot)"
-    if [ "$SLOT" != "primary" ]; then log "Recovery step: failover skipped, active slot is $SLOT"; return 1; fi
-    BACKUP="$(backup_store)"
-    [ -s "$BACKUP" ] || { log "Recovery step: failover skipped, backup is not configured"; return 1; }
     case "$MODE" in
         full)
-            [ -x "$FULL_FAILOVER_CMD" ] || { log "Recovery step: failover skipped, command not found: $FULL_FAILOVER_CMD"; return 1; }
-            log "Recovery step: switch primary -> backup (full)"
-            if VLESS_GO_HISTORY_SUPPRESS=1 "$FULL_FAILOVER_CMD" switch backup --first >/dev/null 2>&1; then sleep 5; history_log recover_failover from=primary to=backup result=ok mode=full; return 0; fi
+            [ -x "$FULL_FAILOVER_CMD" ] || { log "Recovery step: switch skipped, command not found: $FULL_FAILOVER_CMD"; return 1; }
+            log "Recovery step: switch $(active_slot) -> $target (full)"
+            VLESS_GO_HISTORY_SUPPRESS=1 "$FULL_FAILOVER_CMD" switch "$target" --first >/dev/null 2>&1 || return 1
             ;;
         minimal)
-            [ -x "$MINIMAL_SWITCH_CMD" ] || { log "Recovery step: failover skipped, command not found: $MINIMAL_SWITCH_CMD"; return 1; }
-            log "Recovery step: switch primary -> backup (minimal)"
-            if "$MINIMAL_SWITCH_CMD" backup >/dev/null 2>&1; then sleep 5; history_log recover_failover from=primary to=backup result=ok mode=minimal; return 0; fi
+            [ -x "$MINIMAL_SWITCH_CMD" ] || { log "Recovery step: switch skipped, command not found: $MINIMAL_SWITCH_CMD"; return 1; }
+            log "Recovery step: switch $(active_slot) -> $target (minimal)"
+            "$MINIMAL_SWITCH_CMD" "$target" >/dev/null 2>&1 || return 1
             ;;
-        *) log "Recovery step: failover skipped, mode is unknown"; return 1 ;;
+        *) log "Recovery step: switch skipped, mode is unknown"; return 1 ;;
     esac
-    log "Recovery step failed: switch primary -> backup"
-    history_log failed_switch source=recover from=primary to=backup reason=recover_switch_failed mode="$MODE"
-    return 1
+    sleep 5
+    history_log recover_switch to="$target" result=ok mode="$MODE"
+    return 0
+}
+
+try_slot_recovery() {
+    MODE="$(detect_mode)"
+    SLOT="$(active_slot)"
+    case "$SLOT" in
+        primary)
+            BACKUP="$(backup_store)"
+            [ -s "$BACKUP" ] || { log "Recovery step: failover skipped, backup is not configured"; return 1; }
+            if switch_to_slot backup; then return 0; fi
+            log "Recovery step failed: switch primary -> backup"
+            history_log failed_switch source=recover from=primary to=backup reason=recover_switch_failed mode="$MODE"
+            return 1
+            ;;
+        backup)
+            PRIMARY="$(primary_store)"
+            [ -s "$PRIMARY" ] || { log "Recovery step: fallback skipped, primary is not configured"; return 1; }
+            if switch_to_slot primary; then return 0; fi
+            log "Recovery step failed: switch backup -> primary"
+            history_log failed_switch source=recover from=backup to=primary reason=recover_switch_failed mode="$MODE"
+            return 1
+            ;;
+        *) log "Recovery step: slot recovery skipped, active slot is $SLOT"; return 1 ;;
+    esac
 }
 
 run_recovery() {
@@ -366,8 +441,8 @@ run_recovery() {
     if health_check; then log "Recovery OK after Xray restart"; history_log recover_ok step=xray_restart result=ok mode="$MODE"; return 0; fi
     restart_watchdog || true
     if health_check; then log "Recovery OK after daemon restart"; history_log recover_ok step=daemon_restart result=ok mode="$MODE"; return 0; fi
-    try_failover || true
-    if health_check; then log "Recovery OK after failover"; history_log recover_ok step=failover result=ok mode="$MODE"; return 0; fi
+    try_slot_recovery || true
+    if health_check; then log "Recovery OK after slot recovery"; history_log recover_ok step=slot_recovery result=ok mode="$MODE"; return 0; fi
     log "Recovery failed: manual intervention may be required; router reboot is not automatic"
     history_log recover_failed result=failed active="$(active_slot)" mode="$MODE"
     return 1
