@@ -52,7 +52,11 @@ func updateScripts() (bool, string) {
 		return false, "downloaded auto_latest script failed syntax check: " + err.Error()
 	}
 
-	cmd := exec.Command(autoLatestPath, "--update-only", "--no-restart")
+	shell := scriptShell()
+	if shell == "" {
+		return false, "no shell available to run downloaded auto_latest script"
+	}
+	cmd := exec.Command(shell, autoLatestPath, "--update-only", "--no-restart")
 	out, err := cmd.CombinedOutput()
 	text := strings.TrimSpace("Updating router scripts via auto_latest safe-wrapper repair path...\n" + string(out))
 
@@ -117,6 +121,15 @@ func installRoutesCatalogHelper(client *http.Client) (string, error) {
 		return "Installing routes catalog helper...\nERROR: " + err.Error(), err
 	}
 	return "Installing routes catalog helper...\nInstalled: " + routesCatalogPath, nil
+}
+
+func scriptShell() string {
+	for _, shell := range []string{"/opt/bin/sh", "/bin/sh"} {
+		if exists(shell) {
+			return shell
+		}
+	}
+	return ""
 }
 
 func checkShellSyntax(path string) error {
