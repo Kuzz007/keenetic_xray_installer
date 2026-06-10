@@ -7,10 +7,7 @@ set -e
 
 REPO_BRANCH="${REPO_BRANCH:-main}"
 REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/${REPO_BRANCH}}"
-# Legacy plain target name kept for compatibility guardrails: xray_vless_failover_minimal.sh
-MINIMAL_GO_BACKEND_SUFFIX="${MINIMAL_GO_BACKEND_SUFFIX:-old_go}"
-PLAIN_NAME="${MINIMAL_GO_PLAIN_NAME:-xray_vless_failover_minimal_${MINIMAL_GO_BACKEND_SUFFIX}.sh}"
-PLAIN_URL="${MINIMAL_GO_PLAIN_URL:-${REPO_BASE}/${PLAIN_NAME}}"
+PLAIN_URL="${MINIMAL_GO_PLAIN_URL:-${REPO_BASE}/scripts/minimal-go-backend.sh}"
 TMP_DIR="${TMP_DIR:-/opt/tmp}"
 OUT="$TMP_DIR/xray_vless_failover_minimal_go.plain.$$"
 
@@ -116,17 +113,17 @@ FAILOVER_COMPAT
     echo "Minimal Go failover compatibility wrapper installed: /opt/bin/failover"
 }
 
-echo "Downloading Minimal Go plain installer..."
-fetch_plain || { echo "ERROR: failed to download Minimal Go installer: $PLAIN_URL" >&2; exit 1; }
+echo "Downloading Minimal Go backend..."
+fetch_plain || { echo "ERROR: failed to download Minimal Go backend: $PLAIN_URL" >&2; exit 1; }
 
 if ! head -n 1 "$OUT" | grep -Eq '^#!/bin/sh|^#!/opt/bin/sh'; then
-    echo "ERROR: downloaded Minimal Go installer does not look like a shell script: $PLAIN_URL" >&2
+    echo "ERROR: downloaded Minimal Go backend does not look like a shell script: $PLAIN_URL" >&2
     head -n 3 "$OUT" >&2 || true
     exit 1
 fi
 
 if ! sh -n "$OUT"; then
-    echo "ERROR: downloaded Minimal Go installer failed shell syntax check: $PLAIN_URL" >&2
+    echo "ERROR: downloaded Minimal Go backend failed shell syntax check: $PLAIN_URL" >&2
     exit 1
 fi
 
