@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-const controlServerVersion = "0.1.5-go-polish"
+const controlServerVersion = "0.1.6-mux-menu"
 
 var buildCommit = "dev"
 var buildTime = "unknown"
