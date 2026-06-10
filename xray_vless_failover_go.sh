@@ -180,9 +180,20 @@ ensure_xray_backup_dir() {
     chmod 700 "$XRAY_DIR/backups" 2>/dev/null || true
 }
 
+normalize_watchdog_auto_recover() {
+    [ -s "$WATCHDOG_CONF" ] || return 0
+    if grep -q '^AUTO_RECOVER_PRIMARY=' "$WATCHDOG_CONF" 2>/dev/null; then
+        sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY="1"/' "$WATCHDOG_CONF" 2>/dev/null || true
+    else
+        printf '%s\n' 'AUTO_RECOVER_PRIMARY="1"' >> "$WATCHDOG_CONF"
+    fi
+    chmod 600 "$WATCHDOG_CONF" 2>/dev/null || true
+}
+
 ensure_watchdog_conf() {
     mkdir -p "$XRAY_DIR"
     if [ -s "$WATCHDOG_CONF" ]; then
+        normalize_watchdog_auto_recover
         return 0
     fi
 
@@ -195,7 +206,7 @@ CHECK_RETRY_DELAY="2"
 WATCHDOG_INTERVAL="15"
 FAILOVER_FAILURES_REQUIRED="2"
 RECOVERY_SUCCESSES_REQUIRED="2"
-AUTO_RECOVER_PRIMARY="0"
+AUTO_RECOVER_PRIMARY="1"
 RECOVERY_TEST_PORT="18080"
 RECOVERY_COOLDOWN_CYCLES="2"
 POST_SWITCH_DELAY="5"
@@ -295,6 +306,7 @@ run_first_setup() {
     if [ "$FORCE_SETUP" != "1" ] && already_configured; then
         echo "Existing primary and backup profiles detected; skipping first-run setup."
         echo "Use --force-setup to replace them, or run failover-go for menu management."
+        ensure_watchdog_conf
         return 0
     fi
 
@@ -363,5 +375,6 @@ run_feed_install
 if [ "$DO_SETUP" = "1" ]; then
     run_first_setup
 else
+    ensure_watchdog_conf
     echo "Setup skipped. Use 'failover-go' for menu management or rerun with --force-setup."
 fi
