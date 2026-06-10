@@ -228,6 +228,89 @@ RECOVER_PROXY0_WRAPPER
     echo "Minimal Go recovery status wrapper installed: Doctor refreshes Proxy0 before status"
 }
 
+install_minimal_daemon_recovery_patch() {
+    daemon="/opt/bin/xray-minimal-go-failover-daemon"
+    [ -x "$daemon" ] || return 0
+    grep -q 'minimal-go-daemon-recover-primary-v2' "$daemon" 2>/dev/null && return 0
+    cp "$daemon" "$daemon.before-recover-primary.$(date +%Y%m%d-%H%M%S 2>/dev/null || echo backup)" 2>/dev/null || true
+
+    cat > "$daemon" <<'MINIMAL_DAEMON'
+#!/bin/sh
+# minimal-go-daemon-recover-primary-v2
+. /opt/libexec/minimal-go-common.sh
+CHECK_INTERVAL="${CHECK_INTERVAL:-15}"
+FAILOVER_FAILURES_REQUIRED="${FAILOVER_FAILURES_REQUIRED:-2}"
+RECOVERY_SUCCESSES_REQUIRED="${RECOVERY_SUCCESSES_REQUIRED:-2}"
+AUTO_RECOVER_PRIMARY="${AUTO_RECOVER_PRIMARY:-1}"
+primary_fail=0
+primary_recover=0
+backup_fail=0
+
+try_primary_recovery_now() {
+  [ "$AUTO_RECOVER_PRIMARY" = "1" ] || return 1
+  [ -s "$PRIMARY_STORE" ] || return 1
+  echo "$(date '+%Y-%m-%d %H:%M:%S') probing primary for recovery"
+  if test_temp_slot primary "$TEMP_PRIMARY_PORT" && switch_slot primary; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') recovered backup -> primary"
+    primary_recover=0
+    backup_fail=0
+    primary_fail=0
+    return 0
+  fi
+  echo "$(date '+%Y-%m-%d %H:%M:%S') primary recovery unavailable"
+  return 1
+}
+
+while true; do
+  active="$(cat "$ACTIVE_STORE" 2>/dev/null || echo primary)"
+  if [ "$active" = primary ]; then
+    if health_check 127.0.0.1 "$SOCKS_PORT"; then
+      echo "$(date '+%Y-%m-%d %H:%M:%S') health OK on primary"
+      primary_fail=0
+    else
+      primary_fail=$((primary_fail+1))
+      echo "$(date '+%Y-%m-%d %H:%M:%S') health FAIL on primary: $primary_fail/$FAILOVER_FAILURES_REQUIRED"
+      if [ "$primary_fail" -ge "$FAILOVER_FAILURES_REQUIRED" ]; then
+        if [ -s "$BACKUP_STORE" ] && test_temp_slot backup "$TEMP_BACKUP_PORT" && switch_slot backup; then
+          echo "$(date '+%Y-%m-%d %H:%M:%S') switched primary -> backup"
+          primary_fail=0
+          primary_recover=0
+          backup_fail=0
+        else
+          echo "$(date '+%Y-%m-%d %H:%M:%S') backup unavailable or not configured"
+        fi
+      fi
+    fi
+  else
+    if health_check 127.0.0.1 "$SOCKS_PORT"; then
+      echo "$(date '+%Y-%m-%d %H:%M:%S') health OK on backup"
+      backup_fail=0
+      if [ "$AUTO_RECOVER_PRIMARY" = "1" ] && [ -s "$PRIMARY_STORE" ] && test_temp_slot primary "$TEMP_PRIMARY_PORT"; then
+        primary_recover=$((primary_recover+1))
+        echo "$(date '+%Y-%m-%d %H:%M:%S') primary recovery OK: $primary_recover/$RECOVERY_SUCCESSES_REQUIRED"
+        if [ "$primary_recover" -ge "$RECOVERY_SUCCESSES_REQUIRED" ] && switch_slot primary; then
+          echo "$(date '+%Y-%m-%d %H:%M:%S') recovered backup -> primary"
+          primary_recover=0
+          backup_fail=0
+          primary_fail=0
+        fi
+      else
+        primary_recover=0
+      fi
+    else
+      backup_fail=$((backup_fail+1))
+      primary_recover=0
+      echo "$(date '+%Y-%m-%d %H:%M:%S') health FAIL on backup: $backup_fail; probing primary"
+      try_primary_recovery_now || true
+    fi
+  fi
+  sleep "$CHECK_INTERVAL"
+done
+MINIMAL_DAEMON
+    chmod +x "$daemon"
+    echo "Minimal Go daemon recovery patch installed: failed backup can recover to primary"
+}
+
 echo "Downloading Minimal Go backend..."
 fetch_plain || { echo "ERROR: failed to download Minimal Go backend: $PLAIN_URL" >&2; exit 1; }
 
@@ -252,6 +335,7 @@ if [ "$RC" -eq 0 ]; then
     install_minimal_failover_compat || true
     install_minimal_common_safety_patch || true
     install_recover_status_proxy0_wrapper || true
+    install_minimal_daemon_recovery_patch || true
 fi
 
 exit "$RC"
