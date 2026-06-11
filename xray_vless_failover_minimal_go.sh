@@ -117,15 +117,73 @@ FAILOVER_COMPAT
 install_minimal_common_safety_patch() {
     common="/opt/libexec/minimal-go-common.sh"
     [ -f "$common" ] || return 0
-    grep -q 'minimal-go-safe-switch-v2' "$common" 2>/dev/null && return 0
+    if grep -q 'minimal-go-mux-aware-switch-v3' "$common" 2>/dev/null; then
+        echo "Minimal Go mux-aware switch patch already installed"
+        return 0
+    fi
 
-    cp "$common" "$common.before-safe-switch.$(date +%Y%m%d-%H%M%S 2>/dev/null || echo backup)" 2>/dev/null || true
+    cp "$common" "$common.before-mux-aware-switch.$(date +%Y%m%d-%H%M%S 2>/dev/null || echo backup)" 2>/dev/null || true
 
     cat >> "$common" <<'SAFE_SWITCH'
 
-# minimal-go-safe-switch-v2
+# minimal-go-mux-aware-switch-v3
 # Override switch_slot from the pinned backend: rollback config if the post-start
-# SOCKS health check fails, and give slow transports such as XHTTP a few retries.
+# SOCKS health check fails, give slow transports such as XHTTP a few retries,
+# and merge persistent Mux state into generated config before Xray restart.
+apply_persistent_mux_state() {
+  cfg="$1"
+  state="/opt/etc/xray/mux-state.json"
+  [ -s "$cfg" ] || return 0
+  [ -s "$state" ] || return 0
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$cfg" "$state" <<'PY' || return 0
+import json, os, sys
+cfg_path, state_path = sys.argv[1], sys.argv[2]
+try:
+    with open(cfg_path, 'r', encoding='utf-8') as f:
+        cfg = json.load(f)
+    with open(state_path, 'r', encoding='utf-8') as f:
+        st = json.load(f)
+    outbounds = cfg.get('outbounds') or []
+    target = None
+    tag = (st.get('outbound_tag') or '').strip()
+    if tag:
+        for ob in outbounds:
+            if isinstance(ob, dict) and ob.get('tag') == tag:
+                target = ob
+                break
+    if target is None:
+        for ob in outbounds:
+            if isinstance(ob, dict) and str(ob.get('protocol','')).lower() == 'vless':
+                target = ob
+                break
+    if target is None:
+        for ob in outbounds:
+            if isinstance(ob, dict) and str(ob.get('protocol','')).lower() not in ('freedom','blackhole'):
+                target = ob
+                break
+    if target is None:
+        sys.exit(0)
+    conc = int(st.get('concurrency') or 8)
+    xudp = int(st.get('xudpConcurrency') if st.get('xudpConcurrency') is not None else -1)
+    proxy443 = st.get('xudpProxyUDP443') or 'skip'
+    target['mux'] = {
+        'enabled': True,
+        'concurrency': conc,
+        'xudpConcurrency': xudp,
+        'xudpProxyUDP443': proxy443,
+    }
+    tmp = cfg_path + '.mux-state.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+        f.write('\n')
+    os.replace(tmp, cfg_path)
+except Exception:
+    pass
+PY
+  fi
+}
+
 switch_slot() {
   slot="$1"
   source="$(source_for_slot "$slot")" || return 1
@@ -133,6 +191,7 @@ switch_slot() {
   old="$TMP_DIR/minimal-go-before-switch.$$.json"
 
   generate_config "$slot" "$source" "$SOCKS_LISTEN" "$SOCKS_PORT" "$tmp" || return 1
+  apply_persistent_mux_state "$tmp"
   test_config "$tmp" || return 1
   cp "$XRAY_CONFIG" "$old" 2>/dev/null || true
   cp "$tmp" "$XRAY_CONFIG"
@@ -188,7 +247,7 @@ switch_slot() {
 SAFE_SWITCH
 
     chmod 644 "$common" 2>/dev/null || true
-    echo "Minimal Go safe switch patch installed: rollback on failed health check"
+    echo "Minimal Go mux-aware switch patch installed: persistent Mux is merged before Xray restart"
 }
 
 remove_recover_status_proxy0_wrapper() {
