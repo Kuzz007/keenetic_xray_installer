@@ -21,10 +21,14 @@ func applySavedMuxState(cfg map[string]interface{}, defaultTag string) {
 	}
 	outboundTag := strings.TrimSpace(mapString(state, "outbound_tag"))
 	concurrency := mapIntDefault(state, "concurrency", 8)
+	xudpConcurrency := mapIntDefault(state, "xudpConcurrency", -1)
 	if concurrency <= 0 {
 		concurrency = 8
 	}
-	if concurrency > 1024 {
+	if xudpConcurrency == 0 {
+		xudpConcurrency = -1
+	}
+	if concurrency > 1024 || xudpConcurrency < -1 || xudpConcurrency > 1024 {
 		fmt.Fprintf(os.Stderr, "WARN: saved mux state ignored: concurrency out of range\n")
 		return
 	}
@@ -32,6 +36,7 @@ func applySavedMuxState(cfg map[string]interface{}, defaultTag string) {
 	_ = defaultTag
 	_ = outboundTag
 	_ = concurrency
+	_ = xudpConcurrency
 }
 
 func mapString(m map[string]interface{}, key string) string {
