@@ -19,10 +19,19 @@ func applySavedMuxState(cfg map[string]interface{}, defaultTag string) {
 		fmt.Fprintf(os.Stderr, "WARN: saved mux state ignored: %v\n", err)
 		return
 	}
+	outboundTag := strings.TrimSpace(mapString(state, "outbound_tag"))
+	concurrency := mapIntDefault(state, "concurrency", 8)
+	if concurrency <= 0 {
+		concurrency = 8
+	}
+	if concurrency > 1024 {
+		fmt.Fprintf(os.Stderr, "WARN: saved mux state ignored: concurrency out of range\n")
+		return
+	}
 	_ = cfg
 	_ = defaultTag
-	_ = strings.TrimSpace
-	_ = mapString(state, "outbound_tag")
+	_ = outboundTag
+	_ = concurrency
 }
 
 func mapString(m map[string]interface{}, key string) string {
@@ -30,6 +39,21 @@ func mapString(m map[string]interface{}, key string) string {
 		return v
 	}
 	return ""
+}
+
+func mapIntDefault(m map[string]interface{}, key string, fallback int) int {
+	switch v := m[key].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case json.Number:
+		n, err := v.Int64()
+		if err == nil {
+			return int(n)
+		}
+	}
+	return fallback
 }
 
 func stringMapValue(m map[string]interface{}, key string) string {
