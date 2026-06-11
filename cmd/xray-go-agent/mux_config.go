@@ -13,6 +13,9 @@ import (
 
 const muxConfigPath = "/opt/etc/xray/config.json"
 const muxBackupDir = "/opt/etc/xray/mux-backups"
+const muxStatePath = "/opt/etc/xray/mux-state.json"
+const muxReapplyStampPath = "/opt/var/run/xray-go-agent.mux-reapply"
+const muxAutoReapplyInterval = 30 * time.Second
 
 type muxPayload struct {
 	OutboundTag     string `json:"outbound_tag,omitempty"`
@@ -62,14 +65,28 @@ func muxStatus(selector, source string) (bool, string) {
 		"config: " + payload.ConfigPath,
 		"outbound: " + tagProtocol(tag, protocol),
 	}
+	desired, desiredOK, _ := loadMuxDesired()
 	if muxRaw, ok := outbound["mux"]; ok {
 		if muxMap, ok := muxRaw.(map[string]interface{}); ok {
-			lines = append(lines, "mux: "+formatMuxMap(muxMap))
+			line := "mux: " + formatMuxMap(muxMap)
+			if desiredOK && !muxMatches(muxMap, desired) {
+				line += " desired=" + formatMuxPayloadShort(desired)
+			}
+			lines = append(lines, line)
 		} else {
 			lines = append(lines, "mux: present but has unexpected JSON type")
 		}
 	} else {
-		lines = append(lines, "mux: off/no mux block")
+		line := "mux: off/no mux block"
+		if desiredOK {
+			line += " desired=on " + formatMuxPayloadShort(desired)
+		}
+		lines = append(lines, line)
+	}
+	if desiredOK {
+		lines = append(lines, "persistent state: "+muxStatePath)
+	} else {
+		lines = append(lines, "persistent state: none")
 	}
 	if latest := latestMuxBackup(); latest != "" {
 		lines = append(lines, "latest rollback: "+latest)
@@ -110,8 +127,9 @@ func muxSet(selector, source string, enabled bool) (bool, string) {
 	}
 
 	if !enabled {
+		_ = clearMuxDesired()
 		if _, ok := outbound["mux"]; !ok {
-			return true, "Mux already disabled\nconfig: " + payload.ConfigPath + "\noutbound: " + tagProtocol(tag, protocol)
+			return true, "Mux already disabled\npersistent state: cleared\nconfig: " + payload.ConfigPath + "\noutbound: " + tagProtocol(tag, protocol)
 		}
 	}
 
@@ -120,12 +138,7 @@ func muxSet(selector, source string, enabled bool) (bool, string) {
 		return false, err.Error()
 	}
 	if enabled {
-		outbound["mux"] = map[string]interface{}{
-			"enabled":          true,
-			"concurrency":      payload.Concurrency,
-			"xudpConcurrency":  payload.XUDPConcurrency,
-			"xudpProxyUDP443":  payload.XUDPProxyUDP443,
-		}
+		outbound["mux"] = muxMapFromPayload(payload)
 	} else if payload.RemoveOnDisable {
 		delete(outbound, "mux")
 	} else {
@@ -145,15 +158,34 @@ func muxSet(selector, source string, enabled bool) (bool, string) {
 		return false, "Xray restart failed. Restored rollback point.\nbackup: " + backup + "\n\nrestart error:\n" + out + "\n\nrestore restart:\n" + restoreOut
 	}
 	pruneMuxBackups(20)
+
+	persistNote := ""
+	if enabled {
+		if err := saveMuxDesired(payload); err != nil {
+			persistNote = "\nwarning: persistent state save failed: " + err.Error()
+		} else {
+			persistNote = "\npersistent state: saved " + muxStatePath
+		}
+		if reapplied, out := muxAutoReapplyIfNeeded(); reapplied || strings.TrimSpace(out) != "" {
+			persistNote += "\nauto-reapply: " + strings.TrimSpace(out)
+		}
+	} else {
+		if err := clearMuxDesired(); err != nil {
+			persistNote = "\nwarning: persistent state clear failed: " + err.Error()
+		} else {
+			persistNote = "\npersistent state: cleared"
+		}
+	}
+
 	state := "disabled"
 	if enabled {
 		state = "enabled"
 	}
 	statusOK, status := muxStatus(selector, source)
 	if statusOK {
-		return true, "✅ Mux " + state + "\nrollback: " + backup + "\n\n" + status
+		return true, "✅ Mux " + state + "\nrollback: " + backup + persistNote + "\n\n" + status
 	}
-	return true, "✅ Mux " + state + "\nrollback: " + backup + "\nconfig: " + payload.ConfigPath + "\noutbound: " + tagProtocol(tag, protocol)
+	return true, "✅ Mux " + state + "\nrollback: " + backup + persistNote + "\nconfig: " + payload.ConfigPath + "\noutbound: " + tagProtocol(tag, protocol)
 }
 
 func muxRollback(selector, source string) (bool, string) {
@@ -181,11 +213,17 @@ func muxRollback(selector, source string) (bool, string) {
 		_, restoreOut := restartXray()
 		return false, "Rollback restart failed. Current config restored.\nrollback tried: " + backup + "\ncurrent backup: " + currentBackup + "\n\nrestart error:\n" + out + "\n\nrestore restart:\n" + restoreOut
 	}
+	clearNote := ""
+	if err := clearMuxDesired(); err != nil {
+		clearNote = "\nwarning: persistent state clear failed: " + err.Error()
+	} else {
+		clearNote = "\npersistent state: cleared"
+	}
 	statusOK, status := muxStatus(selector, source)
 	if statusOK {
-		return true, "✅ Rollback applied\nrestored: " + backup + "\ncurrent saved as: " + currentBackup + "\n\n" + status
+		return true, "✅ Rollback applied\nrestored: " + backup + "\ncurrent saved as: " + currentBackup + clearNote + "\n\n" + status
 	}
-	return true, "✅ Rollback applied\nrestored: " + backup + "\ncurrent saved as: " + currentBackup
+	return true, "✅ Rollback applied\nrestored: " + backup + "\ncurrent saved as: " + currentBackup + clearNote
 }
 
 func parseMuxPayload(selector, source string) (muxPayload, error) {
@@ -212,6 +250,13 @@ func parseMuxPayload(selector, source string) (muxPayload, error) {
 			payload.OutboundTag = source
 		}
 	}
+	return normalizeMuxPayload(payload)
+}
+
+func normalizeMuxPayload(payload muxPayload) (muxPayload, error) {
+	payload.OutboundTag = strings.TrimSpace(payload.OutboundTag)
+	payload.ConfigPath = strings.TrimSpace(payload.ConfigPath)
+	payload.XUDPProxyUDP443 = strings.TrimSpace(payload.XUDPProxyUDP443)
 	if payload.ConfigPath == "" {
 		payload.ConfigPath = muxConfigPath
 	}
@@ -221,10 +266,158 @@ func parseMuxPayload(selector, source string) (muxPayload, error) {
 	if payload.Concurrency > 1024 {
 		return payload, fmt.Errorf("concurrency too high: %d", payload.Concurrency)
 	}
+	if payload.XUDPConcurrency == 0 {
+		payload.XUDPConcurrency = -1
+	}
+	if payload.XUDPConcurrency < -1 || payload.XUDPConcurrency > 1024 {
+		return payload, fmt.Errorf("xudpConcurrency out of range: %d", payload.XUDPConcurrency)
+	}
 	if payload.XUDPProxyUDP443 == "" {
 		payload.XUDPProxyUDP443 = "skip"
 	}
+	payload.RemoveOnDisable = true
 	return payload, nil
+}
+
+func saveMuxDesired(payload muxPayload) error {
+	payload, err := normalizeMuxPayload(payload)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(muxStatePath), 0700); err != nil {
+		return fmt.Errorf("mux state dir failed: %w", err)
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return fmt.Errorf("mux state marshal failed: %w", err)
+	}
+	data = append(data, '\n')
+	tmp := fmt.Sprintf("%s.%d.tmp", muxStatePath, os.Getpid())
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return fmt.Errorf("mux state write failed: %w", err)
+	}
+	if err := os.Rename(tmp, muxStatePath); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("mux state replace failed: %w", err)
+	}
+	return nil
+}
+
+func loadMuxDesired() (muxPayload, bool, error) {
+	data, err := os.ReadFile(muxStatePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return muxPayload{}, false, nil
+		}
+		return muxPayload{}, false, err
+	}
+	var payload muxPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return muxPayload{}, false, fmt.Errorf("mux state parse failed: %w", err)
+	}
+	payload, err = normalizeMuxPayload(payload)
+	if err != nil {
+		return muxPayload{}, false, err
+	}
+	return payload, true, nil
+}
+
+func clearMuxDesired() error {
+	if err := os.Remove(muxStatePath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	_ = os.Remove(muxReapplyStampPath)
+	return nil
+}
+
+func muxAutoReapplyIfNeeded() (bool, string) {
+	if !muxSupported() {
+		return false, ""
+	}
+	payload, desired, err := loadMuxDesired()
+	if err != nil {
+		return false, "desired state read failed: " + err.Error()
+	}
+	if !desired {
+		return false, ""
+	}
+	cfg, err := readXrayConfig(payload.ConfigPath)
+	if err != nil {
+		return false, err.Error()
+	}
+	outbound, tag, protocol, err := findMuxOutbound(cfg, payload.OutboundTag)
+	if err != nil {
+		return false, err.Error()
+	}
+	if muxRaw, ok := outbound["mux"]; ok {
+		if muxMap, ok := muxRaw.(map[string]interface{}); ok && muxMatches(muxMap, payload) {
+			return false, ""
+		}
+	}
+	if !muxReapplyAllowed(muxAutoReapplyInterval) {
+		return false, ""
+	}
+	touchMuxReapplyStamp()
+	backup, err := createMuxBackup(payload.ConfigPath, "auto-reapply")
+	if err != nil {
+		return false, err.Error()
+	}
+	outbound["mux"] = muxMapFromPayload(payload)
+	if err := writeXrayConfig(payload.ConfigPath, cfg); err != nil {
+		return false, err.Error()
+	}
+	if ok, out := testXrayConfig(payload.ConfigPath); !ok {
+		_ = restoreMuxBackup(backup, payload.ConfigPath)
+		return false, "auto-reapply config test failed; restored backup: " + backup + "\n" + out
+	}
+	if ok, out := restartXray(); !ok {
+		_ = restoreMuxBackup(backup, payload.ConfigPath)
+		_, restoreOut := restartXray()
+		return false, "auto-reapply restart failed; restored backup: " + backup + "\nrestart error:\n" + out + "\nrestore restart:\n" + restoreOut
+	}
+	pruneMuxBackups(20)
+	return true, "reapplied desired mux to " + tagProtocol(tag, protocol) + " backup=" + backup + " " + formatMuxPayloadShort(payload)
+}
+
+func muxReapplyAllowed(interval time.Duration) bool {
+	if interval <= 0 {
+		return true
+	}
+	st, err := os.Stat(muxReapplyStampPath)
+	if err != nil {
+		return true
+	}
+	return time.Since(st.ModTime()) >= interval
+}
+
+func touchMuxReapplyStamp() {
+	_ = os.MkdirAll(filepath.Dir(muxReapplyStampPath), 0755)
+	_ = os.WriteFile(muxReapplyStampPath, []byte(time.Now().Format(time.RFC3339)+"\n"), 0644)
+}
+
+func muxMapFromPayload(payload muxPayload) map[string]interface{} {
+	return map[string]interface{}{
+		"enabled":          true,
+		"concurrency":      payload.Concurrency,
+		"xudpConcurrency":  payload.XUDPConcurrency,
+		"xudpProxyUDP443":  payload.XUDPProxyUDP443,
+	}
+}
+
+func muxMatches(m map[string]interface{}, payload muxPayload) bool {
+	concurrency, ok := intValue(m["concurrency"])
+	if !ok || concurrency != payload.Concurrency {
+		return false
+	}
+	xudpConcurrency, ok := intValue(m["xudpConcurrency"])
+	if !ok || xudpConcurrency != payload.XUDPConcurrency {
+		return false
+	}
+	return boolValue(m["enabled"]) && stringValue(m["xudpProxyUDP443"]) == payload.XUDPProxyUDP443
+}
+
+func formatMuxPayloadShort(payload muxPayload) string {
+	return fmt.Sprintf("concurrency=%d xudpConcurrency=%d xudpProxyUDP443=%s", payload.Concurrency, payload.XUDPConcurrency, payload.XUDPProxyUDP443)
 }
 
 func readXrayConfig(path string) (map[string]interface{}, error) {
@@ -432,6 +625,21 @@ func stringValue(v interface{}) string {
 		return s
 	}
 	return ""
+}
+
+func intValue(v interface{}) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	case json.Number:
+		i, err := n.Int64()
+		return int(i), err == nil
+	}
+	return 0, false
 }
 
 func boolValue(v interface{}) bool {
