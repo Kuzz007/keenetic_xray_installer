@@ -56,7 +56,7 @@ func updateScripts() (bool, string) {
 	if shell == "" {
 		return false, "no shell available to run downloaded auto_latest script"
 	}
-	cmd := exec.Command(shell, autoLatestPath, "--update-only", "--no-restart")
+	cmd := exec.Command(shell, autoLatestPath, "--update-only", "--no-restart", "--force-go-resolver")
 	out, err := cmd.CombinedOutput()
 	text := strings.TrimSpace("Updating router scripts via auto_latest safe-wrapper repair path...\n" + string(out))
 
