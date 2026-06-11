@@ -48,7 +48,7 @@ jobs:
 
           path = Path("cmd/xray-go-agent/main.go")
           text = path.read_text()
-          text = text.replace('const agentVersion = "0.2.0-unified"', 'const agentVersion = "0.2.1-mux-rollback"')
+          text = text.replace('const agentVersion = "0.2.0-unified"', 'const agentVersion = "0.2.2-mux-persist"')
 
           needle = '''\tcase "update_subscription":
           \t\treturn updateSubscription()
@@ -108,6 +108,22 @@ jobs:
           if needle not in text:
               raise SystemExit("mux capability insertion point not found")
           text = text.replace(needle, repl)
+
+          needle = '''\t\tif err := pollOnce(cfg); err != nil {
+          \t\t\tlog.Printf("poll error: %v", err)
+          \t\t\tresultLog("poll error: %v", err)
+          \t\t}'''
+          repl = '''\t\tif ok, out := muxAutoReapplyIfNeeded(); ok || strings.TrimSpace(out) != "" {
+          \t\t\tresultLog("MUX auto-reapply ok=%v %s", ok, strings.TrimSpace(out))
+          \t\t}
+          \t\tif err := pollOnce(cfg); err != nil {
+          \t\t\tlog.Printf("poll error: %v", err)
+          \t\t\tresultLog("poll error: %v", err)
+          \t\t}'''
+          if needle not in text:
+              raise SystemExit("mux auto-reapply insertion point not found")
+          text = text.replace(needle, repl)
+
           path.write_text(text)
           PY
           gofmt -w cmd/xray-go-agent/main.go cmd/xray-go-agent/mux_config.go cmd/xray-go-control-server/*.go
@@ -191,12 +207,13 @@ jobs:
           xray-go-control-server-linux-arm64
           ```
 
-          Current package line: `v0.2.1-mux-rollback`.
+          Current package line: `v0.2.2-mux-persist`.
 
           Includes:
 
           - unified Go router agent path for arm64/aarch64, mipsel/mipselsf/mipsle and mips
-          - safe Mux controls through the Telegram control bot: status, rollback point, enable, disable, rollback
+          - persistent Mux controls with auto-reapply after Minimal Go/recovery regenerates `/opt/etc/xray/config.json`
+          - safe Mux/XUDP controls through the Telegram control bot: status, rollback point, enable, disable, rollback
           - Mux changes are applied only to the router client Xray outbound with config test, Xray restart and automatic restore on failure
           - unified `xray-go` command wrapper
           - support-safe `xray-go doctor --support`
