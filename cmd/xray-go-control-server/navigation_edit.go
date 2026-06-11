@@ -71,6 +71,8 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
 	case strings.HasPrefix(data, "mux-enable:"):
 		s.enqueueMuxPreset(cb.ID, chatID, messageID, data)
+	case strings.HasPrefix(data, "mux-xudp:"):
+		s.enqueueMuxXUDPPreset(cb.ID, chatID, messageID, data)
 	case strings.HasPrefix(data, "mux-status:"):
 		s.enqueueMuxSimple(cb.ID, chatID, messageID, data, "mux_status", "mux-status")
 	case strings.HasPrefix(data, "mux-snapshot:"):
