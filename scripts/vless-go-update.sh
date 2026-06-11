@@ -10,6 +10,7 @@ SOCKS_LISTEN="0.0.0.0"
 SOURCE_STORE="$XRAY_DIR/vless-go.source"
 ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 SOCKS_AUTH_CONF="$XRAY_DIR/vless-go-socks-auth.conf"
+MUX_STATE_CONF="$XRAY_DIR/mux-state.json"
 TMP_DIR="/opt/tmp"
 LOCK_HELPER="/opt/libexec/vless-go-lock.sh"
 
@@ -183,6 +184,73 @@ apply_socks_auth_to_config() {
     chmod 600 "$config_file" 2>/dev/null || true
 }
 
+apply_persistent_mux_state_to_config() {
+    config_file="$1"
+    [ -s "$config_file" ] || return 0
+    [ -s "$MUX_STATE_CONF" ] || return 0
+
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "WARNING: python3 not found; skip persistent Mux merge for generated config" >&2
+        return 0
+    fi
+
+    python3 - "$config_file" "$MUX_STATE_CONF" <<'PY'
+import json
+import os
+import sys
+
+cfg_path, state_path = sys.argv[1], sys.argv[2]
+with open(cfg_path, 'r', encoding='utf-8') as f:
+    cfg = json.load(f)
+with open(state_path, 'r', encoding='utf-8') as f:
+    st = json.load(f)
+
+outbounds = cfg.get('outbounds') or []
+target = None
+requested_tag = (st.get('outbound_tag') or '').strip()
+
+if requested_tag:
+    for outbound in outbounds:
+        if isinstance(outbound, dict) and outbound.get('tag') == requested_tag:
+            target = outbound
+            break
+
+if target is None:
+    for outbound in outbounds:
+        if isinstance(outbound, dict) and str(outbound.get('protocol', '')).lower() == 'vless':
+            target = outbound
+            break
+
+if target is None:
+    for outbound in outbounds:
+        if isinstance(outbound, dict) and str(outbound.get('protocol', '')).lower() not in ('freedom', 'blackhole'):
+            target = outbound
+            break
+
+if target is None:
+    sys.exit(0)
+
+concurrency = int(st.get('concurrency') or 8)
+xudp_raw = st.get('xudpConcurrency')
+xudp = int(xudp_raw if xudp_raw is not None else -1)
+proxy443 = st.get('xudpProxyUDP443') or 'skip'
+
+target['mux'] = {
+    'enabled': True,
+    'concurrency': concurrency,
+    'xudpConcurrency': xudp,
+    'xudpProxyUDP443': proxy443,
+}
+
+tmp = cfg_path + '.mux-state.tmp'
+with open(tmp, 'w', encoding='utf-8') as f:
+    json.dump(cfg, f, ensure_ascii=False, indent=2)
+    f.write('\n')
+os.replace(tmp, cfg_path)
+PY
+    chmod 600 "$config_file" 2>/dev/null || true
+}
+
 FIRST="0"
 NO_RESTART="0"
 VERBOSE="0"
@@ -317,6 +385,7 @@ if [ "$RESOLVER_RC" -ne 0 ]; then
 fi
 
 apply_socks_auth_to_config "$TMP_CONFIG"
+apply_persistent_mux_state_to_config "$TMP_CONFIG"
 
 if [ "$VERBOSE" = "1" ] && [ -s "$RESOLVER_LOG" ]; then
     cat "$RESOLVER_LOG"
@@ -344,6 +413,7 @@ if [ "$NO_RESTART" = "1" ]; then
     echo "Updated and validated config: $XRAY_CONFIG"
     echo "Selector: $SELECTOR"
     if [ "$XRAY_SOCKS_AUTH" = "1" ]; then echo "SOCKS auth: enabled"; else echo "SOCKS auth: disabled"; fi
+    [ -s "$MUX_STATE_CONF" ] && echo "Persistent Mux: merged from $MUX_STATE_CONF" || echo "Persistent Mux: not configured"
     echo "Xray restart skipped."
     exit 0
 fi
@@ -353,3 +423,4 @@ restart_xray_checked
 echo "Updated VLESS config from saved source."
 echo "Selector: $SELECTOR"
 if [ "$XRAY_SOCKS_AUTH" = "1" ]; then echo "SOCKS auth: enabled"; else echo "SOCKS auth: disabled"; fi
+[ -s "$MUX_STATE_CONF" ] && echo "Persistent Mux: merged from $MUX_STATE_CONF" || echo "Persistent Mux: not configured"
