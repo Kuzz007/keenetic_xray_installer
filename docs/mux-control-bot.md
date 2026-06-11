@@ -1,6 +1,6 @@
 # Mux control через Telegram-бот
 
-Экспериментальная функция для управления Xray Mux на роутере через control-bot и router-agent.
+Экспериментальная функция для управления Xray Mux/XUDP на роутере через control-bot и router-agent.
 
 ## Что меняется
 
@@ -12,7 +12,7 @@ Mux применяется только на стороне роутера, в �
 
 - `mux_status` — показать текущий Mux и последний rollback backup;
 - `mux_snapshot` — создать точку отката без изменения конфига;
-- `mux_enable` — включить Mux с выбранным `concurrency`;
+- `mux_enable` — включить Mux/XUDP с выбранными параметрами;
 - `mux_disable` — выключить Mux, удалив блок `mux`;
 - `mux_rollback` — восстановить последний backup из `/opt/etc/xray/mux-backups`.
 
@@ -73,6 +73,36 @@ curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/mai
 Если много мелких соединений и всё стабильно — можно проверить `ON 16`.
 
 `ON 32` — агрессивный экспериментальный пресет. Использовать только для сравнения на одном роутере, если `ON 8` и `ON 16` уже работают стабильно.
+
+## Экспериментальные XUDP-пресеты
+
+Кнопки `🧪 UDP 4`, `🧪 UDP 8`, `🧪 UDP 16`, `🧪 UDP 32` включают:
+
+```json
+{
+  "enabled": true,
+  "concurrency": 8,
+  "xudpConcurrency": 8,
+  "xudpProxyUDP443": "skip"
+}
+```
+
+Число в кнопке меняет только `xudpConcurrency`.
+
+`concurrency` для TCP при XUDP-пресетах фиксируется на `8`.
+
+`xudpProxyUDP443` специально оставлен `skip`, чтобы не mux-ить UDP/443 QUIC/HTTP3 и снизить риск проблем с YouTube, Google, Cloudflare и браузерами.
+
+`🧪 UDP off` возвращает безопасный режим:
+
+```json
+{
+  "enabled": true,
+  "concurrency": 8,
+  "xudpConcurrency": -1,
+  "xudpProxyUDP443": "skip"
+}
+```
 
 ## Отключение
 
