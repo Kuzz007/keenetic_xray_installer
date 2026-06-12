@@ -17,17 +17,17 @@ func (s *Server) muxMenuView(routerID string) (string, inlineKeyboard, bool) {
 	if strings.TrimSpace(name) == "" {
 		name = routerID
 	}
-	text := strings.TrimSpace("⚙️ Mux\n\n📡 " + name + "\nID: " + routerID + "\n\nРекомендуемый безопасный порядок:\n1. Нажми 💾 Точка отката.\n2. Проверь 📍 Статус.\n3. Для теста включи ✅ ON 8.\n\nПамятка по TCP Mux:\n• ON 4 — осторожно, меньше риска.\n• ON 8 — оптимальный старт.\n• ON 16 — агрессивнее, больше мелких запросов.\n• ON 32 — эксперимент, только для сравнения.\n\nПамятка по XUDP:\n• UDP 4/8/16/32 — эксперимент для UDP.\n• UDP off — безопасный режим без UDP Mux.\n• UDP/443 всегда skip, чтобы не ломать QUIC/HTTP3.\n\nАгент изменит только клиентский outbound Xray на роутере, проверит config test, перезапустит Xray и при ошибке вернёт backup.")
+	text := strings.TrimSpace("⚙️ XMUX / XUDP\n\n📡 " + name + "\nID: " + routerID + "\n\nПорядок:\n1. Нажми 💾 Точка отката.\n2. Проверь 📍 Статус.\n3. Для XHTTP включай XMUX: 2 / 4 / 8 / 16 / 31.\n4. XUDP тестируй отдельно: 4 / 8 / 16 / 32.\n\nXMUX:\n• 4 — осторожно.\n• 8/16 — обычно рабочий диапазон.\n• 31 — агрессивный тест.\n\nXUDP:\n• Включает только UDP mux.\n• TCP old mux остаётся выключен: concurrency=-1.\n• UDP/443 = skip, чтобы не ломать QUIC/HTTP3.\n\nАгент меняет только клиентский outbound Xray на роутере, делает config test, перезапускает Xray и при ошибке возвращает backup.")
 	return text, muxKeyboard(routerID), true
 }
 
 func muxKeyboard(routerID string) inlineKeyboard {
 	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
 		{{Text: "📍 Статус", CallbackData: "mux-status:" + routerID}, {Text: "💾 Точка отката", CallbackData: "mux-snapshot:" + routerID}},
-		{{Text: "✅ ON 4", CallbackData: "mux-enable:" + routerID + ":4"}, {Text: "✅ ON 8", CallbackData: "mux-enable:" + routerID + ":8"}, {Text: "✅ ON 16", CallbackData: "mux-enable:" + routerID + ":16"}},
-		{{Text: "✅ ON 32", CallbackData: "mux-enable:" + routerID + ":32"}},
-		{{Text: "🧪 UDP 4", CallbackData: "mux-xudp:" + routerID + ":4"}, {Text: "🧪 UDP 8", CallbackData: "mux-xudp:" + routerID + ":8"}, {Text: "🧪 UDP 16", CallbackData: "mux-xudp:" + routerID + ":16"}},
-		{{Text: "🧪 UDP 32", CallbackData: "mux-xudp:" + routerID + ":32"}, {Text: "🧪 UDP off", CallbackData: "mux-xudp:" + routerID + ":-1"}},
+		{{Text: "XMUX 2", CallbackData: "mux-enable:" + routerID + ":2"}, {Text: "XMUX 4", CallbackData: "mux-enable:" + routerID + ":4"}, {Text: "XMUX 8", CallbackData: "mux-enable:" + routerID + ":8"}},
+		{{Text: "XMUX 16", CallbackData: "mux-enable:" + routerID + ":16"}, {Text: "XMUX 31", CallbackData: "mux-enable:" + routerID + ":31"}},
+		{{Text: "XUDP 4", CallbackData: "mux-xudp:" + routerID + ":4"}, {Text: "XUDP 8", CallbackData: "mux-xudp:" + routerID + ":8"}, {Text: "XUDP 16", CallbackData: "mux-xudp:" + routerID + ":16"}},
+		{{Text: "XUDP 32", CallbackData: "mux-xudp:" + routerID + ":32"}, {Text: "XUDP off", CallbackData: "mux-xudp:" + routerID + ":-1"}},
 		{{Text: "❌ Выключить", CallbackData: "mux-disable:" + routerID}, {Text: "↩️ Откат", CallbackData: "mux-rollback:" + routerID}},
 		{{Text: "⬅️ Назад", CallbackData: "router:" + routerID}, {Text: "🏠 Главное меню", CallbackData: "menu"}},
 	}}
@@ -36,17 +36,17 @@ func muxKeyboard(routerID string) inlineKeyboard {
 func (s *Server) enqueueMuxPreset(callbackID string, chatID int64, messageID int, data string) {
 	parts := strings.SplitN(data, ":", 3)
 	if len(parts) != 3 {
-		s.editMenuOnly(callbackID, chatID, messageID, "Некорректная кнопка Mux", mainMenuKeyboard())
+		s.editMenuOnly(callbackID, chatID, messageID, "Некорректная кнопка XMUX", mainMenuKeyboard())
 		return
 	}
 	routerID := parts[1]
-	concurrency, err := strconv.Atoi(parts[2])
-	if err != nil || concurrency <= 0 {
-		s.editMenuOnly(callbackID, chatID, messageID, "Некорректное значение concurrency", muxKeyboard(routerID))
+	maxConcurrency, err := strconv.Atoi(parts[2])
+	if err != nil || maxConcurrency <= 0 {
+		s.editMenuOnly(callbackID, chatID, messageID, "Некорректное значение maxConcurrency", muxKeyboard(routerID))
 		return
 	}
-	payload := fmt.Sprintf(`{"concurrency":%d,"xudpConcurrency":-1,"xudpProxyUDP443":"skip"}`, concurrency)
-	s.enqueueMuxCommand(callbackID, chatID, messageID, routerID, "mux_enable", payload, fmt.Sprintf("⏳ Mux ON поставлен в очередь\nconcurrency: %d\nxudpConcurrency: -1\nxudpProxyUDP443: skip", concurrency))
+	payload := fmt.Sprintf(`{"maxConcurrency":%d,"xudpConcurrency":-1,"xudpProxyUDP443":"skip"}`, maxConcurrency)
+	s.enqueueMuxCommand(callbackID, chatID, messageID, routerID, "mux_enable", payload, fmt.Sprintf("⏳ XMUX поставлен в очередь\nmaxConcurrency: %d\nXUDP: off", maxConcurrency))
 }
 
 func (s *Server) enqueueMuxXUDPPreset(callbackID string, chatID int64, messageID int, data string) {
@@ -61,18 +61,18 @@ func (s *Server) enqueueMuxXUDPPreset(callbackID string, chatID int64, messageID
 		s.editMenuOnly(callbackID, chatID, messageID, "Некорректное значение xudpConcurrency", muxKeyboard(routerID))
 		return
 	}
-	payload := fmt.Sprintf(`{"concurrency":8,"xudpConcurrency":%d,"xudpProxyUDP443":"skip"}`, xudpConcurrency)
+	payload := fmt.Sprintf(`{"xudpConcurrency":%d,"xudpProxyUDP443":"skip"}`, xudpConcurrency)
 	label := strconv.Itoa(xudpConcurrency)
 	if xudpConcurrency < 0 {
 		label = "off"
 	}
-	s.enqueueMuxCommand(callbackID, chatID, messageID, routerID, "mux_enable", payload, "⏳ Mux XUDP поставлен в очередь\nTCP concurrency: 8\nxudpConcurrency: "+label+"\nxudpProxyUDP443: skip")
+	s.enqueueMuxCommand(callbackID, chatID, messageID, routerID, "mux_enable", payload, "⏳ XUDP поставлен в очередь\nxudpConcurrency: "+label+"\nxudpProxyUDP443: skip\nTCP old mux: off")
 }
 
 func (s *Server) enqueueMuxSimple(callbackID string, chatID int64, messageID int, data, action, label string) {
 	routerID := strings.TrimSpace(strings.TrimPrefix(data, label+":"))
 	if routerID == "" {
-		s.editMenuOnly(callbackID, chatID, messageID, "Некорректная кнопка Mux", mainMenuKeyboard())
+		s.editMenuOnly(callbackID, chatID, messageID, "Некорректная кнопка XMUX/XUDP", mainMenuKeyboard())
 		return
 	}
 	s.enqueueMuxCommand(callbackID, chatID, messageID, routerID, action, "", "⏳ "+label+" поставлено в очередь")
