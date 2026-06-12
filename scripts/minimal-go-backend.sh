@@ -31,6 +31,170 @@ fetch_backend() {
     return 1
 }
 
+install_minimal_go_menu() {
+    [ -x /opt/bin/minimal-go-status ] || return 0
+    [ -x /opt/bin/minimal-go-switch ] || return 0
+    mkdir -p /opt/bin
+
+    cat > /opt/bin/minimal-go-menu <<'MENU'
+#!/bin/sh
+
+XRAY_DIR="/opt/etc/xray"
+PRIMARY_STORE="$XRAY_DIR/minimal-go-primary.url"
+BACKUP_STORE="$XRAY_DIR/minimal-go-backup.url"
+ACTIVE_STORE="$XRAY_DIR/minimal-go-active"
+DAEMON_INIT="/opt/etc/init.d/S25xray-minimal-go-failover"
+XRAY_INIT="/opt/etc/init.d/S24xray"
+RECOVER_CMD="/opt/bin/vless-go-recover"
+HISTORY_LOG="/opt/var/log/minimal-go-switch-history.log"
+DAEMON_LOG="/opt/var/log/xray-minimal-go-failover.log"
+
+pause() {
+    echo
+    printf 'Press Enter to continue... '
+    IFS= read -r _ans
+}
+
+active_slot() {
+    sed -n '1p' "$ACTIVE_STORE" 2>/dev/null || echo unknown
+}
+
+show_header() {
+    clear 2>/dev/null || true
+    echo '==============================='
+    echo ' Minimal Go / Xray SSH menu'
+    echo '==============================='
+    echo "Active: $(active_slot)"
+    echo "Primary: $([ -s "$PRIMARY_STORE" ] && echo configured || echo missing)"
+    echo "Backup : $([ -s "$BACKUP_STORE" ] && echo configured || echo missing)"
+    echo
+}
+
+valid_source() {
+    case "$1" in
+        vless://*|http://*|https://*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+save_source() {
+    slot="$1"
+    case "$slot" in
+        primary) store="$PRIMARY_STORE" ;;
+        backup) store="$BACKUP_STORE" ;;
+        *) echo "Invalid slot: $slot"; return 1 ;;
+    esac
+
+    echo
+    echo "Paste $slot vless:// link or http(s) subscription URL."
+    printf '> '
+    IFS= read -r src
+    [ -n "$src" ] || { echo 'Source is empty.'; return 1; }
+    valid_source "$src" || { echo 'Source must start with vless://, http:// or https://'; return 1; }
+
+    mkdir -p "$XRAY_DIR/source-backups"
+    if [ -s "$store" ]; then
+        cp "$store" "$XRAY_DIR/source-backups/$(date '+%Y%m%d-%H%M%S').minimal-$slot" 2>/dev/null || true
+    fi
+    printf '%s\n' "$src" > "$store"
+    chmod 600 "$store" 2>/dev/null || true
+    echo "Saved $slot source."
+
+    if [ "$(active_slot)" = "$slot" ]; then
+        printf 'This slot is active. Apply now? [Y/n]: '
+        IFS= read -r ans
+        case "$ans" in
+            n|N|no|NO|нет|Нет) return 0 ;;
+        esac
+        /opt/bin/minimal-go-switch "$slot"
+    fi
+}
+
+show_logs() {
+    echo '--- switch history ---'
+    tail -n 80 "$HISTORY_LOG" 2>/dev/null || echo 'no history log'
+    echo
+    echo '--- daemon log ---'
+    tail -n 80 "$DAEMON_LOG" 2>/dev/null || echo 'no daemon log'
+}
+
+recovery_menu() {
+    while true; do
+        show_header
+        echo 'Recovery / Proxy0'
+        echo '1) Recovery status'
+        echo '2) Run recovery now'
+        echo '3) Refresh Proxy0'
+        echo '4) Enable hourly recovery'
+        echo '5) Disable hourly recovery'
+        echo '0) Back'
+        echo
+        printf 'Select: '
+        IFS= read -r r
+        case "$r" in
+            1) [ -x "$RECOVER_CMD" ] && "$RECOVER_CMD" --mode minimal status || echo 'vless-go-recover not found'; pause ;;
+            2) [ -x "$RECOVER_CMD" ] && "$RECOVER_CMD" --mode minimal run || echo 'vless-go-recover not found'; pause ;;
+            3) [ -x "$RECOVER_CMD" ] && "$RECOVER_CMD" --mode minimal proxy0 || echo 'vless-go-recover not found'; pause ;;
+            4) [ -x "$RECOVER_CMD" ] && "$RECOVER_CMD" --mode minimal enable-hourly || echo 'vless-go-recover not found'; pause ;;
+            5) [ -x "$RECOVER_CMD" ] && "$RECOVER_CMD" --mode minimal disable-hourly || echo 'vless-go-recover not found'; pause ;;
+            0) return 0 ;;
+        esac
+    done
+}
+
+service_menu() {
+    while true; do
+        show_header
+        echo 'Services'
+        echo '1) Xray status'
+        echo '2) Restart Xray'
+        echo '3) Minimal daemon status'
+        echo '4) Restart Minimal daemon'
+        echo '0) Back'
+        echo
+        printf 'Select: '
+        IFS= read -r s
+        case "$s" in
+            1) [ -x "$XRAY_INIT" ] && "$XRAY_INIT" status || echo 'Xray init not found'; pause ;;
+            2) [ -x "$XRAY_INIT" ] && "$XRAY_INIT" restart || echo 'Xray init not found'; pause ;;
+            3) [ -x "$DAEMON_INIT" ] && "$DAEMON_INIT" status || echo 'Minimal daemon init not found'; pause ;;
+            4) [ -x "$DAEMON_INIT" ] && "$DAEMON_INIT" restart || echo 'Minimal daemon init not found'; pause ;;
+            0) return 0 ;;
+        esac
+    done
+}
+
+while true; do
+    show_header
+    echo '1) Status'
+    echo '2) Switch to primary'
+    echo '3) Switch to backup'
+    echo '4) Set primary source'
+    echo '5) Set backup source'
+    echo '6) Recovery / Proxy0'
+    echo '7) Services'
+    echo '8) Logs'
+    echo '0) Exit'
+    echo
+    printf 'Select: '
+    IFS= read -r choice
+    case "$choice" in
+        1) /opt/bin/minimal-go-status 2>&1; pause ;;
+        2) /opt/bin/minimal-go-switch primary 2>&1; pause ;;
+        3) /opt/bin/minimal-go-switch backup 2>&1; pause ;;
+        4) save_source primary 2>&1; pause ;;
+        5) save_source backup 2>&1; pause ;;
+        6) recovery_menu ;;
+        7) service_menu ;;
+        8) show_logs; pause ;;
+        0|q|Q|exit) exit 0 ;;
+    esac
+done
+MENU
+    chmod +x /opt/bin/minimal-go-menu
+    echo "Minimal Go SSH menu installed: /opt/bin/minimal-go-menu"
+}
+
 echo "Downloading Minimal Go backend..."
 fetch_backend || { echo "ERROR: failed to download Minimal Go backend: $UPSTREAM_URL" >&2; exit 1; }
 
@@ -46,4 +210,13 @@ if ! sh -n "$OUT"; then
 fi
 
 chmod +x "$OUT"
-exec sh "$OUT" "$@"
+set +e
+sh "$OUT" "$@"
+RC="$?"
+set -e
+
+if [ "$RC" -eq 0 ]; then
+    install_minimal_go_menu || true
+fi
+
+exit "$RC"
