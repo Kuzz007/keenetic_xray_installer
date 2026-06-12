@@ -46,9 +46,9 @@ func muxStatus(selector, source string) (bool, string) {
 	if err != nil { return false, err.Error() }
 	outbound, tag, protocol, err := findMuxOutbound(cfg, payload.OutboundTag)
 	if err != nil { return false, err.Error() + "\n" + outboundSummary(cfg) }
-	lines := []string{"⚙️ XMUX status", "config: " + payload.ConfigPath, "outbound: " + tagProtocol(tag, protocol)}
+	lines := []string{"XMUX status", "config: " + payload.ConfigPath, "outbound: " + tagProtocol(tag, protocol)}
 	legacyNote := "old outbound mux: absent"
-	if _, ok := outbound["mux"]; ok { legacyNote = "old outbound mux: present (will be removed on XMUX enable)" }
+	if _, ok := outbound["mux"]; ok { legacyNote = "old outbound mux: present" }
 	lines = append(lines, legacyNote)
 	_, xh, extra, xmux, err := xhttpExtraMaps(outbound, false)
 	if err != nil {
@@ -80,7 +80,7 @@ func muxSnapshot(selector, source string) (bool, string) {
 	backup, err := createMuxBackup(payload.ConfigPath, "manual")
 	if err != nil { return false, err.Error() }
 	pruneMuxBackups(20)
-	return true, "✅ XMUX rollback point created\nbackup: " + backup
+	return true, "XMUX rollback point created\nbackup: " + backup
 }
 
 func muxSet(selector, source string, enabled bool) (bool, string) {
@@ -114,8 +114,8 @@ func muxSet(selector, source string, enabled bool) (bool, string) {
 	}
 	state := "disabled"; if enabled { state = "enabled" }
 	statusOK, status := muxStatus(selector, source)
-	if statusOK { return true, "✅ XMUX " + state + "\nrollback: " + backup + persistNote + "\nold outbound mux: removed\n\n" + status }
-	return true, "✅ XMUX " + state + "\nrollback: " + backup + persistNote + "\nconfig: " + payload.ConfigPath + "\noutbound: " + tagProtocol(tag, protocol)
+	if statusOK { return true, "XMUX " + state + "\nrollback: " + backup + persistNote + "\nold outbound mux: removed\n\n" + status }
+	return true, "XMUX " + state + "\nrollback: " + backup + persistNote + "\nconfig: " + payload.ConfigPath + "\noutbound: " + tagProtocol(tag, protocol)
 }
 
 func muxRollback(selector, source string) (bool, string) {
@@ -131,12 +131,12 @@ func muxRollback(selector, source string) (bool, string) {
 	clearNote := ""
 	if err := clearMuxDesired(); err != nil { clearNote = "\nwarning: persistent XMUX state clear failed: " + err.Error() } else { clearNote = "\npersistent state: cleared" }
 	statusOK, status := muxStatus(selector, source)
-	if statusOK { return true, "✅ XMUX rollback applied\nrestored: " + backup + "\ncurrent saved as: " + currentBackup + clearNote + "\n\n" + status }
-	return true, "✅ XMUX rollback applied\nrestored: " + backup + "\ncurrent saved as: " + currentBackup + clearNote
+	if statusOK { return true, "XMUX rollback applied\nrestored: " + backup + "\ncurrent saved as: " + currentBackup + clearNote + "\n\n" + status }
+	return true, "XMUX rollback applied\nrestored: " + backup + "\ncurrent saved as: " + currentBackup + clearNote
 }
 
 func parseMuxPayload(selector, source string) (muxPayload, error) {
-	payload := muxPayload{ConfigPath: muxConfigPath, MaxConcurrency: 4, RemoveOnDisable: true}
+	payload := muxPayload{ConfigPath: muxConfigPath, RemoveOnDisable: true}
 	selector = strings.TrimSpace(selector); if selector != "" { payload.OutboundTag = selector }
 	source = strings.TrimSpace(source)
 	if source != "" { if strings.HasPrefix(source, "{") { if err := json.Unmarshal([]byte(source), &payload); err != nil { return payload, fmt.Errorf("invalid XMUX payload JSON: %w", err) } } else if n, err := strconv.Atoi(source); err == nil { payload.MaxConcurrency = n } else { payload.OutboundTag = source } }
@@ -149,6 +149,7 @@ func normalizeMuxPayload(payload muxPayload) (muxPayload, error) {
 	if payload.MaxConcurrency <= 0 && payload.Concurrency > 0 { payload.MaxConcurrency = payload.Concurrency }
 	if payload.MaxConcurrency <= 0 { payload.MaxConcurrency = 4 }
 	if payload.MaxConcurrency > 1024 { return payload, fmt.Errorf("maxConcurrency too high: %d", payload.MaxConcurrency) }
+	payload.Concurrency = 0
 	payload.RemoveOnDisable = true
 	return payload, nil
 }
