@@ -54,12 +54,12 @@ show_interface_lan_ip() {
 }
 
 find_lan_ip() {
-    # Strongest override: user/router-specific known LAN IP.
-    stored_lan_ip && return 0
-
-    # Keenetic LAN should be Bridge0/Home, never GigabitEthernet*/Vlan*/MwsMobile*/UsbLte*.
+    # Auto-detect first. Keenetic LAN should be Bridge0/Home, never GigabitEthernet*/Vlan*/MwsMobile*/UsbLte*.
     running_config_lan_ip && return 0
     show_interface_lan_ip && return 0
+
+    # Fallback only for unusual configs where Bridge0/Home cannot be read.
+    stored_lan_ip && return 0
 
     return 1
 }
@@ -70,7 +70,7 @@ main() {
     lan_ip="$(find_lan_ip 2>/dev/null || true)"
     if [ -z "$lan_ip" ]; then
         echo "WARN: could not detect LAN IP for $PROXY_IFACE upstream" >&2
-        echo "Hint: echo 192.168.X.1 > $LAN_IP_FILE and rerun this helper" >&2
+        echo "Hint: check Bridge0/Home LAN address or echo 192.168.X.1 > $LAN_IP_FILE and rerun this helper" >&2
         exit 0
     fi
 
