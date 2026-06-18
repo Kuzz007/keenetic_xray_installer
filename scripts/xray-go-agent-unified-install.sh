@@ -103,6 +103,17 @@ install_binary() {
   echo "Installed unified binary: $BIN"
 }
 
+read_old_config() {
+  [ -f "$CONF" ] || return 0
+  if grep -Eq '^[[:space:]]*(SERVER_URL|ROUTER_ID|ROUTER_NAME|AGENT_TOKEN|POLL_INTERVAL)=' "$CONF" 2>/dev/null; then
+    . "$CONF" || true
+  else
+    saved="${CONF}.old.$(date +%Y%m%d-%H%M%S)"
+    cp -p "$CONF" "$saved" 2>/dev/null || true
+    echo "WARN: saved previous config to $saved"
+  fi
+}
+
 write_config() {
   mkdir -p /opt/etc/xray
   old_server="http://1.2.3.4:18090"
@@ -110,14 +121,13 @@ write_config() {
   old_name="Дом"
   old_token=""
   old_interval="10"
-  if [ -f "$CONF" ]; then
-    . "$CONF" || true
-    old_server="${SERVER_URL:-$old_server}"
-    old_id="${ROUTER_ID:-$old_id}"
-    old_name="${ROUTER_NAME:-$old_name}"
-    old_token="${AGENT_TOKEN:-$old_token}"
-    old_interval="${POLL_INTERVAL:-$old_interval}"
-  fi
+  SERVER_URL="" ROUTER_ID="" ROUTER_NAME="" AGENT_TOKEN="" POLL_INTERVAL=""
+  read_old_config
+  old_server="${SERVER_URL:-$old_server}"
+  old_id="${ROUTER_ID:-$old_id}"
+  old_name="${ROUTER_NAME:-$old_name}"
+  old_token="${AGENT_TOKEN:-$old_token}"
+  old_interval="${POLL_INTERVAL:-$old_interval}"
 
   server_url="$(value_or_ask "$ARG_SERVER_URL" 'VPS control server URL' "$old_server")"
   router_id="$(value_or_ask "$ARG_ROUTER_ID" 'Router ID' "$old_id")"
