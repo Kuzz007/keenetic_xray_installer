@@ -227,6 +227,66 @@ restart_watchdog_if_present() {
     fi
 }
 
+is_private_ipv4() {
+    case "$1" in
+        10.*|192.168.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+find_router_lan_ip() {
+    # Prefer Keenetic LAN/Home interfaces. Do not use default-route source; on 4G it can be CGNAT WAN.
+    if command -v ndmc >/dev/null 2>&1; then
+        for iface in Home Bridge0 br0; do
+            ip="$(ndmc -c "show interface $iface" 2>/dev/null | awk '/^[[:space:]]*address:/ {print $2; exit}')"
+            if is_private_ipv4 "$ip"; then
+                printf '%s\n' "$ip"
+                return 0
+            fi
+        done
+    fi
+
+    if command -v ip >/dev/null 2>&1; then
+        for iface in Home Bridge0 br0; do
+            ip="$(ip -4 addr show dev "$iface" 2>/dev/null | awk '/inet / { sub(/\/.*/, "", $2); print $2; exit }')"
+            if is_private_ipv4 "$ip"; then
+                printf '%s\n' "$ip"
+                return 0
+            fi
+        done
+    fi
+
+    if [ -s "$XRAY_DIR/router-lan-ip" ]; then
+        ip="$(sed -n '1p' "$XRAY_DIR/router-lan-ip" 2>/dev/null | tr -d '\r')"
+        if is_private_ipv4 "$ip"; then
+            printf '%s\n' "$ip"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+ensure_proxy0_lan_upstream() {
+    command -v ndmc >/dev/null 2>&1 || return 0
+    lan_ip="$(find_router_lan_ip 2>/dev/null || true)"
+    [ -n "$lan_ip" ] || { echo "WARN: could not detect LAN/Home IP for Proxy0 upstream" >&2; return 0; }
+
+    mkdir -p "$XRAY_DIR" 2>/dev/null || true
+    printf '%s\n' "$lan_ip" > "$XRAY_DIR/router-lan-ip" 2>/dev/null || true
+
+    if ndmc -c "interface Proxy0 proxy upstream $lan_ip 10808" \
+        && ndmc -c "interface Proxy0 down" \
+        && sleep 2 \
+        && ndmc -c "interface Proxy0 up" \
+        && ndmc -c "system configuration save"
+    then
+        echo "Proxy0 upstream fixed to LAN/Home IP: $lan_ip:10808"
+    else
+        echo "WARN: failed to set Proxy0 upstream to $lan_ip:10808" >&2
+    fi
+}
+
 ensure_xray_init() {
     [ -s "$XRAY_CONFIG" ] || return 0
     if [ -x "$XRAY_INIT" ]; then
@@ -361,6 +421,7 @@ run_first_setup() {
     ensure_xray_backup_dir
     ensure_watchdog_conf
     ensure_xray_ready
+    ensure_proxy0_lan_upstream
 
     echo "Starting watchdog..."
     restart_watchdog_if_present
@@ -383,6 +444,7 @@ if [ "$DO_SETUP" = "1" ]; then
     run_first_setup
 else
     ensure_watchdog_conf
+    ensure_proxy0_lan_upstream
     restart_watchdog_if_present
     echo "Setup skipped. Use 'failover-go' for menu management or rerun with --force-setup."
 fi
