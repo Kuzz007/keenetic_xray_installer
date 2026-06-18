@@ -11,10 +11,12 @@ REPO_BASE="${REPO_BASE:-https://raw.githubusercontent.com/Kuzz007/keenetic_xray_
 GO_FULL_URL="${GO_FULL_URL:-$REPO_BASE/xray_vless_failover_go.sh}"
 MINIMAL_GO_URL="${MINIMAL_GO_URL:-$REPO_BASE/xray_vless_failover_minimal_go.sh}"
 MINIMAL_GO_MENU_URL="${MINIMAL_GO_MENU_URL:-$REPO_BASE/scripts/minimal-go-menu.sh}"
+PROXY0_LAN_FIX_URL="${PROXY0_LAN_FIX_URL:-$REPO_BASE/scripts/proxy0-lan-upstream-fix.sh}"
 
 GO_FULL_TMP="/opt/tmp/xray_vless_failover_go.sh"
 MINIMAL_GO_TMP="/opt/tmp/xray_vless_failover_minimal_go.sh"
 MINIMAL_GO_MENU_BIN="/opt/bin/minimal-go-menu"
+PROXY0_LAN_FIX_BIN="/opt/bin/proxy0-lan-upstream-fix"
 
 THRESHOLD_KB="${THRESHOLD_KB:-80000}"
 EDITION="${EDITION:-auto}"
@@ -99,9 +101,7 @@ opkg_bin() {
     fi
 }
 
-need_opkg() {
-    [ -n "$(opkg_bin)" ] || { echo "ERROR: opkg not found. Entware is required." >&2; exit 1; }
-}
+need_opkg() { [ -n "$(opkg_bin)" ] || { echo "ERROR: opkg not found. Entware is required." >&2; exit 1; }; }
 
 ensure_curl() {
     command -v curl >/dev/null 2>&1 && return 0
@@ -112,79 +112,20 @@ ensure_curl() {
     command -v curl >/dev/null 2>&1 || { echo "ERROR: failed to install curl." >&2; exit 1; }
 }
 
-get_xray_bin() {
-    if command -v xray >/dev/null 2>&1; then command -v xray
-    elif [ -x /opt/sbin/xray ]; then echo /opt/sbin/xray
-    elif [ -x /opt/bin/xray ]; then echo /opt/bin/xray
-    else echo ""
-    fi
-}
-
 has_opkg_package() {
     OPKG_BIN="$(opkg_bin)"
     [ -n "$OPKG_BIN" ] && "$OPKG_BIN" status "$1" >/dev/null 2>&1
 }
 
-ensure_xray() {
-    [ -n "$(get_xray_bin)" ] && return 0
-    echo "Installing Xray core..."
-    OPKG_BIN="$(opkg_bin)"
-    "$OPKG_BIN" install xray-core || "$OPKG_BIN" install xray || { echo "ERROR: failed to install xray-core/xray." >&2; exit 1; }
-}
+looks_like_shell_script() { head -n 1 "$1" | grep -Eq '^#!/bin/sh|^#!/opt/bin/sh'; }
 
-opkg_install_missing() {
-    OPKG_BIN="$(opkg_bin)"
-    missing=""
-    for pkg in "$@"; do
-        [ -n "$pkg" ] || continue
-        "$OPKG_BIN" status "$pkg" >/dev/null 2>&1 || missing="$missing $pkg"
-    done
-    [ -n "$missing" ] || return 0
-    echo "Installing missing packages:$missing"
-    "$OPKG_BIN" install $missing
-}
-
-ensure_cron() {
-    [ "$NO_CRON" = "1" ] && { echo "No cron: skip cron setup."; return 0; }
-    mkdir -p /opt/var/spool/cron/crontabs /opt/var/log
-    touch /opt/var/spool/cron/crontabs/root 2>/dev/null || true
-    chmod 600 /opt/var/spool/cron/crontabs/root 2>/dev/null || true
-    if ! command -v cron >/dev/null 2>&1 && ! command -v crond >/dev/null 2>&1; then
-        OPKG_BIN="$(opkg_bin)"
-        "$OPKG_BIN" install cron || "$OPKG_BIN" install cronie || "$OPKG_BIN" install busybox-cron || echo "WARN: failed to install cron package."
-    fi
-}
-
-bootstrap_common_dependencies() {
-    need_opkg
-    mkdir -p /opt/tmp /opt/etc/xray /opt/var/log
-    OPKG_BIN="$(opkg_bin)"
-    "$OPKG_BIN" update
-    ensure_curl
-    opkg_install_missing ca-certificates ca-bundle >/dev/null 2>&1 || true
-}
-
-bootstrap_selected_dependencies() {
-    case "$1" in
-        go) echo "Preparing dependencies for Go/Entware latest edition..."; bootstrap_common_dependencies; opkg_install_missing wget-ssl ca-certificates || true; ensure_cron ;;
-        minimal-go) echo "Preparing dependencies for Minimal Go edition..."; bootstrap_common_dependencies; ensure_xray; ensure_cron ;;
-        *) echo "ERROR: unknown selected edition: $1" >&2; exit 1 ;;
-    esac
-}
-
-looks_like_shell_script() {
-    head -n 1 "$1" | grep -Eq '^#!/bin/sh|^#!/opt/bin/sh'
-}
-
-download_installer() {
-    url="$1"
-    output="$2"
-    label="$3"
+download_file() {
+    url="$1"; output="$2"; label="$3"
     mkdir -p "$(dirname "$output")"
-    echo "Downloading $label installer: $url"
-    curl -fsSL -H 'Cache-Control: no-cache' -o "$output" "$url" || { echo "ERROR: failed to download $label installer: $url" >&2; exit 1; }
-    looks_like_shell_script "$output" || { echo "ERROR: downloaded $label installer does not look like a shell script: $url" >&2; head -n 3 "$output" >&2 || true; exit 1; }
-    sh -n "$output" || { echo "ERROR: downloaded $label installer failed shell syntax check: $output" >&2; exit 1; }
+    echo "Downloading $label: $url"
+    curl -fsSL -H 'Cache-Control: no-cache' -o "$output" "$url" || { echo "ERROR: failed to download $label: $url" >&2; exit 1; }
+    looks_like_shell_script "$output" || { echo "ERROR: downloaded $label does not look like a shell script: $url" >&2; head -n 3 "$output" >&2 || true; exit 1; }
+    sh -n "$output" || { echo "ERROR: downloaded $label failed shell syntax check: $output" >&2; exit 1; }
     chmod +x "$output"
 }
 
@@ -194,7 +135,9 @@ download_helper() {
     tmp="/opt/tmp/$(basename "$output").$$"
     echo "Refreshing $label..."
     if curl -fsSL -H 'Cache-Control: no-cache' -o "$tmp" "$url" && looks_like_shell_script "$tmp" && sh -n "$tmp"; then
-        mv "$tmp" "$output"; chmod +x "$output"; return 0
+        mv "$tmp" "$output"
+        chmod +x "$output"
+        return 0
     fi
     rm -f "$tmp" 2>/dev/null || true
     echo "WARN: failed to refresh $label from $url" >&2
@@ -202,6 +145,11 @@ download_helper() {
 }
 
 install_minimal_go_menu() { download_helper "$MINIMAL_GO_MENU_URL" "$MINIMAL_GO_MENU_BIN" "Minimal Go menu"; }
+install_proxy0_lan_fix() { download_helper "$PROXY0_LAN_FIX_URL" "$PROXY0_LAN_FIX_BIN" "Proxy0 LAN upstream helper"; }
+run_proxy0_lan_fix() {
+    install_proxy0_lan_fix || return 0
+    "$PROXY0_LAN_FIX_BIN" || true
+}
 
 space_mb() { awk "BEGIN { printf \"%.1f\", $1 / 1024 }"; }
 
@@ -213,7 +161,6 @@ detect_installed_edition() {
 }
 
 cron_state() { ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1 && echo running || echo "not running"; }
-
 run_recovery_status() { [ -x /opt/bin/vless-go-recover ] && /opt/bin/vless-go-recover --mode "$1" status 2>/dev/null || echo "vless-go-recover: not installed"; }
 
 run_doctor() {
@@ -222,13 +169,13 @@ run_doctor() {
     echo "  selected runtime: $SELECTED"
     echo "  opkg: $(command -v opkg >/dev/null 2>&1 && echo yes || echo no)"
     echo "  curl: $(command -v curl >/dev/null 2>&1 && echo yes || echo no)"
-    echo "  xray: $([ -n "$(get_xray_bin)" ] && echo yes || echo no)"
     echo "  cron process: $(cron_state)"
     echo "  minimal-go-status: $([ -x /opt/bin/minimal-go-status ] && echo yes || echo no)"
     echo "  xray-go: $([ -x /opt/bin/xray-go ] && echo yes || echo no)"
     echo "  vless-go-failover: $([ -x /opt/bin/vless-go-failover ] && echo yes || echo no)"
     echo "  failover-go package present: $(has_opkg_package failover-go && echo yes || echo no)"
     echo "  vless-go-recover: $([ -x /opt/bin/vless-go-recover ] && echo yes || echo no)"
+    echo "  proxy0-lan-fix: $([ -x "$PROXY0_LAN_FIX_BIN" ] && echo yes || echo no)"
     echo
     case "$SELECTED" in minimal-go) echo "Recovery status (minimal):"; run_recovery_status minimal ;; go) echo "Recovery status (full):"; run_recovery_status full ;; esac
 }
@@ -246,6 +193,7 @@ No restart: $NO_RESTART
 Force Go resolver update: $FORCE_GO_RESOLVER_UPDATE
 Go installer URL: $GO_FULL_URL
 Minimal Go installer URL: $MINIMAL_GO_URL
+Proxy0 LAN fix URL: $PROXY0_LAN_FIX_URL
 EOF_DETECTION
 }
 
@@ -267,13 +215,13 @@ print_post_install_checks() {
         minimal-go) echo "  minimal-go-status"; echo "  vless-go-recover --mode minimal status"; echo "  minimal-go-menu" ;;
         go) echo "  xray-go status"; echo "  xray-go doctor --json"; echo "  vless-go-recover --mode full status" ;;
     esac
+    echo "  proxy0-lan-upstream-fix"
     echo
 }
 
 safe_update_minimal_go() {
     echo "Safe update for Minimal Go edition..."
-    bootstrap_selected_dependencies minimal-go
-    download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go repair"
+    download_file "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go repair installer"
     args="--repair-only"
     [ "$NO_CRON" = "1" ] && args="$args --no-cron"
     [ "$NO_RESTART" = "1" ] && args="$args --no-restart"
@@ -281,24 +229,25 @@ safe_update_minimal_go() {
     echo "Running Minimal Go repair: $MINIMAL_GO_TMP $args"
     sh "$MINIMAL_GO_TMP" $args
     install_minimal_go_menu || true
+    run_proxy0_lan_fix
     print_post_install_checks minimal-go
 }
 
 safe_update_go() {
     echo "Safe update for Go/Entware latest edition..."
-    bootstrap_selected_dependencies go
-    download_installer "$GO_FULL_URL" "$GO_FULL_TMP" "Full Go repair"
+    download_file "$GO_FULL_URL" "$GO_FULL_TMP" "Full Go repair installer"
     args="--repair-only"
     [ "$NO_CRON" = "1" ] && args="$args --no-cron"
     [ "$NO_RESTART" = "1" ] && args="$args --no-restart"
     [ "$FORCE_GO_RESOLVER_UPDATE" = "1" ] && args="$args --force-go-resolver"
     echo "Running Full Go repair: $GO_FULL_TMP $args"
     sh "$GO_FULL_TMP" $args
+    run_proxy0_lan_fix
     print_post_install_checks go
 }
 
 run_update_only() {
-    echo "Update-only mode: repair-lite; no config rewrite, no source rewrite, no agent changes."
+    echo "Update-only mode: repair-lite; no source rewrite, no agent changes."
     case "$SELECTED" in minimal-go) safe_update_minimal_go ;; go) safe_update_go ;; *) echo "ERROR: no installed or selected edition to update" >&2; exit 1 ;; esac
     echo "Update-only complete."
 }
@@ -336,15 +285,15 @@ esac
 need_opkg
 ensure_curl
 mkdir -p /opt/tmp
-bootstrap_selected_dependencies "$SELECTED"
 
 case "$SELECTED" in
     minimal-go)
         echo "Minimal Go edition: downloads xray_vless_failover_minimal_go.sh"
         confirm_install "Minimal Go"
-        download_installer "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go"
+        download_file "$MINIMAL_GO_URL" "$MINIMAL_GO_TMP" "Minimal Go installer"
         sh "$MINIMAL_GO_TMP"
         install_minimal_go_menu || true
+        run_proxy0_lan_fix
         print_post_install_checks minimal-go
         exit 0
         ;;
@@ -352,5 +301,7 @@ esac
 
 echo "Go/Entware latest edition: downloads xray_vless_failover_go.sh"
 confirm_install "Go/Entware latest"
-download_installer "$GO_FULL_URL" "$GO_FULL_TMP" "Go/Entware latest"
-exec sh "$GO_FULL_TMP"
+download_file "$GO_FULL_URL" "$GO_FULL_TMP" "Go/Entware latest installer"
+sh "$GO_FULL_TMP"
+run_proxy0_lan_fix
+print_post_install_checks go
