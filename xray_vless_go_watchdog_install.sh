@@ -44,7 +44,7 @@ RECOVERY_SUCCESSES_REQUIRED=2
 RECOVERY_COOLDOWN_CYCLES=2
 RECOVERY_TEST_PORT=18080
 POST_SWITCH_DELAY=5
-PROXY0_REFRESH=0
+PROXY0_REFRESH=1
 CONF
     chmod 600 "$WATCHDOG_CONF" 2>/dev/null || true
 else
@@ -55,7 +55,7 @@ else
         echo 'AUTO_RECOVER_PRIMARY=1' >> "$WATCHDOG_CONF"
     fi
     grep -q '^POST_SWITCH_DELAY=' "$WATCHDOG_CONF" || echo 'POST_SWITCH_DELAY=5' >> "$WATCHDOG_CONF"
-    grep -q '^PROXY0_REFRESH=' "$WATCHDOG_CONF" || echo 'PROXY0_REFRESH=0' >> "$WATCHDOG_CONF"
+    grep -q '^PROXY0_REFRESH=' "$WATCHDOG_CONF" || echo 'PROXY0_REFRESH=1' >> "$WATCHDOG_CONF"
     chmod 600 "$WATCHDOG_CONF" 2>/dev/null || true
 fi
 
@@ -181,12 +181,13 @@ echo "  - checks SOCKS 127.0.0.1:10808 every 15 seconds"
 echo "  - requires 2 failed daemon cycles before switching primary -> backup"
 echo "  - each cycle has 2 curl attempts with 2s retry delay"
 echo "  - waits 5 seconds after switch before post-switch health check"
+echo "  - refreshes Proxy0 after switch by default"
 echo "  - backup -> primary recovery is enabled by default and rollback-safe"
 echo ""
 echo "Disable backup -> primary recovery if needed:"
 echo "  sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=0/' $WATCHDOG_CONF"
 echo "  $WATCHDOG_INIT restart"
 echo ""
-echo "Optional Proxy0 refresh after switch:"
-echo "  sed -i 's/^PROXY0_REFRESH=.*/PROXY0_REFRESH=1/' $WATCHDOG_CONF"
+echo "Disable Proxy0 refresh after switch if needed:"
+echo "  sed -i 's/^PROXY0_REFRESH=.*/PROXY0_REFRESH=0/' $WATCHDOG_CONF"
 echo "  $WATCHDOG_INIT restart"
