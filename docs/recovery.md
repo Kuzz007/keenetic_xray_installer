@@ -68,8 +68,8 @@ Watchdog — это runtime daemon, который регулярно прове
 - checks SOCKS 127.0.0.1:10808;
 - требует несколько failed cycles перед failover;
 - после switch ждёт post-switch delay;
-- backup -> primary auto recovery отключён по умолчанию;
-- Proxy0 refresh отключён по умолчанию;
+- backup -> primary auto recovery включён по умолчанию;
+- Proxy0 refresh включён по умолчанию;
 - router reboot не выполняется автоматически.
 ```
 
@@ -210,17 +210,17 @@ Support mode не должен печатать raw VLESS links, subscription UR
 
 ## Безопасные настройки
 
-Backup -> primary auto recovery отключён по умолчанию. Включать только если primary стабилен и recovery probes надёжны:
+Backup -> primary auto recovery включён по умолчанию. Отключать можно так:
 
 ```sh
-sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=1/' /opt/etc/xray/vless-go-watchdog.conf
+sed -i 's/^AUTO_RECOVER_PRIMARY=.*/AUTO_RECOVER_PRIMARY=0/' /opt/etc/xray/vless-go-watchdog.conf
 /opt/etc/init.d/S26vless-go-watchdog restart
 ```
 
-Proxy0 refresh после switch тоже отключён по умолчанию:
+Proxy0 refresh после switch тоже включён по умолчанию. Отключить можно так:
 
 ```sh
-sed -i 's/^PROXY0_REFRESH=.*/PROXY0_REFRESH=1/' /opt/etc/xray/vless-go-watchdog.conf
+sed -i 's/^PROXY0_REFRESH=.*/PROXY0_REFRESH=0/' /opt/etc/xray/vless-go-watchdog.conf
 /opt/etc/init.d/S26vless-go-watchdog restart
 ```
 
