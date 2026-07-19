@@ -73,6 +73,7 @@ func main() {
 	flag.IntVar(&opts.listenPort, "port", 10808, "SOCKS inbound listen port")
 	flag.StringVar(&opts.profileName, "profile", "vless-out", "Xray outbound tag")
 	flag.BoolVar(&opts.nonInteractive, "first", false, "choose first profile without prompting")
+	flag.BoolVar(&opts.listOnly, "list", false, "list available profiles and exit without writing a config")
 	flag.IntVar(&opts.selectIndex, "select-index", 0, "choose 1-based profile index without prompting")
 	flag.StringVar(&opts.selectName, "select-name", "", "choose profile by exact name, or unique case-insensitive substring")
 	flag.BoolVar(&opts.privateOutput, "private", false, "hide server/domain details in human and JSON output")

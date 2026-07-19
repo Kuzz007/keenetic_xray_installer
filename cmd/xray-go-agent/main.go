@@ -69,6 +69,12 @@ func main() {
 		if err := checkSlotChange(cfg); err != nil {
 			log.Printf("slot check failed: %v", err)
 		}
+		if reapplied, msg := muxAutoReapplyIfNeeded(); reapplied {
+			resultLog("XMUX/XUDP auto-reapply: %s", msg)
+			if err := postResult(cfg, Result{CommandID: "mux_auto_reapply", RouterID: cfg.RouterID, OK: true, Output: msg}); err != nil {
+				log.Printf("mux auto-reapply notify failed: %v", err)
+			}
+		}
 		if err := pollOnce(cfg); err != nil {
 			log.Printf("poll error: %v", err)
 			resultLog("poll error: %v", err)
@@ -181,14 +187,8 @@ func checkSlotChange(cfg Config) error {
 		return err
 	}
 	old := strings.TrimSpace(string(oldBytes))
-	newSlot := ""
-	for _, slot := range slots {
-		if slot != "" && slot != old {
-			newSlot = slot
-			break
-		}
-	}
-	if newSlot == "" {
+	newSlot := slots[0]
+	if newSlot == "" || newSlot == old {
 		return nil
 	}
 	if err := os.WriteFile(slotStateFile, []byte(newSlot+"\n"), 0644); err != nil {
@@ -293,6 +293,16 @@ func runAllowed(c Command) (bool, string) {
 		return runRoutesCatalog("remove", c.Selector)
 	case "reboot":
 		return rebootRouter()
+	case "mux_enable":
+		return muxSet(c.Selector, c.Source, true)
+	case "mux_disable":
+		return muxSet(c.Selector, c.Source, false)
+	case "mux_status":
+		return muxStatus(c.Selector, c.Source)
+	case "mux_snapshot":
+		return muxSnapshot(c.Selector, c.Source)
+	case "mux_rollback":
+		return muxRollback(c.Selector, c.Source)
 	default:
 		return false, "unknown action: " + c.Action
 	}
@@ -607,6 +617,9 @@ func detectFeatures() []string {
 	if exists(routesCatalogPath) {
 		features = append(features, "routes_catalog")
 	}
+	if muxSupported() {
+		features = append(features, "mux_config")
+	}
 	if len(features) == 0 {
 		features = append(features, "status")
 	}
@@ -661,6 +674,9 @@ func detectCapabilities(features []string) []string {
 	}
 	if has["routes_catalog"] {
 		capabilities = append(capabilities, "routes_list", "routes_preview", "routes_apply", "routes_apply_custom", "routes_remove")
+	}
+	if has["mux_config"] {
+		capabilities = append(capabilities, "mux_enable", "mux_disable", "mux_status", "mux_snapshot", "mux_rollback")
 	}
 	return capabilities
 }

@@ -127,7 +127,7 @@ func (s *Server) handleAddRouterWizardStep(chatID int64, st wizardState, text st
 		s.sendMessage(chatID, "🏷 Имя роутера\n\nВведите display name.\n\nПримеры: Дом, Дача, Офис\n\nДля отмены: /cancel")
 		return true
 	case "name":
-		name := strings.TrimSpace(text)
+		name := sanitizeRouterName(text)
 		if name == "" {
 			name = st.RouterID
 		}
