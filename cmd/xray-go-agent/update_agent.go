@@ -66,5 +66,6 @@ func updateAgent() (bool, string) {
 		_ = logFile.Close()
 		return false, err.Error()
 	}
+	_ = logFile.Close()
 	return true, "Agent update scheduled in background. Installer syntax check passed. Existing config will be reused.\nLog: /opt/var/log/xray-go-agent-update.log\nA fresh agent_start should arrive after restart."
 }

@@ -97,7 +97,9 @@ func (s *Server) setBotCommands() error {
 func (s *Server) getUpdates() ([]tgUpdate, error) {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates?timeout=25&offset=%d", s.cfg.BotToken, s.lastUpdID+1)
 	resp, err := http.Get(url); if err != nil { return nil, err }; defer resp.Body.Close()
-	var data struct{ OK bool `json:"ok"`; Result []tgUpdate `json:"result"` }; if err := json.NewDecoder(resp.Body).Decode(&data); err != nil { return nil, err }
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 { b,_ := io.ReadAll(io.LimitReader(resp.Body,4096)); return nil, fmt.Errorf("telegram getUpdates status=%s body=%s", resp.Status, string(b)) }
+	var data struct{ OK bool `json:"ok"`; Description string `json:"description"`; Result []tgUpdate `json:"result"` }; if err := json.NewDecoder(resp.Body).Decode(&data); err != nil { return nil, err }
+	if !data.OK { return nil, fmt.Errorf("telegram getUpdates failed: %s", data.Description) }
 	for _, u := range data.Result { if u.UpdateID > s.lastUpdID { s.lastUpdID = u.UpdateID } }; return data.Result, nil
 }
 
@@ -150,7 +152,7 @@ func (s *Server) handleCommand(chatID int64, text string) { name,routerID,ok := 
 func (s *Server) handleAddRouter(chatID int64, text string) {
 	parts := strings.Fields(text); if len(parts) < 2 { s.sendMessageWithKeyboard(chatID,"Формат: /add_router <router_id> [имя]\nПример: /add_router dacha Дача",mainMenuKeyboard()); return }
 	routerID := parts[1]; if !validRouterID(routerID) { s.sendMessage(chatID,"router_id должен содержать только латинские буквы, цифры, _ или -. Пример: dacha"); return }
-	name := routerID; if len(parts) > 2 { name = strings.Join(parts[2:], " ") }; token,err := randomTokenHex(24); if err != nil { s.sendMessage(chatID,"Не удалось сгенерировать token: "+err.Error()); return }
+	name := routerID; if len(parts) > 2 { if n := sanitizeRouterName(strings.Join(parts[2:], " ")); n != "" { name = n } }; token,err := randomTokenHex(24); if err != nil { s.sendMessage(chatID,"Не удалось сгенерировать token: "+err.Error()); return }
 	s.mu.Lock(); if _,exists := s.cfg.Routers[routerID]; exists { s.mu.Unlock(); s.sendMessage(chatID,"Роутер уже существует: "+routerID); return }; s.cfg.Routers[routerID] = &Router{ID:routerID,Name:name,Token:token}; err = s.persistConfigLocked(); if err != nil { delete(s.cfg.Routers,routerID) }; s.mu.Unlock()
 	if err != nil { s.sendMessage(chatID,"Роутер не сохранён: "+err.Error()+"\nПроверь права: /etc/xray-go-control-server.conf должен быть writable для группы xraygo."); return }
 	s.sendMessageWithKeyboard(chatID,fmt.Sprintf("✅ Роутер добавлен\n\n📡 %s\nID: %s\n\nAgent token:\n%s\n\nОткрой меню роутера и нажми 📦 Установка агента.",name,routerID,token),routerKeyboard(routerID))
@@ -202,5 +204,6 @@ func loadConfig(path string) (Config,error) { cfg:=Config{ConfigPath:path,Listen
 func (s *Server) persistConfigLocked() error { ids:=make([]string,0,len(s.cfg.Routers)); for id:=range s.cfg.Routers { ids=append(ids,id) }; sort.Strings(ids); items:=make([]string,0,len(ids)); for _,id:=range ids { r:=s.cfg.Routers[id]; items=append(items,r.ID+":"+r.Token+":"+r.Name) }; content:=fmt.Sprintf("LISTEN=\"%s\"\nBOT_TOKEN=\"%s\"\nADMIN_USER_ID=\"%d\"\nROUTERS=\"%s\"\n",s.cfg.Listen,s.cfg.BotToken,s.cfg.AdminUserID,strings.Join(items,",")); return os.WriteFile(s.cfg.ConfigPath,[]byte(content),0660) }
 func compactStatus(status string) string { status=strings.TrimSpace(status); if status=="" { return "нет heartbeat" }; seen:=map[string]bool{}; out:=[]string{}; for _,part:=range strings.Split(status,";") { p:=strings.TrimSpace(part); if p==""||seen[p] { continue }; seen[p]=true; out=append(out,p) }; if len(out)==0 { return status }; return strings.Join(out,"; ") }
 func validRouterID(id string) bool { if id=="" { return false }; for _,r:=range id { if (r>='a'&&r<='z')||(r>='A'&&r<='Z')||(r>='0'&&r<='9')||r=='_'||r=='-' { continue }; return false }; return true }
+func sanitizeRouterName(name string) string { name = strings.NewReplacer(",", " ", ":", " ", "\n", " ", "\r", " ").Replace(name); return strings.TrimSpace(name) }
 func randomTokenHex(n int) (string,error) { b:=make([]byte,n); _,err:=rand.Read(b); if err!=nil { return "",err }; return hex.EncodeToString(b),nil }
 func limit(s string,n int) string { if len(s)<=n { return s }; return s[:n]+"\n...truncated..." }

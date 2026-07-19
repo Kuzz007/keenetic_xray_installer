@@ -161,7 +161,13 @@ detect_installed_edition() {
 }
 
 cron_state() { ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1 && echo running || echo "not running"; }
-run_recovery_status() { [ -x /opt/bin/vless-go-recover ] && /opt/bin/vless-go-recover --mode "$1" status 2>/dev/null || echo "vless-go-recover: not installed"; }
+run_recovery_status() {
+    if [ -x /opt/bin/vless-go-recover ]; then
+        /opt/bin/vless-go-recover --mode "$1" status 2>/dev/null
+    else
+        echo "vless-go-recover: not installed"
+    fi
+}
 
 run_doctor() {
     echo "Diagnostics:"
