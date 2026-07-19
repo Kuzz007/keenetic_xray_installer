@@ -43,7 +43,7 @@ type PollResponse struct {
 	Command *Command `json:"command,omitempty"`
 }
 
-const agentVersion = "0.1.4-go-experimental"
+const agentVersion = "0.2.2-mux-persist"
 const slotStateFile = "/opt/var/run/xray-go-agent.last-slot"
 const resultLogPath = "/opt/var/log/xray-go-agent-result.log"
 const routesCatalogPath = "/opt/bin/xray-keenetic-routes-catalog"
@@ -577,6 +577,9 @@ func shortStatus() string {
 		if strings.Contains(line, "активный слот:") || strings.Contains(line, "active slot:") || strings.Contains(line, "active:") || strings.Contains(line, "health: OK") || strings.Contains(line, "hourly recovery:") || strings.Contains(line, "daemon: запущен") || strings.Contains(line, "основной профиль:") || strings.Contains(line, "резервный профиль:") {
 			lines = append(lines, line)
 		}
+	}
+	if muxLine := muxStatusLine(); muxLine != "" {
+		lines = append(lines, muxLine)
 	}
 	lines = append(lines, agentLine, capabilityLine, featureLine)
 	return strings.Join(lines, "; ")
