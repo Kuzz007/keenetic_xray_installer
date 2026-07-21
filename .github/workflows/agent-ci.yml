@@ -1,0 +1,52 @@
+name: Agent CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - cmd/xray-go-agent/**
+      - .github/workflows/agent-ci.yml
+  push:
+    branches:
+      - main
+    paths:
+      - cmd/xray-go-agent/**
+      - .github/workflows/agent-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Show formatting differences
+        continue-on-error: true
+        run: |
+          gofmt -l cmd/xray-go-agent
+
+      - name: Run tests
+        env:
+          GO111MODULE: off
+        run: go test ./cmd/xray-go-agent
+
+      - name: Vet
+        env:
+          GO111MODULE: off
+        run: go vet ./cmd/xray-go-agent
+
+      # The agent ships for these router architectures; keep them compiling.
+      - name: Build agent for router targets
+        run: |
+          for arch in arm64 mipsle mips; do
+            CGO_ENABLED=0 GO111MODULE=off GOOS=linux GOARCH="$arch" \
+              go build -trimpath -o "/tmp/xray-go-agent-$arch" ./cmd/xray-go-agent
+          done
