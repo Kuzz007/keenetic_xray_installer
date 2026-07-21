@@ -260,6 +260,23 @@ for path in \
     do check_executable_hint "$path"; done
 
 info ""
+info "== Shared LAN IP detection =="
+check_file_exists scripts/vless-go-lan-ip.sh
+check_syntax scripts/vless-go-lan-ip.sh
+check_contains scripts/xray-go-direct-install.sh 'LAN_IP_LIB_URL' "direct-install deploys the shared LAN detection library"
+# Proxy0 writers must not invent a loopback upstream when detection fails.
+for path in \
+    scripts/vless-go-socks-auth.sh \
+    scripts/vless-go-doctor.sh \
+    scripts/vless-go-recover.sh
+    do check_contains "$path" 'detect_router_lan_ip' "$path uses shared LAN detection"; done
+if sh "$ROOT_DIR/scripts/test-lan-ip.sh" >/dev/null 2>&1; then
+    ok "lan-ip unit tests"
+else
+    fail "lan-ip unit tests (run: sh scripts/test-lan-ip.sh)"
+fi
+
+info ""
 info "== Summary =="
 if [ "$FAILURES" -eq 0 ]; then ok "smoke test passed with $WARNINGS warning(s)"; exit 0; fi
 fail "smoke test failed: $FAILURES issue(s), $WARNINGS warning(s)"

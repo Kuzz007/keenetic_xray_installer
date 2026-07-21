@@ -9,8 +9,12 @@ SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
 SOCKS_PORT="${SOCKS_PORT:-10808}"
 PROXY_IFACE="${PROXY_IFACE:-Proxy0}"
 GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
+LAN_IP_LIB="${LAN_IP_LIB:-/opt/libexec/vless-go-lan-ip.sh}"
 
 [ -s "$WATCHDOG_CONF" ] && . "$WATCHDOG_CONF" 2>/dev/null || true
+# Shared LAN detection. When it is missing we refuse to guess an upstream
+# rather than fall back to loopback, which used to break Proxy0 silently.
+[ -r "$LAN_IP_LIB" ] && . "$LAN_IP_LIB" 2>/dev/null || true
 SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
 SOCKS_PORT="${SOCKS_PORT:-10808}"
 PROXY_IFACE="${PROXY_IFACE:-Proxy0}"
@@ -68,16 +72,23 @@ save_auth() {
 }
 
 proxy_upstream_host() {
-    if [ -n "${PROXY_UPSTREAM_HOST:-}" ]; then echo "$PROXY_UPSTREAM_HOST"; return 0; fi
-    if [ -s "$ROUTER_IP_STORE" ]; then sed -n '1p' "$ROUTER_IP_STORE" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; return 0; fi
-    case "$SOCKS_HOST" in 127.0.0.1|localhost) echo "127.0.0.1" ;; *) echo "$SOCKS_HOST" ;; esac
+    command -v detect_router_lan_ip >/dev/null 2>&1 || return 1
+    detect_router_lan_ip
 }
 
 apply_proxy0() {
     load_auth
     command -v ndmc >/dev/null 2>&1 || { echo "WARN: ndmc not found; Proxy0 auth not applied." >&2; return 1; }
-    upstream_host="$(proxy_upstream_host)"
-    [ -n "$upstream_host" ] || upstream_host="127.0.0.1"
+
+    # The watchdog calls this on a timer. Writing a guessed upstream here is
+    # what used to overwrite a working LAN address with 127.0.0.1, so when the
+    # LAN IP is unknown we leave the interface exactly as it is.
+    upstream_host="$(proxy_upstream_host 2>/dev/null || true)"
+    if [ -z "$upstream_host" ]; then
+        echo "WARN: router LAN IP unknown; leaving the current $PROXY_IFACE upstream untouched." >&2
+        echo "Hint: check Bridge0/Home, or set PROXY_UPSTREAM_HOST=192.168.X.1 in $WATCHDOG_CONF" >&2
+        return 1
+    fi
 
     ndmc -c "interface $PROXY_IFACE" >/dev/null 2>&1 || return 1
     ndmc -c "interface $PROXY_IFACE proxy protocol socks5" >/dev/null 2>&1 || return 1
@@ -99,6 +110,17 @@ apply_proxy0() {
     ndmc -c "interface $PROXY_IFACE no ip global" >/dev/null 2>&1 || true
     ndmc -c "interface $PROXY_IFACE up" >/dev/null 2>&1 || true
     ndmc -c "system configuration save" >/dev/null 2>&1 || true
+
+    # Remember a known-good value, and verify the firmware actually took it
+    # instead of reporting success blindly.
+    printf '%s\n' "$upstream_host" > "$ROUTER_IP_STORE" 2>/dev/null || true
+    if command -v proxy0_current_upstream >/dev/null 2>&1; then
+        applied="$(proxy0_current_upstream "$PROXY_IFACE" 2>/dev/null || true)"
+        if [ -n "$applied" ] && [ "$applied" != "$upstream_host" ]; then
+            echo "WARN: $PROXY_IFACE upstream reads back as $applied, expected $upstream_host" >&2
+        fi
+    fi
+
     echo "$PROXY_IFACE -> SOCKS5 $upstream_host:$SOCKS_PORT"
     [ "$XRAY_SOCKS_AUTH" = "1" ] && echo "Proxy0 SOCKS credentials: configured/sent to firmware" || echo "Proxy0 SOCKS credentials: disabled"
 }
