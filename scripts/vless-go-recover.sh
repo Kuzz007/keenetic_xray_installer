@@ -32,6 +32,8 @@ CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-5}"
 MAX_TIME="${MAX_TIME:-10}"
 PROXY_IFACE="${PROXY_IFACE:-Proxy0}"
 PROXY_UPSTREAM_HOST="${PROXY_UPSTREAM_HOST:-}"
+LAN_IP_LIB="${LAN_IP_LIB:-/opt/libexec/vless-go-lan-ip.sh}"
+[ -r "$LAN_IP_LIB" ] && . "$LAN_IP_LIB" 2>/dev/null || true
 RECOVERY_AUTO_INSTALL_DEPS="${RECOVERY_AUTO_INSTALL_DEPS:-1}"
 FULL_RECOVERY_LOG="/opt/var/log/vless-go-recover.log"
 MINIMAL_RECOVERY_LOG="/opt/var/log/xray-minimal-go-failover.log"
@@ -283,24 +285,9 @@ health_check() {
     return 1
 }
 
-detect_lan_ip() {
-    if command -v ip >/dev/null 2>&1; then
-        ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}'
-        return 0
-    fi
-    if command -v ifconfig >/dev/null 2>&1; then
-        ifconfig 2>/dev/null | awk '/inet addr:/ { sub("addr:","",$2); if ($2 !~ /^127\./) { print $2; exit } } /inet / { for(i=1;i<=NF;i++) if($i=="inet" && $(i+1) !~ /^127\./) {print $(i+1); exit} }'
-        return 0
-    fi
-    return 1
-}
-
 proxy_upstream_host() {
-    if [ -n "$PROXY_UPSTREAM_HOST" ]; then echo "$PROXY_UPSTREAM_HOST"; return 0; fi
-    if [ -s "$ROUTER_IP_STORE" ]; then sed -n '1p' "$ROUTER_IP_STORE" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; return 0; fi
-    LAN_IP="$(detect_lan_ip 2>/dev/null | sed -n '1p' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' || true)"
-    if [ -n "$LAN_IP" ]; then echo "$LAN_IP"; return 0; fi
-    case "$SOCKS_HOST" in 127.0.0.1|localhost) echo "127.0.0.1" ;; *) echo "$SOCKS_HOST" ;; esac
+    command -v detect_router_lan_ip >/dev/null 2>&1 || return 1
+    detect_router_lan_ip
 }
 
 ndmc_run() {
@@ -338,8 +325,11 @@ ensure_proxy0_once() {
 ensure_proxy0() {
     ensure_dependencies || true
     command -v ndmc >/dev/null 2>&1 || { log "Proxy0 ensure skipped: ndmc not found"; return 1; }
-    UPSTREAM_HOST="$(proxy_upstream_host)"
-    [ -n "$UPSTREAM_HOST" ] || UPSTREAM_HOST="127.0.0.1"
+    UPSTREAM_HOST="$(proxy_upstream_host 2>/dev/null || true)"
+    if [ -z "$UPSTREAM_HOST" ]; then
+        log "Proxy0 ensure skipped: LAN IP роутера не определён, upstream оставлен без изменений"
+        return 1
+    fi
     log "Recovery step: ensure $PROXY_IFACE SOCKS5 upstream $UPSTREAM_HOST:$SOCKS_PORT"
     if ensure_proxy0_once "$UPSTREAM_HOST"; then
         history_log proxy0_ensure source=recover iface="$PROXY_IFACE" upstream="$UPSTREAM_HOST:$SOCKS_PORT" result=ok mode="$(detect_mode)"

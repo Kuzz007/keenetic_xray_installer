@@ -51,6 +51,8 @@ DOCTOR_CMD="${DOCTOR_CMD:-/opt/bin/vless-go-doctor}"
 DOCTOR_URL="${DOCTOR_URL:-${RAW_BASE}/scripts/vless-go-doctor.sh}"
 LOCK_HELPER="${LOCK_HELPER:-/opt/libexec/vless-go-lock.sh}"
 LOCK_HELPER_URL="${LOCK_HELPER_URL:-${RAW_BASE}/scripts/vless-go-lock.sh}"
+LAN_IP_LIB="${LAN_IP_LIB:-/opt/libexec/vless-go-lan-ip.sh}"
+LAN_IP_LIB_URL="${LAN_IP_LIB_URL:-${RAW_BASE}/scripts/vless-go-lan-ip.sh}"
 
 MODE="prepare"
 DOWNLOAD_BINARY="0"
@@ -376,6 +378,7 @@ exec|$FAILOVER_GO_CMD|$FAILOVER_GO_URL|failover-go menu
 exec|$XRAY_CORE_UPDATE_CMD|$XRAY_CORE_UPDATE_URL|Xray-core updater helper
 exec|$DOCTOR_CMD|$DOCTOR_URL|doctor helper
 read|$LOCK_HELPER|$LOCK_HELPER_URL|lock helper
+read|$LAN_IP_LIB|$LAN_IP_LIB_URL|shared LAN IP detection
 EOF_HELPERS
 }
 
