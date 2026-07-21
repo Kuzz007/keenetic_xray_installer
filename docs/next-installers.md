@@ -2,14 +2,11 @@
 
 This document describes the new opt-in installer entrypoints. They are intentionally separate from the existing legacy scripts.
 
-## Existing legacy scripts remain unchanged
+## Legacy scripts removed
 
-```text
-xray_vless_failover_auto.sh
-xray_vless_failover_minimal.sh
-```
-
-These files keep their current behavior and URLs.
+The old shell monoliths (`xray_vless_failover_auto.sh`, `xray_vless_failover.sh`,
+`xray_vless_failover_minimal.sh`) have been retired and deleted from the repository.
+See `docs/legacy.md`.
 
 ## Recommended install matrix
 
@@ -97,18 +94,14 @@ State files:
 /opt/var/log/minimal-go-switch-history.log
 ```
 
-## New Minimal-next legacy-compatible entrypoint
+## Minimal-next entrypoint (removed)
+
+`xray_vless_failover_minimal_next.sh` no longer exists in the repository, and the
+legacy minimal backend it wrapped has been retired. Use Minimal Go instead:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_minimal_next.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/xray_vless_failover_minimal_go.sh | sh
 ```
-
-Current behavior:
-
-- performs preflight checks
-- installs `curl`/`ca-bundle` if needed
-- downloads the legacy `xray_vless_failover_minimal.sh` backend
-- runs the legacy minimal backend unchanged
 
 Minimal limitations are unchanged:
 

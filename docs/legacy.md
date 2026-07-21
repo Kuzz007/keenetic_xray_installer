@@ -1,48 +1,32 @@
-# Legacy / old_go archive
+# Legacy line: retired
 
-Этот документ описывает старые installer-линии, которые сохранены только для совместимости и ручного fallback.
+Старая shell-линия full/minimal выведена из проекта и больше не поддерживается.
 
-## Статус
-
-`legacy` и `old_go` считаются frozen archive.
-
-Правила:
-
-- не переписывать;
-- не оптимизировать;
-- не использовать как основной путь новой установки;
-- не переносить оттуда логику в v2 без крайней необходимости;
-- не ломать старые ссылки, если они ещё используются старыми установками.
-
-## Новая установка
-
-Для новых установок использовать:
-
-```sh
-opkg update && opkg install curl && curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh
-```
-
-## Старые публичные entrypoints
-
-Legacy scripts в корне репозитория:
+## Что удалено
 
 ```text
 xray_vless_failover_auto.sh
 xray_vless_failover.sh
 xray_vless_failover_minimal.sh
+src/full/, src/minimal/     — модульные исходники этих монолитов
+legacy/monolith/            — архивные копии
+patches/                    — патчи к legacy-исходникам
+scripts/build-installers.sh — сборка корневых артефактов из src/
+scripts/{apply,fix,insert}-*.sh — одноразовые патч-скрипты legacy-линии
 ```
 
-Old Go / old minimal variants остаются архивными и не являются направлением развития.
+Файлы остаются доступными в истории git (до коммита `1978766`), если понадобится
+разобрать старый баг или восстановить древнюю установку.
 
-## Зачем они остаются
+## Актуальная линия
 
-Они нужны только для:
+Новая установка:
 
-- восстановления старых установок;
-- ручного fallback;
-- сравнения поведения при разборе старых багов.
+```sh
+opkg update && opkg install curl && curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/install.sh | sh
+```
 
-Новая v2-линия развивается вокруг:
+Проект развивается вокруг:
 
 ```text
 install.sh
@@ -52,3 +36,13 @@ scripts/xray-go-direct-init.sh
 scripts/xray-go-direct-full.sh
 scripts/xray-go-direct-uninstall.sh
 ```
+
+## Оставшаяся зависимость от архива
+
+`scripts/minimal-go-backend.sh` всё ещё скачивает
+`xray_vless_failover_minimal_old_go.sh` с закреплённого коммита
+(`PINNED_MINIMAL_GO_REF`, сейчас `26b5e7b5`). Пин на исторический ref означает, что
+удаление файлов из `main` эту установку не ломает, но Minimal Go по-прежнему
+зависит от архивного shell-монолита.
+
+Полное закрытие legacy-линии требует вендорить backend прямо в `main` — см. `TODO.md`.

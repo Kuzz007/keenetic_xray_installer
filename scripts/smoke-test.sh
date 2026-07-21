@@ -23,9 +23,6 @@ for path in \
     xray_vless_failover_auto_latest.sh \
     xray_vless_failover_go.sh \
     xray_vless_failover_minimal_go.sh \
-    xray_vless_failover_auto.sh \
-    xray_vless_failover.sh \
-    xray_vless_failover_minimal.sh \
     xray_vless_go_watchdog_install.sh
     do check_file_exists "$path"; check_syntax "$path"; done
 
@@ -37,7 +34,7 @@ check_repo_plain_target install.sh scripts/xray-go-direct-full.sh "install.sh di
 check_repo_plain_target install.sh scripts/xray-go-direct-uninstall.sh "install.sh direct-uninstall entrypoint"
 check_repo_plain_target install.sh scripts/xray-go-direct-setup.sh "install.sh direct-setup entrypoint"
 check_repo_plain_target xray_vless_failover_go.sh scripts/install-entware-feed.sh "Go/Entware entrypoint"
-check_repo_plain_target xray_vless_failover_minimal_go.sh xray_vless_failover_minimal.sh "Minimal Go entrypoint"
+check_repo_plain_target xray_vless_failover_minimal_go.sh scripts/minimal-go-backend.sh "Minimal Go entrypoint"
 check_contains install.sh 'AUTO_LATEST_URL' "install.sh keeps Auto Latest URL override"
 check_contains install.sh 'DIRECT_INSTALL_URL' "install.sh keeps direct-install URL override"
 check_contains install.sh 'DIRECT_INIT_URL' "install.sh keeps direct-init URL override"
