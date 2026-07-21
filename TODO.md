@@ -4,7 +4,7 @@
 
 Главные решения:
 
-- `legacy` и `old_go` остаются архивной линией и не трогаются.
+- Legacy full/minimal-линия удалена из репозитория (см. `docs/legacy.md`).
 - v2 строится вокруг `install.sh`, `auto_latest`, Full Go, Minimal Go и `xray-go`.
 - Для v2 целевой путь — direct-install без обязательного `.ipk`/Entware feed.
 - IPK/feed остаётся только как v1 compatibility mode для существующих установок.
@@ -12,12 +12,13 @@
 
 ---
 
-## 0. Legacy / old_go frozen
+## 0. Legacy retired
 
-- [ ] Не переписывать legacy/old_go.
-- [ ] Не переносить оттуда логику в v2 без крайней необходимости.
-- [x] Описать в README: `legacy/old_go` frozen.
-- [x] Подробности вынести в `docs/legacy.md`.
+- [x] Удалить legacy full/minimal-линию (`src/`, `legacy/`, `patches/`, патч-скрипты).
+- [x] Описать в README и `docs/legacy.md`.
+- [ ] Вендорить Minimal Go backend в `main`, чтобы убрать зависимость
+      `scripts/minimal-go-backend.sh` от архивного `xray_vless_failover_minimal_old_go.sh`
+      на закреплённом ref.
 
 ---
 
