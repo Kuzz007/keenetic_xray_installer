@@ -13,10 +13,6 @@ xray-failover-go-linux-arm64
 xray-failover-go-linux-arm64.sha256
 xray-failover-go-linux-mipsle
 xray-failover-go-linux-mipsle.sha256
-vless-go-web-linux-arm64
-vless-go-web-linux-arm64.sha256
-vless-go-web-linux-mipsle
-vless-go-web-linux-mipsle.sha256
 xray-go-agent-linux-arm64
 xray-go-agent-linux-arm64.sha256
 xray-go-agent-linux-mipsle

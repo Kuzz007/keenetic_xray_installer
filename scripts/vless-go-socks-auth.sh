@@ -31,7 +31,7 @@ Commands:
   apply-proxy0                   Re-apply Proxy0 with saved credentials when supported by firmware
 
 Credential characters are intentionally restricted to: A-Z a-z 0-9 . _ @ : -
-Use a generated/unique password and keep Web UI LAN-only.
+Use a generated/unique password.
 USAGE
 }
 

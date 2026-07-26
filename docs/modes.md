@@ -117,7 +117,6 @@ Minimal Go обязан сохранять:
 Minimal Go должен оставаться без:
 
 - `python3`;
-- Web UI;
 - Agent;
 - Control Server;
 - watchdog daemon;
@@ -168,13 +167,11 @@ Minimal Go пока остаётся отдельным лёгким профи�
 
 ## Out-of-core extras
 
-Web UI, Agent и Control Server не входят в router core.
+Agent и Control Server не входят в router core.
 
 Правило:
 
-- Web UI не включается по умолчанию и не нужен большинству установок;
-- Web UI остаётся manual addon для редких случаев;
-- Web UI должен быть доступен только в доверенной локальной сети;
+- на роутере нет web-интерфейса: удалённое управление идёт только через Telegram control bot;
 - Agent ставится отдельной ссылкой/сценарием из бота;
 - Control Server не смешивается с router installer;
 - `xray-go module list` и `xray-go module enable/disable ...` не добавляются в core CLI.

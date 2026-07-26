@@ -44,7 +44,6 @@ copy_exec "$ROOT_DIR/scripts/vless-go-recover.sh" "$PKG_DIR/opt/bin/vless-go-rec
 copy_exec "$ROOT_DIR/scripts/vless-go-doctor.sh" "$PKG_DIR/opt/bin/vless-go-doctor"
 copy_exec "$ROOT_DIR/scripts/vless-go-socks-auth.sh" "$PKG_DIR/opt/bin/vless-go-socks-auth"
 copy_exec "$ROOT_DIR/scripts/vless-go-xray-core-update.sh" "$PKG_DIR/opt/bin/vless-go-xray-core-update"
-copy_exec "$ROOT_DIR/scripts/vless-go-web-install.sh" "$PKG_DIR/opt/bin/vless-go-web-install"
 copy_exec "$ROOT_DIR/scripts/xray-go-installer-update.sh" "$PKG_DIR/opt/bin/xray-go-installer-update"
 copy_readable "$ROOT_DIR/scripts/vless-go-lock.sh" "$PKG_DIR/opt/libexec/vless-go-lock.sh"
 copy_exec "$ROOT_DIR/packaging/entware/failover-go/postinst" "$PKG_DIR/CONTROL/postinst"
