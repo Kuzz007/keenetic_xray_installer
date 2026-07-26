@@ -255,7 +255,6 @@ for path in \
     scripts/vless-go-privacy-check.sh \
     scripts/xray-go-safety-check.sh \
     scripts/vless-go-xray-core-update.sh \
-    scripts/vless-go-web-install.sh \
     scripts/build-entware-ipk.sh
     do check_executable_hint "$path"; done
 

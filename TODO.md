@@ -8,7 +8,7 @@
 - v2 строится вокруг `install.sh`, `auto_latest`, Full Go, Minimal Go и `xray-go`.
 - Для v2 целевой путь — direct-install без обязательного `.ipk`/Entware feed.
 - IPK/feed остаётся только как v1 compatibility mode для существующих установок.
-- Web UI, Agent и Control Server не входят в core CLI: Web UI остаётся редким manual addon, Agent ставится отдельным bot-link сценарием.
+- Web UI удалён из проекта; Agent и Control Server не входят в core CLI: Agent ставится отдельным bot-link сценарием.
 
 ---
 
@@ -143,7 +143,7 @@ Manifest не должен хранить приватные источники,
 Не добавляем в core CLI:
 
 - [x] `xray-go module list` — не нужен сейчас.
-- [x] `xray-go module enable/disable web-ui` — Web UI остаётся manual addon.
+- [x] `xray-go module enable/disable web-ui` — web-интерфейс удалён из проекта.
 - [x] `xray-go module enable/disable agent` — Agent ставится отдельной ссылкой из бота.
 - [x] `xray-go agent status` — не нужен в router core.
 - [x] `xray-go web status` — не нужен в router core.
@@ -180,7 +180,7 @@ full    = minimal + subscriptions + cron + watchdog + recovery + doctor + histor
 - [ ] Проверить Minimal Go state.
 - [ ] Проверить recovery/watchdog state.
 - [ ] Связать manifest с config/state.
-- [x] Agent/Web UI/Control Server не включать в router core state.
+- [x] Agent/Control Server не включать в router core state.
 
 ---
 
@@ -188,10 +188,7 @@ full    = minimal + subscriptions + cron + watchdog + recovery + doctor + histor
 
 Web UI:
 
-- [x] Не включать по умолчанию.
-- [x] Не добавлять `xray-go module` управление в core CLI.
-- [x] Оставить как manual addon для редких случаев.
-- [x] Документировать доступ только из доверенной локальной сети.
+- [x] Удалить web-интерфейс из проекта: управление идёт через `xray-go` и control bot.
 
 Agent / Control Server:
 
@@ -226,7 +223,7 @@ Agent / Control Server:
   - [x] Go edition direct-install files.
   - [x] Xray-core dry-run target.
   - [x] Xray-core apply target.
-- [x] Web UI update не включать в router core update path.
+- [x] Web UI удалён, отдельный update path не нужен.
 - [x] Agent update не включать в router core update path.
 - [x] Control Server update не включать в router core update path.
 - [x] Добавить direct-aware `xray-go update go`.

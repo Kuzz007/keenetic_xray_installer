@@ -127,35 +127,19 @@ xray-go recover disable-hourly
 
 Router reboot намеренно не выполняется автоматически, чтобы не получить reboot loop при внешней проблеме у провайдера, DNS или upstream-сервера.
 
-## Optional Web UI
+## Web-интерфейс выведен из проекта
 
-Опциональный web-интерфейс для Full Go/Entware устанавливается отдельной командой:
+Опциональный web-интерфейс (`vless-go-web`, порт 18088) удалён. Управление роутером
+идёт через локальные команды `xray-go` по SSH и через Telegram control bot.
 
-```sh
-vless-go-web-install
-```
-
-Для существующих установок можно запустить installer напрямую:
+Если web UI был установлен раньше, он остаётся на роутере как отдельный сервис.
+Снять его вручную:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/vless-go-web-install.sh | sh
+/opt/etc/init.d/S27vless-go-web stop
+rm -f /opt/etc/init.d/S27vless-go-web /opt/bin/vless-go-web /opt/bin/vless-go-web-install
+rm -f /opt/etc/xray/vless-go-web.conf /opt/etc/xray/vless-go-web.token
 ```
-
-Если нужно добавить helper-команду `vless-go-web-install` в `/opt/bin`, используй две отдельные команды:
-
-```sh
-curl -fsSL -o /opt/bin/vless-go-web-install https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/vless-go-web-install.sh
-chmod +x /opt/bin/vless-go-web-install
-```
-
-После установки скрипт покажет готовый адрес для браузера, например:
-
-```text
-Открой в браузере:
-  http://192.168.1.1:18088/
-```
-
-Web-интерфейс должен быть доступен только в доверенной локальной сети. Подробности: `docs/web-ui.md`.
 
 ## Legacy full/minimal-линия выведена из проекта
 
