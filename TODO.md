@@ -16,7 +16,7 @@
 
 - [x] Удалить legacy full/minimal-линию (`src/`, `legacy/`, `patches/`, патч-скрипты).
 - [x] Описать в README и `docs/legacy.md`.
-- [ ] Вендорить Minimal Go backend в `main`, чтобы убрать зависимость
+- [x] Вендорить Minimal Go backend в `main`, чтобы убрать зависимость
       `scripts/minimal-go-backend.sh` от архивного `xray_vless_failover_minimal_old_go.sh`
       на закреплённом ref.
 
