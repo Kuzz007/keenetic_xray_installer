@@ -69,11 +69,11 @@ cron_marker_status() {
 }
 
 socks_listener_status() {
-    if has_cmd netstat && netstat -lnt 2>/dev/null | grep -E "(^|[.:])$SOCKS_PORT[[:space:]]" >/dev/null 2>&1; then
+    if has_cmd netstat && netstat -lnt 2>/dev/null | grep -E "(^|[.:])${SOCKS_PORT}[[:space:]]" >/dev/null 2>&1; then
         echo "listening"
         return 0
     fi
-    if has_cmd ss && ss -lnt 2>/dev/null | grep -E "(^|[.:])$SOCKS_PORT[[:space:]]" >/dev/null 2>&1; then
+    if has_cmd ss && ss -lnt 2>/dev/null | grep -E "(^|[.:])${SOCKS_PORT}[[:space:]]" >/dev/null 2>&1; then
         echo "listening"
         return 0
     fi

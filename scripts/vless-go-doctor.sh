@@ -127,7 +127,7 @@ asset_name_for_arch() {
     ARCH="$1"
     case "$ARCH" in
         aarch64-3.10|aarch64*|arm64) echo "xray-failover-go-linux-arm64" ;;
-        mips|mipsel|mipsel-*|mipsel_*|mipselsf-*|mipselsf_*|mipsel-3.4|mipsel-3.4_kn|mipselsf-k3.4|mipselsf-k3.4_kn) echo "xray-failover-go-linux-mipsle" ;;
+        mips|mipsel|mipsel-*|mipsel_*|mipselsf-*|mipselsf_*) echo "xray-failover-go-linux-mipsle" ;;
         *) echo "" ;;
     esac
 }
@@ -366,8 +366,8 @@ check_init_status() {
 }
 
 check_socks_listener() {
-    if has_cmd netstat && netstat -lnt 2>/dev/null | grep -E "(^|[.:])$SOCKS_PORT[[:space:]]" >/dev/null 2>&1; then ok "SOCKS listener найден на порту $SOCKS_PORT"; return 0; fi
-    if has_cmd ss && ss -lnt 2>/dev/null | grep -E "(^|[.:])$SOCKS_PORT[[:space:]]" >/dev/null 2>&1; then ok "SOCKS listener найден на порту $SOCKS_PORT"; return 0; fi
+    if has_cmd netstat && netstat -lnt 2>/dev/null | grep -E "(^|[.:])${SOCKS_PORT}[[:space:]]" >/dev/null 2>&1; then ok "SOCKS listener найден на порту $SOCKS_PORT"; return 0; fi
+    if has_cmd ss && ss -lnt 2>/dev/null | grep -E "(^|[.:])${SOCKS_PORT}[[:space:]]" >/dev/null 2>&1; then ok "SOCKS listener найден на порту $SOCKS_PORT"; return 0; fi
     warn "SOCKS listener не найден на порту $SOCKS_PORT"
 }
 

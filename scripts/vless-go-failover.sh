@@ -160,12 +160,11 @@ parse_set_args() {
 }
 
 parse_update_flags() {
-    FIRST="0"
     NO_RESTART="0"
     SELECTOR=""
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            --first) FIRST="1"; SELECTOR="first"; shift ;;
+            --first) SELECTOR="first"; shift ;;
             --selector)
                 [ "$#" -ge 2 ] || { echo "ОШИБКА: --selector требует значение" >&2; exit 1; }
                 SELECTOR="$2"

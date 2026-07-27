@@ -33,10 +33,13 @@ detect_entware_arch() {
 
 normalize_feed_tag() {
     ARCH="$1"
+    # mipselsf must be checked before mipsel: "mipsel*" also matches
+    # "mipselsf-..." (it's a superstring), so the mipselsf arm would never
+    # be reached if it came second.
     case "$ARCH" in
         aarch64-3.10|aarch64*) echo "$BASE_REPO_TAG" ;;
-        mipsel-3.4|mipsel*) echo "${BASE_REPO_TAG}-mipsel-3.4" ;;
         mipselsf-k3.4|mipselsf*) echo "${BASE_REPO_TAG}-mipselsf-k3.4" ;;
+        mipsel-3.4|mipsel*) echo "${BASE_REPO_TAG}-mipsel-3.4" ;;
         *) echo "" ;;
     esac
 }

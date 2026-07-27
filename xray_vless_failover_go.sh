@@ -19,7 +19,6 @@ WATCHDOG_INIT="/opt/etc/init.d/S26vless-go-watchdog"
 DO_SETUP="1"
 NO_RESTART="0"
 FORCE_SETUP="0"
-ASSUME_YES="0"
 FEED_ARGS=""
 
 usage() {
@@ -53,7 +52,7 @@ while [ "$#" -gt 0 ]; do
         --no-setup|--repair-only|--update-only) DO_SETUP="0"; FEED_ARGS="$FEED_ARGS $1"; shift ;;
         --force-setup) FORCE_SETUP="1"; shift ;;
         --no-restart) NO_RESTART="1"; FEED_ARGS="$FEED_ARGS $1"; shift ;;
-        -y|--yes) ASSUME_YES="1"; FEED_ARGS="$FEED_ARGS $1"; shift ;;
+        -y|--yes) FEED_ARGS="$FEED_ARGS $1"; shift ;;
         -h|--help|help) usage; exit 0 ;;
         *) FEED_ARGS="$FEED_ARGS $1"; shift ;;
     esac

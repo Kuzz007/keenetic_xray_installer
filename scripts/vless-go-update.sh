@@ -251,7 +251,6 @@ PY
     chmod 600 "$config_file" 2>/dev/null || true
 }
 
-FIRST="0"
 NO_RESTART="0"
 VERBOSE="0"
 NEW_SOURCE=""
@@ -270,7 +269,6 @@ while [ "$#" -gt 0 ]; do
             shift 2
             ;;
         --first)
-            FIRST="1"
             SELECTOR="first"
             shift
             ;;

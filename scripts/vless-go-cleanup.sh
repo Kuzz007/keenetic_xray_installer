@@ -7,7 +7,6 @@ DRY_RUN="0"
 ALL_BACKUPS="0"
 CLEAN_OPKG_LISTS="1"
 CLEAN_TMP="1"
-CLEAN_CACHE="1"
 
 usage() {
     cat <<'USAGE'

@@ -272,7 +272,7 @@ probe_primary() {
     PRIMARY_VALUE="$(sed -n '1p' "$PRIMARY_STORE")"
     PRIMARY_SELECTOR="$(slot_selector primary)"
     SELECTOR_ARGS="$(resolver_selector_args "$PRIMARY_SELECTOR")" || return 1
-    TMP_CONFIG="/opt/tmp/vless-go-recovery-primary.$$.$RANDOM.json"
+    TMP_CONFIG="/opt/tmp/vless-go-recovery-primary.$$.json"
     TMP_RESOLVER_LOG="/tmp/vless-go-recovery-resolver.$$"
     TMP_XRAY_LOG="/tmp/vless-go-recovery-xray.$$"
     TEST_PID=""

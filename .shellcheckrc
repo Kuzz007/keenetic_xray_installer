@@ -1,0 +1,19 @@
+# Repo-wide shellcheck config. See .github/workflows/shellcheck.yml for how
+# this is enforced in CI.
+#
+# Disabled checks below are systemic, safe patterns used throughout this
+# repo's shell scripts, not isolated incidents worth a disable comment at
+# every call site.
+
+# Non-constant source (". \"$CONF\"", ". \"$LAN_IP_LIB\"", etc.): dozens of
+# scripts source a generated config or shared helper library whose path is
+# only known at runtime. This is the intended, safe pattern for this
+# codebase, not an accident.
+disable=SC1090
+
+# "VAR= command" prefix-assignment, specifically "CDPATH= cd -- ...": the
+# standard, correct idiom for calling `cd` without CDPATH's directory-search
+# side effect (which can otherwise print a path to stdout unexpectedly).
+# Shellcheck misreads this as an attempted "VAR=cd" assignment with a stray
+# space.
+disable=SC1007
