@@ -102,20 +102,75 @@ detect_asset() {
   esac
 }
 
+fetch_file() {
+  url="$1"
+  out="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --retry 2 --retry-delay 3 -o "$out" "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -O "$out" "$url"
+  else
+    echo "ERROR: curl or wget required" >&2
+    exit 1
+  fi
+}
+
+sha256_file() {
+  file="$1"
+  [ -s "$file" ] || { echo ""; return 0; }
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" 2>/dev/null | awk '{print $1}'
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$file" 2>/dev/null | awk '{print $NF}'
+  else
+    echo ""
+  fi
+}
+
+sha256_from_file() {
+  # First whitespace-separated field of line 1: matches both `sha256sum`
+  # output ("<hash>  <filename>") and a bare-hash-only file.
+  awk 'NR==1{print $1; exit}' "$1" 2>/dev/null
+}
+
 install_binary() {
   asset="$(detect_asset)"
   url="https://github.com/${REPO}/releases/download/${TAG}/${asset}"
   mkdir -p "$(dirname "$BIN")"
   tmp="${BIN}.tmp.$$"
+  tmp_sha="${tmp}.sha256"
   echo "Downloading: $url"
-  if command -v curl >/dev/null 2>&1; then
-    curl -fL --retry 2 --retry-delay 3 -o "$tmp" "$url"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -O "$tmp" "$url"
-  else
-    echo "ERROR: curl or wget required" >&2
+  fetch_file "$url" "$tmp"
+
+  echo "Downloading sha256: ${url}.sha256"
+  if ! fetch_file "${url}.sha256" "$tmp_sha"; then
+    rm -f "$tmp" "$tmp_sha"
+    echo "ERROR: failed to download sha256 checksum: ${url}.sha256" >&2
     exit 1
   fi
+
+  actual_sha256="$(sha256_file "$tmp")"
+  expected_sha256="$(sha256_from_file "$tmp_sha")"
+  if [ -z "$actual_sha256" ]; then
+    rm -f "$tmp" "$tmp_sha"
+    echo "ERROR: cannot calculate sha256 for downloaded binary." >&2
+    exit 1
+  fi
+  if [ -z "$expected_sha256" ]; then
+    rm -f "$tmp" "$tmp_sha"
+    echo "ERROR: downloaded sha256 file is empty or invalid." >&2
+    exit 1
+  fi
+  if [ "$actual_sha256" != "$expected_sha256" ]; then
+    rm -f "$tmp" "$tmp_sha"
+    echo "ERROR: sha256 mismatch for downloaded binary." >&2
+    echo "Expected: $expected_sha256" >&2
+    echo "Actual:   $actual_sha256" >&2
+    exit 1
+  fi
+  echo "sha256 OK: $actual_sha256"
+  rm -f "$tmp_sha"
+
   chmod +x "$tmp"
   mv "$tmp" "$BIN"
   echo "Installed binary: $BIN"
