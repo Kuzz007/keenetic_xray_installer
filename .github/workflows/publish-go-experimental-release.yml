@@ -104,10 +104,11 @@ jobs:
           xray-go-control-server-linux-arm64
           ```
 
-          Current package line: `v0.2.2-mux-persist`.
+          Current package line: `v0.2.3-tls-pin`.
 
           Includes:
 
+          - agent<->control-server traffic pinned to TLS (self-signed cert, SHA256 fingerprint pinning) instead of plain HTTP; legacy shell-agent install path removed from the bot
           - unified Go router agent path for arm64/aarch64, mipsel/mipselsf/mipsle and mips
           - persistent Mux controls with auto-reapply after Minimal Go/recovery regenerates `/opt/etc/xray/config.json`
           - safe Mux/XUDP controls through the Telegram control bot: status, rollback point, enable, disable, rollback
