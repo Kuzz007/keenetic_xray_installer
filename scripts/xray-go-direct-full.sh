@@ -107,7 +107,7 @@ asset_name_for_arch() {
     arch="$1"
     case "$arch" in
         aarch64-3.10|aarch64*|arm64) echo "xray-failover-go-linux-arm64" ;;
-        mips|mipsel|mipsel-*|mipsel_*|mipselsf-*|mipselsf_*|mipsel-3.4|mipsel-3.4_kn|mipselsf-k3.4|mipselsf-k3.4_kn) echo "xray-failover-go-linux-mipsle" ;;
+        mips|mipsel|mipsel-*|mipsel_*|mipselsf-*|mipselsf_*) echo "xray-failover-go-linux-mipsle" ;;
         *) echo "" ;;
     esac
 }

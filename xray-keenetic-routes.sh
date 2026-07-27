@@ -22,7 +22,7 @@ quiet_ndmc() {
 }
 
 run_ndmc() {
-    echo "+ ndmc -c "$1""
+    echo "+ ndmc -c \"$1\""
     ndmc -c "$1"
 }
 

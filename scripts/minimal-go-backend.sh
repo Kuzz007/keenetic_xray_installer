@@ -24,6 +24,7 @@ PRIMARY_STORE="$XRAY_DIR/minimal-go-primary.url"
 BACKUP_STORE="$XRAY_DIR/minimal-go-backup.url"
 ACTIVE_STORE="$XRAY_DIR/minimal-go-active"
 ROUTER_IP_STORE="$XRAY_DIR/minimal-go-router-lan-ip"
+# shellcheck disable=SC2034 # re-declared inside write_common_helpers()'s heredoc for the generated helper script; shellcheck's heredoc analysis misattributes the usage there back to this outer declaration
 HISTORY_LOG="/opt/var/log/minimal-go-switch-history.log"
 
 SOCKS_PORT="${SOCKS_PORT:-10808}"
@@ -36,8 +37,11 @@ RECOVERY_SUCCESSES_REQUIRED="${RECOVERY_SUCCESSES_REQUIRED:-2}"
 AUTO_RECOVER_PRIMARY="${AUTO_RECOVER_PRIMARY:-1}"
 ENABLE_HOURLY_RECOVERY="${ENABLE_HOURLY_RECOVERY:-1}"
 HOURLY_RECOVERY_SCHEDULE="${HOURLY_RECOVERY_SCHEDULE:-7 * * * *}"
+# shellcheck disable=SC2034 # same heredoc-attribution quirk as HISTORY_LOG above
 TEMP_HOST="127.0.0.1"
+# shellcheck disable=SC2034 # same heredoc-attribution quirk as HISTORY_LOG above
 TEMP_PRIMARY_PORT="19080"
+# shellcheck disable=SC2034 # same heredoc-attribution quirk as HISTORY_LOG above
 TEMP_BACKUP_PORT="19081"
 PROXY_IFACE="${PROXY_IFACE:-Proxy0}"
 TMP_DIR="${TMP_DIR:-/opt/tmp}"
@@ -111,7 +115,7 @@ get_xray_bin() { if command -v xray >/dev/null 2>&1; then command -v xray; elif 
 elf_magic() { file="$1"; if command -v hexdump >/dev/null 2>&1; then hexdump -n 4 -e '4/1 "%02x"' "$file" 2>/dev/null; elif command -v od >/dev/null 2>&1; then dd if="$file" bs=1 count=4 2>/dev/null | od -t x1 | awk 'NR==1 { for (i=2; i<=NF; i++) printf "%s", $i }'; else echo ""; fi; }
 
 detect_entware_arch() { OPKG_BIN="$(opkg_bin)"; [ -n "$OPKG_BIN" ] || return 0; "$OPKG_BIN" print-architecture 2>/dev/null | awk '$2 != "all" && ($3+0) >= max { arch=$2; max=$3+0 } END { if (arch != "") print arch }'; }
-asset_name_for_arch() { case "$1" in aarch64-3.10|aarch64*|arm64) echo xray-failover-go-linux-arm64 ;; mips|mipsel|mipsel-*|mipsel_*|mipselsf-*|mipselsf_*|mipsel-3.4|mipsel-3.4_kn|mipselsf-k3.4|mipselsf-k3.4_kn) echo xray-failover-go-linux-mipsle ;; *) echo "" ;; esac; }
+asset_name_for_arch() { case "$1" in aarch64-3.10|aarch64*|arm64) echo xray-failover-go-linux-arm64 ;; mips|mipsel|mipsel-*|mipsel_*|mipselsf-*|mipselsf_*) echo xray-failover-go-linux-mipsle ;; *) echo "" ;; esac; }
 
 ensure_cron() {
     [ "$NO_CRON" = "1" ] && { echo "No cron: skip cron setup."; return 0; }
