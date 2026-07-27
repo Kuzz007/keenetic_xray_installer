@@ -59,6 +59,8 @@ check_contains xray_vless_failover_go.sh 'GO_PLAIN_URL' "Go/Entware entrypoint k
 check_contains xray_vless_failover_minimal_go.sh 'MINIMAL_GO_PLAIN_URL' "Minimal Go entrypoint keeps URL override"
 check_not_contains xray_vless_failover_go.sh 'xray_vless_failover_old_go.sh' "Go/Entware entrypoint does not point at removed old_go path"
 check_not_contains xray_vless_failover_minimal_go.sh 'xray_vless_failover_minimal_old_go.sh' "Minimal Go entrypoint does not point at removed minimal_old_go path"
+check_not_contains scripts/minimal-go-backend.sh 'PINNED_MINIMAL_GO_REF' "Minimal Go backend no longer pins a historical commit ref"
+check_not_contains scripts/minimal-go-backend.sh 'xray_vless_failover_minimal_old_go.sh' "Minimal Go backend is vendored, not fetched from the removed minimal_old_go path"
 
 info ""
 info "== xray-go wrapper guardrails =="

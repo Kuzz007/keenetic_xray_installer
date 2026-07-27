@@ -37,12 +37,10 @@ scripts/xray-go-direct-full.sh
 scripts/xray-go-direct-uninstall.sh
 ```
 
-## Оставшаяся зависимость от архива
+## Зависимость от архива закрыта
 
-`scripts/minimal-go-backend.sh` всё ещё скачивает
-`xray_vless_failover_minimal_old_go.sh` с закреплённого коммита
-(`PINNED_MINIMAL_GO_REF`, сейчас `26b5e7b5`). Пин на исторический ref означает, что
-удаление файлов из `main` эту установку не ломает, но Minimal Go по-прежнему
-зависит от архивного shell-монолита.
-
-Полное закрытие legacy-линии требует вендорить backend прямо в `main` — см. `TODO.md`.
+`scripts/minimal-go-backend.sh` раньше скачивал `xray_vless_failover_minimal_old_go.sh`
+с закреплённого исторического коммита (`PINNED_MINIMAL_GO_REF`). Реализация
+теперь вендорена напрямую в `main`: `minimal-go-backend.sh` больше не делает
+второй сетевой запрос и не зависит от того, что старый ref останется доступным
+под тем же именем репозитория.
