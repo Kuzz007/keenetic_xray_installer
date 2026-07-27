@@ -5,6 +5,8 @@ REPO="${REPO:-Kuzz007/keenetic_xray_installer}"
 TAG="${TAG:-latest}"
 BIN="${BIN:-/usr/local/bin/xray-go-control-server}"
 CONF="${CONF:-/etc/xray-go-control-server.conf}"
+CERT_FILE="${CERT_FILE:-/etc/xray-go-control-server.crt}"
+KEY_FILE="${KEY_FILE:-/etc/xray-go-control-server.key}"
 SERVICE="${SERVICE:-/etc/systemd/system/xray-go-control-server.service}"
 USER_NAME="${USER_NAME:-xraygo}"
 LISTEN_PORT="${LISTEN_PORT:-18090}"
@@ -32,10 +34,18 @@ Environment overrides:
   TAG=latest
   BIN=/usr/local/bin/xray-go-control-server
   CONF=/etc/xray-go-control-server.conf
+  CERT_FILE=/etc/xray-go-control-server.crt
+  KEY_FILE=/etc/xray-go-control-server.key
   SERVICE=/etc/systemd/system/xray-go-control-server.service
   USER_NAME=xraygo
   UPDATE_ONLY=1
   FORCE_CONFIG=1
+
+TLS:
+  The server generates and serves a self-signed certificate at CERT_FILE/
+  KEY_FILE on first start (no domain name or reverse proxy required).
+  Router agents pin its SHA256 fingerprint instead of validating a CA
+  chain; this installer prints that fingerprint at the end.
 USAGE
 }
 
@@ -120,14 +130,23 @@ configured_listen() {
   printf '%s' "$value"
 }
 
-health_url() {
+loopback_url() {
+  path="$1"
   listen="$(configured_listen)"
   case "$listen" in
-    :*) printf 'http://127.0.0.1%s/health' "$listen" ;;
-    0.0.0.0:*) printf 'http://127.0.0.1:%s/health' "${listen##*:}" ;;
-    \[::\]:*) printf 'http://127.0.0.1:%s/health' "${listen##*:}" ;;
-    *) printf 'http://%s/health' "$listen" ;;
+    :*) printf 'https://127.0.0.1%s%s' "$listen" "$path" ;;
+    0.0.0.0:*) printf 'https://127.0.0.1:%s%s' "${listen##*:}" "$path" ;;
+    \[::\]:*) printf 'https://127.0.0.1:%s%s' "${listen##*:}" "$path" ;;
+    *) printf 'https://%s%s' "$listen" "$path" ;;
   esac
+}
+
+health_url() {
+  loopback_url /health
+}
+
+fingerprint_url() {
+  loopback_url /fingerprint
 }
 
 detect_arch_asset() {
@@ -234,6 +253,18 @@ ensure_config() {
   write_config
 }
 
+ensure_cert_placeholders() {
+  # The server generates its own self-signed cert/key on first start. Under
+  # ProtectSystem=full, only paths listed in ReadWritePaths are writable, so
+  # both files must already exist (even empty) with correct ownership before
+  # the sandboxed process can create/rewrite them.
+  [ -f "$CERT_FILE" ] || : > "$CERT_FILE"
+  [ -f "$KEY_FILE" ] || : > "$KEY_FILE"
+  chown "$USER_NAME:$USER_NAME" "$CERT_FILE" "$KEY_FILE"
+  chmod 0644 "$CERT_FILE"
+  chmod 0600 "$KEY_FILE"
+}
+
 install_service() {
   if ! command -v systemctl >/dev/null 2>&1; then
     echo "systemctl not found; skipping service install."
@@ -246,6 +277,7 @@ install_service() {
   fi
   chown root:"$USER_NAME" "$CONF"
   chmod 0660 "$CONF"
+  ensure_cert_placeholders
   cat > "$SERVICE" <<EOF
 [Unit]
 Description=Xray Go Control Server
@@ -263,7 +295,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=full
-ReadWritePaths=${CONF}
+ReadWritePaths=${CONF} ${CERT_FILE} ${KEY_FILE}
 
 [Install]
 WantedBy=multi-user.target
@@ -274,23 +306,55 @@ EOF
   echo "Service installed and started: xray-go-control-server"
 }
 
+wait_for_fingerprint() {
+  attempt=1
+  while [ "$attempt" -le 10 ]; do
+    fp="$(curl -fsSk --max-time 2 "$(fingerprint_url)" 2>/dev/null || true)"
+    if [ -n "$fp" ]; then
+      printf '%s' "$fp"
+      return 0
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
 main() {
   if [ "$(id -u)" != "0" ]; then
     echo "ERROR: run as root" >&2
     exit 1
   fi
   need_cmd uname
+  need_cmd curl
   install_binary
   ensure_config
   install_service
   echo
   echo "Done. Checks:"
   echo "  systemctl status xray-go-control-server --no-pager"
-  echo "  curl -fsS $(health_url)"
+  echo "  curl -fsSk $(health_url)"
   echo
   if [ "$UPDATE_ONLY" = "1" ] || [ "$FORCE_CONFIG" != "1" ]; then
     echo "Config reuse: existing config was preserved unless --force-config was used."
   fi
+  echo
+  echo "TLS cert fingerprint (agents pin this instead of a CA chain):"
+  fingerprint="$(wait_for_fingerprint || true)"
+  if [ -n "$fingerprint" ]; then
+    echo "  $fingerprint"
+  else
+    echo "  Could not read it yet; retrieve later with:"
+    echo "    curl -fsSk $(fingerprint_url)"
+  fi
+  echo
+  echo "IMPORTANT: the server only serves TLS now (self-signed). Any router"
+  echo "agent still configured with an http:// SERVER_URL from before this"
+  echo "install will stop connecting. Re-pair each one with the fingerprint"
+  echo "above, either via the bot's 📦 Установка агента button (which embeds"
+  echo "it automatically) or by re-running the agent installer with:"
+  echo "  --server-url https://<this-vps>:<port> --server-fingerprint $fingerprint"
+  echo
   echo "Telegram commands after router agent connects:"
   echo "  /routers"
   echo "  /status_home"

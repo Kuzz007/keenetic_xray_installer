@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,7 +19,7 @@ import (
 	"time"
 )
 
-type Config struct { ConfigPath string; Listen string; BotToken string; AdminUserID int64; Routers map[string]*Router }
+type Config struct { ConfigPath string; Listen string; BotToken string; AdminUserID int64; Routers map[string]*Router; CertFile string; KeyFile string; CertFingerprint string }
 type Router struct { ID string; Name string; Token string; LastSeen time.Time; Status string; Queue []Command; Results []Result }
 type Command struct { ID string `json:"id"`; Action string `json:"action"`; Slot string `json:"slot,omitempty"`; Selector string `json:"selector,omitempty"`; Source string `json:"source,omitempty"` }
 type Result struct { CommandID string `json:"command_id"`; RouterID string `json:"router_id"`; OK bool `json:"ok"`; Output string `json:"output"`; At string `json:"at,omitempty"` }
@@ -29,15 +30,27 @@ func main() {
 	cfgPath := flag.String("config", "/etc/xray-go-control-server.conf", "config path")
 	flag.Parse()
 	cfg, err := loadConfig(*cfgPath); if err != nil { log.Fatalf("config: %v", err) }
+	fingerprint, err := ensureTLSCert(cfg.CertFile, cfg.KeyFile); if err != nil { log.Fatalf("tls: %v", err) }
+	cfg.CertFingerprint = fingerprint
 	s := &Server{cfg: cfg, activeMenus: map[string]ActiveMenu{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/agent/poll", s.handlePoll)
 	mux.HandleFunc("/agent/result", s.handleResult)
 	mux.HandleFunc("/health", handleHealth)
 	mux.HandleFunc("/version", handleVersion)
+	mux.HandleFunc("/fingerprint", s.handleFingerprint)
 	go s.telegramLoop()
-	log.Printf("xray-go-control-server listen=%s routers=%d %s", cfg.Listen, len(cfg.Routers), versionLine())
-	log.Fatal(http.ListenAndServe(cfg.Listen, mux))
+	log.Printf("xray-go-control-server listen=%s routers=%d tls-sha256-fingerprint=%s %s", cfg.Listen, len(cfg.Routers), fingerprint, versionLine())
+	log.Fatal(http.ListenAndServeTLS(cfg.Listen, cfg.CertFile, cfg.KeyFile, mux))
+}
+
+func (s *Server) handleFingerprint(w http.ResponseWriter, r *http.Request) {
+	// Unauthenticated by design: a TLS fingerprint isn't secret, it's what a
+	// new agent install pins to on first trust (same role as an SSH host key
+	// fingerprint) — the admin fetches it locally (systemd journal or a
+	// loopback curl) before it's ever relied on over the network.
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprintln(w, s.cfg.CertFingerprint)
 }
 
 func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
@@ -200,7 +213,7 @@ func helpText() string { return strings.TrimSpace(`❔ Помощь
 Источники:
 /set_primary_<router> <selector> <url>
 /set_backup_<router> <selector> <url>`) }
-func loadConfig(path string) (Config,error) { cfg:=Config{ConfigPath:path,Listen:":18090",Routers:map[string]*Router{}}; data,err:=os.ReadFile(path); if err!=nil { return cfg,err }; vals:=map[string]string{}; for _,line:=range strings.Split(string(data),"\n") { line=strings.TrimSpace(line); if line==""||strings.HasPrefix(line,"#") { continue }; k,v,ok:=strings.Cut(line,"="); if !ok { continue }; vals[strings.TrimSpace(k)]=strings.Trim(strings.TrimSpace(v),"\"") }; if vals["LISTEN"]!="" { cfg.Listen=vals["LISTEN"] }; cfg.BotToken=vals["BOT_TOKEN"]; if vals["ADMIN_USER_ID"]!="" { cfg.AdminUserID,_=strconv.ParseInt(vals["ADMIN_USER_ID"],10,64) }; for _,item:=range strings.Split(vals["ROUTERS"],",") { parts:=strings.SplitN(strings.TrimSpace(item),":",3); if len(parts)<2 { continue }; name:=parts[0]; if len(parts)==3 { name=parts[2] }; cfg.Routers[parts[0]]=&Router{ID:parts[0],Token:parts[1],Name:name} }; if cfg.BotToken==""||cfg.AdminUserID==0 { return cfg,fmt.Errorf("BOT_TOKEN and ADMIN_USER_ID are required") }; if len(cfg.Routers)==0 { return cfg,fmt.Errorf("ROUTERS is required") }; return cfg,nil }
+func loadConfig(path string) (Config,error) { cfg:=Config{ConfigPath:path,Listen:":18090",Routers:map[string]*Router{}}; data,err:=os.ReadFile(path); if err!=nil { return cfg,err }; vals:=map[string]string{}; for _,line:=range strings.Split(string(data),"\n") { line=strings.TrimSpace(line); if line==""||strings.HasPrefix(line,"#") { continue }; k,v,ok:=strings.Cut(line,"="); if !ok { continue }; vals[strings.TrimSpace(k)]=strings.Trim(strings.TrimSpace(v),"\"") }; if vals["LISTEN"]!="" { cfg.Listen=vals["LISTEN"] }; cfg.BotToken=vals["BOT_TOKEN"]; if vals["ADMIN_USER_ID"]!="" { cfg.AdminUserID,_=strconv.ParseInt(vals["ADMIN_USER_ID"],10,64) }; for _,item:=range strings.Split(vals["ROUTERS"],",") { parts:=strings.SplitN(strings.TrimSpace(item),":",3); if len(parts)<2 { continue }; name:=parts[0]; if len(parts)==3 { name=parts[2] }; cfg.Routers[parts[0]]=&Router{ID:parts[0],Token:parts[1],Name:name} }; if cfg.BotToken==""||cfg.AdminUserID==0 { return cfg,fmt.Errorf("BOT_TOKEN and ADMIN_USER_ID are required") }; if len(cfg.Routers)==0 { return cfg,fmt.Errorf("ROUTERS is required") }; confDir:=filepath.Dir(path); cfg.CertFile=vals["CERT_FILE"]; if cfg.CertFile=="" { cfg.CertFile=filepath.Join(confDir,"xray-go-control-server.crt") }; cfg.KeyFile=vals["KEY_FILE"]; if cfg.KeyFile=="" { cfg.KeyFile=filepath.Join(confDir,"xray-go-control-server.key") }; return cfg,nil }
 func (s *Server) persistConfigLocked() error { ids:=make([]string,0,len(s.cfg.Routers)); for id:=range s.cfg.Routers { ids=append(ids,id) }; sort.Strings(ids); items:=make([]string,0,len(ids)); for _,id:=range ids { r:=s.cfg.Routers[id]; items=append(items,r.ID+":"+r.Token+":"+r.Name) }; content:=fmt.Sprintf("LISTEN=\"%s\"\nBOT_TOKEN=\"%s\"\nADMIN_USER_ID=\"%d\"\nROUTERS=\"%s\"\n",s.cfg.Listen,s.cfg.BotToken,s.cfg.AdminUserID,strings.Join(items,",")); return os.WriteFile(s.cfg.ConfigPath,[]byte(content),0660) }
 func compactStatus(status string) string { status=strings.TrimSpace(status); if status=="" { return "нет heartbeat" }; seen:=map[string]bool{}; out:=[]string{}; for _,part:=range strings.Split(status,";") { p:=strings.TrimSpace(part); if p==""||seen[p] { continue }; seen[p]=true; out=append(out,p) }; if len(out)==0 { return status }; return strings.Join(out,"; ") }
 func validRouterID(id string) bool { if id=="" { return false }; for _,r:=range id { if (r>='a'&&r<='z')||(r>='A'&&r<='Z')||(r>='0'&&r<='9')||r=='_'||r=='-' { continue }; return false }; return true }

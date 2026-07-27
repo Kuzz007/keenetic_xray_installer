@@ -93,18 +93,7 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 	case strings.HasPrefix(data, "install:"):
 		routerID := strings.TrimPrefix(data, "install:")
 		s.setActiveMenu(routerID, chatID, messageID)
-		text, kb, ok := s.agentInstallMenuView(routerID)
-		if !ok {
-			s.editMenuOnly(cb.ID, chatID, messageID, text, s.routersKeyboardWithUpdateScripts())
-			return
-		}
-		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
-	case strings.HasPrefix(data, "install-go:"):
-		routerID := strings.TrimPrefix(data, "install-go:")
-		s.sendAgentInstallCommand(chatID, routerID, "go")
-	case strings.HasPrefix(data, "install-shell:"):
-		routerID := strings.TrimPrefix(data, "install-shell:")
-		s.sendAgentInstallCommand(chatID, routerID, "shell")
+		s.sendAgentInstallCommand(chatID, routerID)
 	case strings.HasPrefix(data, "refresh-subscription:"):
 		routerID := strings.TrimPrefix(data, "refresh-subscription:")
 		s.setActiveMenu(routerID, chatID, messageID)
@@ -187,15 +176,4 @@ func (s *Server) sourceMenuView(routerID string) (string, inlineKeyboard, bool) 
 	}
 	text := "🔗 Источники\n\n📡 " + name + "\nID: " + routerID + "\n\nВыберите действие для primary/backup источников."
 	return text, sourceKeyboard(routerID), true
-}
-
-func (s *Server) agentInstallMenuView(routerID string) (string, inlineKeyboard, bool) {
-	s.mu.Lock()
-	rt := s.cfg.Routers[routerID]
-	s.mu.Unlock()
-	if rt == nil {
-		return "⚠️ Router not found: " + routerID, s.routersKeyboardWithUpdateScripts(), false
-	}
-	msg := strings.TrimSpace("📦 Установка агента\n\n📡 " + rt.Name + "\nID: " + rt.ID + "\n\nРекомендуемый вариант: ⚙️ Auto install.\n\nОн сам определит архитектуру роутера и выберет агент:\n• ARM64 / aarch64 → Go-agent\n• MIPS / MT7621 / старые Keenetic → Legacy shell-agent\n\n🧩 Legacy shell-agent оставлен как ручной вариант для диагностики и старых MIPS.")
-	return msg, agentInstallKeyboard(routerID), true
 }

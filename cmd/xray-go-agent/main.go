@@ -3,6 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -17,11 +21,13 @@ import (
 )
 
 type Config struct {
-	ServerURL    string
-	RouterID     string
-	RouterName   string
-	AgentToken   string
-	PollInterval time.Duration
+	ServerURL         string
+	ServerFingerprint string
+	RouterID          string
+	RouterName        string
+	AgentToken        string
+	PollInterval      time.Duration
+	Client            *http.Client
 }
 
 type Command struct {
@@ -110,7 +116,7 @@ func pollOnce(cfg Config) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.AgentToken)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := cfg.Client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -145,7 +151,7 @@ func postResult(cfg Config, res Result) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.AgentToken)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := cfg.Client.Do(req)
 	if err != nil {
 		resultLog("POST failed command_id=%s error=%s", res.CommandID, err.Error())
 		return err
@@ -875,6 +881,8 @@ func loadConfig(path string) (Config, error) {
 			if d, err := time.ParseDuration(v + "s"); err == nil {
 				cfg.PollInterval = d
 			}
+		case "SERVER_FINGERPRINT":
+			cfg.ServerFingerprint = v
 		}
 	}
 	if cfg.ServerURL == "" || cfg.RouterID == "" || cfg.AgentToken == "" {
@@ -883,7 +891,38 @@ func loadConfig(path string) (Config, error) {
 	if cfg.RouterName == "" {
 		cfg.RouterName = cfg.RouterID
 	}
+	cfg.Client = buildHTTPClient(cfg.ServerURL, cfg.ServerFingerprint)
 	return cfg, nil
+}
+
+// buildHTTPClient returns a plain http.DefaultClient for a "http://" server,
+// or when no fingerprint is configured (normal CA verification applies —
+// covers a real cert behind a reverse proxy). For a "https://" server with a
+// fingerprint, it pins the leaf certificate's SHA256 to that value instead of
+// validating a chain, since the control server's cert is self-signed: no
+// domain name or CA is involved, the fingerprint is the trust anchor (same
+// role as an SSH host key fingerprint).
+func buildHTTPClient(serverURL, fingerprint string) *http.Client {
+	fingerprint = strings.ToLower(strings.TrimSpace(fingerprint))
+	if !strings.HasPrefix(serverURL, "https://") || fingerprint == "" {
+		return http.DefaultClient
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: true, // pinning below replaces chain validation
+		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			if len(rawCerts) == 0 {
+				return fmt.Errorf("server presented no certificate")
+			}
+			sum := sha256.Sum256(rawCerts[0])
+			got := hex.EncodeToString(sum[:])
+			if got != fingerprint {
+				return fmt.Errorf("server certificate fingerprint mismatch: expected %s got %s", fingerprint, got)
+			}
+			return nil
+		},
+	}
+	return &http.Client{Transport: transport}
 }
 
 func normalizeSelector(selector string) string {
