@@ -10,6 +10,7 @@ LOG="${LOG:-/opt/var/log/xray-go-agent.log}"
 REMOVE_SHELL_AGENT="${REMOVE_SHELL_AGENT:-1}"
 
 ARG_SERVER_URL=""
+ARG_SERVER_FINGERPRINT=""
 ARG_ROUTER_ID=""
 ARG_ROUTER_NAME=""
 ARG_AGENT_TOKEN=""
@@ -20,17 +21,23 @@ usage() {
 Usage: xray-go-agent-unified-install [options]
 
 Options:
-  --server-url URL       VPS control server URL, example http://1.2.3.4:18090
-  --router-id ID         Router ID from control bot
-  --router-name NAME     Router display name
-  --agent-token TOKEN    Agent token from control bot
-  --poll-interval SEC    Poll interval seconds, default 10
-  -h, --help             Show this help
+  --server-url URL           VPS control server URL, example https://1.2.3.4:18090
+  --server-fingerprint HEX   Control server TLS cert SHA256 fingerprint (from /add_router or the VPS install output)
+  --router-id ID             Router ID from control bot
+  --router-name NAME         Router display name
+  --agent-token TOKEN        Agent token from control bot
+  --poll-interval SEC        Poll interval seconds, default 10
+  -h, --help                 Show this help
 
 Environment:
   REPO=$REPO
   TAG=$TAG
   REMOVE_SHELL_AGENT=$REMOVE_SHELL_AGENT      1 = remove old shell-agent service/binary
+
+The control server serves a self-signed certificate; the agent pins its
+fingerprint instead of validating a CA chain. Leave --server-fingerprint
+empty only if SERVER_URL uses a real CA-signed certificate (e.g. behind
+a reverse proxy).
 EOF
 }
 
@@ -38,6 +45,7 @@ parse_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --server-url) [ "$#" -ge 2 ] || { echo "ERROR: --server-url requires value" >&2; exit 1; }; ARG_SERVER_URL="$2"; shift 2 ;;
+      --server-fingerprint) [ "$#" -ge 2 ] || { echo "ERROR: --server-fingerprint requires value" >&2; exit 1; }; ARG_SERVER_FINGERPRINT="$2"; shift 2 ;;
       --router-id) [ "$#" -ge 2 ] || { echo "ERROR: --router-id requires value" >&2; exit 1; }; ARG_ROUTER_ID="$2"; shift 2 ;;
       --router-name) [ "$#" -ge 2 ] || { echo "ERROR: --router-name requires value" >&2; exit 1; }; ARG_ROUTER_NAME="$2"; shift 2 ;;
       --agent-token) [ "$#" -ge 2 ] || { echo "ERROR: --agent-token requires value" >&2; exit 1; }; ARG_AGENT_TOKEN="$2"; shift 2 ;;
@@ -171,20 +179,23 @@ read_old_config() {
 
 write_config() {
   mkdir -p /opt/etc/xray
-  old_server="http://1.2.3.4:18090"
+  old_server="https://1.2.3.4:18090"
+  old_fingerprint=""
   old_id="home"
   old_name="Дом"
   old_token=""
   old_interval="10"
-  SERVER_URL="" ROUTER_ID="" ROUTER_NAME="" AGENT_TOKEN="" POLL_INTERVAL=""
+  SERVER_URL="" SERVER_FINGERPRINT="" ROUTER_ID="" ROUTER_NAME="" AGENT_TOKEN="" POLL_INTERVAL=""
   read_old_config
   old_server="${SERVER_URL:-$old_server}"
+  old_fingerprint="${SERVER_FINGERPRINT:-$old_fingerprint}"
   old_id="${ROUTER_ID:-$old_id}"
   old_name="${ROUTER_NAME:-$old_name}"
   old_token="${AGENT_TOKEN:-$old_token}"
   old_interval="${POLL_INTERVAL:-$old_interval}"
 
   server_url="$(value_or_ask "$ARG_SERVER_URL" 'VPS control server URL' "$old_server")"
+  server_fingerprint="$(value_or_ask "$ARG_SERVER_FINGERPRINT" 'Control server TLS cert SHA256 fingerprint (empty if using a real CA cert)' "$old_fingerprint")"
   router_id="$(value_or_ask "$ARG_ROUTER_ID" 'Router ID' "$old_id")"
   router_name="$(value_or_ask "$ARG_ROUTER_NAME" 'Router display name' "$old_name")"
   agent_token="$(value_or_ask "$ARG_AGENT_TOKEN" 'Agent token' "$old_token")"
@@ -194,9 +205,18 @@ write_config() {
   [ -n "$router_id" ] || { echo "ERROR: router ID is required" >&2; exit 1; }
   [ -n "$agent_token" ] || { echo "ERROR: agent token is required" >&2; exit 1; }
 
+  case "$server_url" in
+    https://*)
+      if [ -z "$server_fingerprint" ]; then
+        echo "WARN: https:// SERVER_URL with no --server-fingerprint; the agent will require a real CA-signed certificate." >&2
+      fi
+      ;;
+  esac
+
   tmp="${CONF}.tmp.$$"
   cat > "$tmp" <<EOF
 SERVER_URL="${server_url}"
+SERVER_FINGERPRINT="${server_fingerprint}"
 ROUTER_ID="${router_id}"
 ROUTER_NAME="${router_name}"
 AGENT_TOKEN="${agent_token}"

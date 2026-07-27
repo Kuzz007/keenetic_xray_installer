@@ -39,7 +39,7 @@ cmd/xray-go-agent
 Responsibilities:
 
 - run on Keenetic/Entware as an init service;
-- poll the VPS over outbound HTTPS/HTTP;
+- poll the VPS over outbound HTTPS;
 - execute only allowlisted local actions;
 - never expose an inbound port;
 - never print raw VLESS/subscription values back to the server;
@@ -50,6 +50,12 @@ Responsibilities:
 - Telegram commands are accepted only from `ADMIN_USER_ID`.
 - Each router has a unique `AGENT_TOKEN`.
 - Router agents authenticate every request with `Authorization: Bearer <token>`.
+- The control server serves a self-signed TLS certificate; each agent pins
+  its SHA256 fingerprint (`SERVER_FINGERPRINT`) instead of validating a CA
+  chain, the same trust model as an SSH host key. This closes the plaintext
+  poll/result traffic a network MITM could otherwise read or tamper with.
+  A real CA-signed certificate (e.g. behind a reverse proxy) works too —
+  just leave `SERVER_FINGERPRINT` empty.
 - Commands are allowlisted; arbitrary shell execution is intentionally unsupported.
 - Source URLs are accepted only for dedicated source-update actions and are redacted from results.
 - Support diagnostics use `xray-go doctor --support`.
@@ -91,11 +97,15 @@ The bot must not echo raw source values back to Telegram.
 
 ```sh
 SERVER_URL="https://control.example.com"
+SERVER_FINGERPRINT="sha256-hex-from-add-router-or-install-output"
 ROUTER_ID="home"
 ROUTER_NAME="Дом"
 AGENT_TOKEN="replace-with-long-random-token"
 POLL_INTERVAL="5"
 ```
+
+`SERVER_FINGERPRINT` may be left empty only when `SERVER_URL` uses a
+real CA-signed certificate.
 
 ## VPS config example
 
@@ -105,6 +115,10 @@ BOT_TOKEN="123456:telegram-token"
 ADMIN_USER_ID="123456789"
 ROUTERS="home:token1:Дом,dacha:token2:Дача,office:token3:Офис"
 ```
+
+`CERT_FILE`/`KEY_FILE` default to `xray-go-control-server.crt`/`.key`
+next to the config file and rarely need to be set explicitly; the
+server generates a self-signed cert there on first start.
 
 ## Telegram command examples
 

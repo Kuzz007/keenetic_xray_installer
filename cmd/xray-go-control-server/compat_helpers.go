@@ -29,7 +29,7 @@ func normalizeSelector(selector string) string {
 func agentServerURL(listen string) string {
 	listen = strings.TrimSpace(listen)
 	if listen == "" {
-		return "http://<server-ip>:18090"
+		return "https://<server-ip>:18090"
 	}
 	if strings.HasPrefix(listen, "http://") || strings.HasPrefix(listen, "https://") {
 		return strings.TrimRight(listen, "/")
@@ -49,7 +49,7 @@ func agentServerURL(listen string) string {
 	if port == "" {
 		port = "18090"
 	}
-	return "http://" + host + ":" + port
+	return "https://" + host + ":" + port
 }
 
 func addRouterDoneMessage(routerID, name, token, serverURL string) string {
