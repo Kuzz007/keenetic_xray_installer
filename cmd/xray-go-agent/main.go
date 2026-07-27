@@ -396,7 +396,9 @@ func runDoctor() (bool, string) {
 }
 
 func isDoctorJSON(out string) bool {
-	var data struct{ Schema string `json:"schema"` }
+	var data struct {
+		Schema string `json:"schema"`
+	}
 	return json.Unmarshal([]byte(out), &data) == nil && data.Schema == "xray-go.doctor.v1"
 }
 
