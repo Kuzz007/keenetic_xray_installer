@@ -22,9 +22,14 @@ fetch_plain() {
         return $?
     fi
     if command -v wget >/dev/null 2>&1; then
-        wget --header='Cache-Control: no-cache' -O "$OUT" "$PLAIN_URL" || \
-            wget --no-check-certificate --header='Cache-Control: no-cache' -O "$OUT" "$PLAIN_URL"
-        return $?
+        # No unverified-TLS retry here: the download is executed right away, so a
+        # skipped certificate check means running whatever the network returns.
+        wget --header='Cache-Control: no-cache' -O "$OUT" "$PLAIN_URL" || {
+            echo "ERROR: download over verified TLS failed: $PLAIN_URL" >&2
+            echo "Hint: opkg update && opkg install curl ca-certificates" >&2
+            return 1
+        }
+        return 0
     fi
     echo "ERROR: curl or wget required" >&2
     return 1
