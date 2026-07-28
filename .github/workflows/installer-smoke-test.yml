@@ -34,11 +34,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify generated xray-go-direct-*.sh scripts are up to date
+      - name: Verify generated scripts are up to date
         run: |
-          sh scripts/build-direct-scripts.sh
-          git diff --exit-code -- scripts/xray-go-direct-*.sh || {
-            echo "::error::scripts/xray-go-direct-*.sh is out of date. Edit scripts/src/direct/ and/or scripts/lib/xray-go-direct-common.sh, then run scripts/build-direct-scripts.sh and commit the result." >&2
+          sh scripts/build-generated-scripts.sh
+          git diff --exit-code -- \
+            install.sh \
+            scripts/xray-go-direct-*.sh \
+            scripts/xray-go-safety-check.sh \
+            scripts/xray-go-space-gate.sh \
+            scripts/vless-go-doctor.sh \
+            scripts/vless-go-doctor-summary.sh \
+            scripts/xray-go-agent-install.sh \
+            scripts/xray-go-agent-unified-install.sh \
+            scripts/xray-go-installer-update.sh \
+            scripts/xray-go.sh || {
+            echo "::error::Generated scripts are out of date. Edit scripts/src/ and/or scripts/lib/xray-go-common.sh, then run scripts/build-generated-scripts.sh and commit the result." >&2
             exit 1
           }
 
