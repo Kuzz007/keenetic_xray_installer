@@ -50,6 +50,7 @@ type PollResponse struct {
 }
 
 var agentVersion = "dev"
+
 const slotStateFile = "/opt/var/run/xray-go-agent.last-slot"
 const resultLogPath = "/opt/var/log/xray-go-agent-result.log"
 const routesCatalogPath = "/opt/bin/xray-keenetic-routes-catalog"
