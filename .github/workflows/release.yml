@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> 2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # install.sh and the router-side install scripts fetch a per-binary
+      # "<asset>.sha256" sidecar (see scripts/xray-go-agent-install.sh); split
+      # GoReleaser's combined checksums.txt into that legacy sidecar shape so
+      # existing installers keep working unchanged.
+      - name: Publish legacy per-binary sha256 sidecars
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          cd dist
+          while read -r hash name; do
+            [ -n "$hash" ] && [ -n "$name" ] || continue
+            echo "$hash  $name" > "${name}.sha256"
+          done < checksums.txt
+          gh release upload "${GITHUB_REF_NAME}" ./*.sha256 --repo "$GITHUB_REPOSITORY" --clobber

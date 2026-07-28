@@ -1,0 +1,69 @@
+version: 2
+
+release:
+  github:
+    owner: Kuzz007
+    name: keenetic_xray_installer
+  prerelease: auto
+
+builds:
+  - id: xray-failover-go
+    main: ./cmd/xray-failover-go
+    binary: xray-failover-go
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - arm64
+      - mipsle
+    gomips:
+      - softfloat
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+  - id: xray-go-agent
+    main: ./cmd/xray-go-agent
+    binary: xray-go-agent
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - arm64
+      - mipsle
+      - mips
+    gomips:
+      - softfloat
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.agentVersion={{ .Version }}
+
+  - id: xray-go-control-server
+    main: ./cmd/xray-go-control-server
+    binary: xray-go-control-server
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.controlServerVersion={{ .Version }} -X main.buildCommit={{ .FullCommit }} -X main.buildTime={{ .Date }}
+
+archives:
+  - formats:
+      - binary
+    name_template: '{{ .Binary }}-{{ .Os }}-{{ .Arch }}'
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
