@@ -1,0 +1,123 @@
+name: Go CI
+
+on:
+  pull_request:
+    paths:
+      - 'cmd/**'
+      - 'go.mod'
+      - 'scripts/build-go-installers.sh'
+      - '.github/workflows/go-ci.yml'
+  push:
+    branches:
+      - main
+      - feature-router-groups
+    tags:
+      - 'v*'
+    paths:
+      - 'cmd/**'
+      - 'go.mod'
+      - 'scripts/build-go-installers.sh'
+      - '.github/workflows/go-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Check formatting
+        run: |
+          # mux_config.go and control-server/main.go are deliberately written
+          # in a compact single-line style and are excluded here rather than
+          # reformatted.
+          files="$(gofmt -l . | grep -vE '^(cmd/xray-go-agent/mux_config\.go|cmd/xray-go-control-server/main\.go)$' || true)"
+          if [ -n "$files" ]; then
+            echo "Files need gofmt:"
+            echo "$files"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+  build:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - binary: xray-failover-go
+            goarch: arm64
+          - binary: xray-failover-go
+            goarch: mipsle
+          - binary: xray-go-agent
+            goarch: arm64
+          - binary: xray-go-agent
+            goarch: mipsle
+          - binary: xray-go-agent
+            goarch: mips
+          - binary: xray-go-control-server
+            goarch: amd64
+          - binary: xray-go-control-server
+            goarch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      # The agent and control server ship for these router architectures;
+      # keep them compiling and publish binaries for each.
+      - name: Build
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          GOMIPS: softfloat
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w" \
+            -o "dist/${{ matrix.binary }}-linux-${{ matrix.goarch }}" \
+            ./cmd/${{ matrix.binary }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary }}-linux-${{ matrix.goarch }}
+          path: dist/${{ matrix.binary }}-linux-${{ matrix.goarch }}
+          if-no-files-found: error
+
+  attach-release-asset:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: xray-failover-go-linux-arm64
+          path: dist
+
+      - name: Attach binary to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/xray-failover-go-linux-arm64
