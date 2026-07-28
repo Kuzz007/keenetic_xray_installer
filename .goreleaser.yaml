@@ -1,0 +1,49 @@
+version: 2
+
+project_name: keenetic_xray_installer
+
+builds:
+  - id: xray-failover-go
+    main: ./cmd/xray-failover-go
+    binary: xray-failover-go
+    goos: [linux]
+    goarch: [arm64, mipsle]
+    gomips: [softfloat]
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+
+  - id: xray-go-agent
+    main: ./cmd/xray-go-agent
+    binary: xray-go-agent
+    goos: [linux]
+    goarch: [arm64, mipsle, mips]
+    gomips: [softfloat]
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+
+  - id: xray-go-control-server
+    main: ./cmd/xray-go-control-server
+    binary: xray-go-control-server
+    goos: [linux]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.buildCommit={{ .FullCommit }} -X main.buildTime={{ .Date }}
+
+# Raw binaries, not tar.gz/zip archives: install/doctor/agent-update scripts
+# reference exact filenames like xray-go-agent-linux-arm64 directly.
+archives:
+  - formats: [binary]
+    name_template: "{{ .Binary }}-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  disable: true
+
+changelog:
+  disable: true
