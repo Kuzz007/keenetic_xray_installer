@@ -11,8 +11,6 @@ on:
     branches:
       - main
       - feature-router-groups
-    tags:
-      - 'v*'
     paths:
       - 'cmd/**'
       - 'go.mod'
@@ -152,21 +150,3 @@ jobs:
           name: ${{ matrix.binary }}-linux-${{ matrix.goarch }}
           path: dist/${{ matrix.binary }}-linux-${{ matrix.goarch }}
           if-no-files-found: error
-
-  attach-release-asset:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download xray-failover-go-linux-arm64
-        uses: actions/download-artifact@v4
-        with:
-          name: xray-failover-go-linux-arm64
-          path: dist
-
-      - name: Attach binary to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/xray-failover-go-linux-arm64
