@@ -40,11 +40,24 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.release-please.outputs.tag_name || github.event.inputs.tag }}
     steps:
-      - name: Checkout release tag
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
+
+      # On the normal release-please path the tag already exists. On a
+      # manual workflow_dispatch recovery run it may not yet - create it
+      # at the checked-out commit (the ref the run was dispatched from)
+      # rather than requiring a separate "which commit" input.
+      - name: Ensure release tag exists and check it out
+        run: |
+          if git rev-parse "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Tag $RELEASE_TAG already exists"
+          else
+            git tag "$RELEASE_TAG"
+            git push origin "$RELEASE_TAG"
+          fi
+          git checkout "$RELEASE_TAG"
 
       - name: Setup Go
         uses: actions/setup-go@v5
