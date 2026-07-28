@@ -20,7 +20,7 @@ import (
 
 const userAgent = "Keenetic-Xray-Failover-Go/0.1"
 
-var version = "0.1.4-go-xhttp"
+var version = "dev"
 
 type cliOptions struct {
 	input          string

@@ -49,7 +49,8 @@ type PollResponse struct {
 	Command *Command `json:"command,omitempty"`
 }
 
-const agentVersion = "0.2.3-tls-pin"
+var agentVersion = "dev"
+
 const slotStateFile = "/opt/var/run/xray-go-agent.last-slot"
 const resultLogPath = "/opt/var/log/xray-go-agent-result.log"
 const routesCatalogPath = "/opt/bin/xray-keenetic-routes-catalog"
