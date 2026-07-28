@@ -7,6 +7,8 @@ on:
       - 'xray_vless_failover*.sh'
       - 'xray_vless_go_watchdog_install.sh'
       - 'scripts/*.sh'
+      - 'scripts/lib/**'
+      - 'scripts/src/**'
       - 'packaging/entware/failover-go/**'
       - 'scripts/smoke-test.sh'
       - '.github/workflows/installer-smoke-test.yml'
@@ -18,6 +20,8 @@ on:
       - 'xray_vless_failover*.sh'
       - 'xray_vless_go_watchdog_install.sh'
       - 'scripts/*.sh'
+      - 'scripts/lib/**'
+      - 'scripts/src/**'
       - 'packaging/entware/failover-go/**'
       - 'scripts/smoke-test.sh'
       - '.github/workflows/installer-smoke-test.yml'
@@ -29,6 +33,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Verify generated xray-go-direct-*.sh scripts are up to date
+        run: |
+          sh scripts/build-direct-scripts.sh
+          git diff --exit-code -- scripts/xray-go-direct-*.sh || {
+            echo "::error::scripts/xray-go-direct-*.sh is out of date. Edit scripts/src/direct/ and/or scripts/lib/xray-go-direct-common.sh, then run scripts/build-direct-scripts.sh and commit the result." >&2
+            exit 1
+          }
 
       - name: Run installer smoke test
         run: sh scripts/smoke-test.sh
