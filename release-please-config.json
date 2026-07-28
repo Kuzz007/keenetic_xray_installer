@@ -7,7 +7,8 @@
       "package-name": "keenetic_xray_installer",
       "changelog-path": "CHANGELOG.md",
       "draft": false,
-      "prerelease": false
+      "prerelease": false,
+      "include-component-in-tag": false
     }
   }
 }

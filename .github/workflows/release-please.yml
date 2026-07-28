@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re-)build and publish, skipping release-please. For manual recovery after a failed publish run.
+        required: false
 
 permissions:
   contents: write
@@ -11,6 +16,7 @@ permissions:
 
 jobs:
   release-please:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -24,16 +30,20 @@ jobs:
           manifest-file: .release-please-manifest.json
 
   publish:
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: [release-please]
+    if: |
+      always() &&
+      (needs.release-please.outputs.release_created == 'true' || github.event.inputs.tag != '')
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ needs.release-please.outputs.tag_name || github.event.inputs.tag }}
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Setup Go
@@ -61,7 +71,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p dist-latest
-          gh release download "${{ needs.release-please.outputs.tag_name }}" \
+          gh release download "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --dir dist-latest
 
@@ -81,7 +91,7 @@ jobs:
       # every script to be updated to a specific version tag.
       - name: Move latest tag to this release
         run: |
-          git tag -f latest "${{ needs.release-please.outputs.tag_name }}"
+          git tag -f latest "$RELEASE_TAG"
           git push origin latest --force
 
       - name: Create or update latest release
@@ -89,11 +99,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          NOTES="Mirrors ${{ needs.release-please.outputs.tag_name }}. Always points at the newest release - see that release or CHANGELOG.md for what changed. Kept for install/update scripts that reference releases/download/latest/<asset>; point at ${{ needs.release-please.outputs.tag_name }} directly for a pinned version."
+          NOTES="Mirrors $RELEASE_TAG. Always points at the newest release - see that release or CHANGELOG.md for what changed. Kept for install/update scripts that reference releases/download/latest/<asset>; point at $RELEASE_TAG directly for a pinned version."
           if gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit latest --repo "$GITHUB_REPOSITORY" --title latest --notes "$NOTES"
           else
-            gh release create latest --repo "$GITHUB_REPOSITORY" --title latest --notes "$NOTES" --target "${{ needs.release-please.outputs.tag_name }}"
+            gh release create latest --repo "$GITHUB_REPOSITORY" --title latest --notes "$NOTES" --target "$RELEASE_TAG"
           fi
 
       - name: Upload assets to latest release
