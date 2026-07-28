@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-const controlServerVersion = "0.1.12-tls-pin"
+var controlServerVersion = "dev"
 
 var buildCommit = "dev"
 var buildTime = "unknown"

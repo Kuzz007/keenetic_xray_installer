@@ -22,3 +22,82 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # GoReleaser only materializes correctly-named binary-format
+      # artifacts as part of the actual upload, not locally beforehand -
+      # download them back to build the legacy per-file .sha256 sidecars
+      # that scripts/xray-go-direct-install.sh and friends expect
+      # (GO_SHA256_URL="${GO_BINARY_URL}.sha256"), alongside GoReleaser's
+      # own combined checksums.txt.
+      - name: Download published assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist-latest
+          gh release download "${{ needs.release-please.outputs.tag_name }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir dist-latest
+
+      - name: Generate per-file sha256 sidecars
+        run: |
+          cd dist-latest
+          for f in *; do
+            case "$f" in *.sha256|checksums.txt) continue ;; esac
+            sha256sum "$f" | awk '{print $1}' > "${f}.sha256"
+          done
+
+      # 8+ install/update scripts on live routers (xray-go update,
+      # agent/control-server install, minimal-go backend, entware feed)
+      # hardcode releases/download/latest/<asset>[.sha256] URLs. Keep
+      # that working by re-pointing the latest tag/release at whatever
+      # release-please+GoReleaser just published, instead of requiring
+      # every script to be updated to a specific version tag.
+      - name: Move latest tag to this release
+        run: |
+          git tag -f latest "${{ needs.release-please.outputs.tag_name }}"
+          git push origin latest --force
+
+      - name: Create or update latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          NOTES="Mirrors ${{ needs.release-please.outputs.tag_name }}. Always points at the newest release - see that release or CHANGELOG.md for what changed. Kept for install/update scripts that reference releases/download/latest/<asset>; point at ${{ needs.release-please.outputs.tag_name }} directly for a pinned version."
+          if gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit latest --repo "$GITHUB_REPOSITORY" --title latest --notes "$NOTES"
+          else
+            gh release create latest --repo "$GITHUB_REPOSITORY" --title latest --notes "$NOTES" --target "${{ needs.release-please.outputs.tag_name }}"
+          fi
+
+      - name: Upload assets to latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload latest dist-latest/* --repo "$GITHUB_REPOSITORY" --clobber

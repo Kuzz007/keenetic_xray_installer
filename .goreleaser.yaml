@@ -11,7 +11,8 @@ builds:
     gomips: [softfloat]
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
-    ldflags: [-s -w]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
 
   - id: xray-go-agent
     main: ./cmd/xray-go-agent
@@ -21,7 +22,8 @@ builds:
     gomips: [softfloat]
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
-    ldflags: [-s -w]
+    ldflags:
+      - -s -w -X main.agentVersion={{ .Version }}
 
   - id: xray-go-control-server
     main: ./cmd/xray-go-control-server
@@ -31,7 +33,7 @@ builds:
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
     ldflags:
-      - -s -w -X main.buildCommit={{ .FullCommit }} -X main.buildTime={{ .Date }}
+      - -s -w -X main.controlServerVersion={{ .Version }} -X main.buildCommit={{ .FullCommit }} -X main.buildTime={{ .Date }}
 
 # Raw binaries, not tar.gz/zip archives: install/doctor/agent-update scripts
 # reference exact filenames like xray-go-agent-linux-arm64 directly.
@@ -42,8 +44,12 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# release-please already creates the tag + GitHub Release (with its own
+# changelog-derived notes) when its release PR merges. This job runs
+# against that existing release and attaches build artifacts to it,
+# so GoReleaser's own changelog generation is unnecessary here.
 release:
-  disable: true
+  mode: append
 
 changelog:
   disable: true
