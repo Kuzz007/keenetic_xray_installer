@@ -94,6 +94,58 @@ jobs:
           go build -trimpath -ldflags "-s -w" -o "$out" "./cmd/${{ matrix.binary }}"
           chmod +x "$out"
 
+      # arm64/mipsle/mips binaries can't run natively on this amd64 runner.
+      # qemu-user-static lets us exec them directly (no binfmt_misc
+      # registration needed since we invoke the interpreter explicitly) to
+      # catch cross-compilation/runtime problems before a release ships
+      # them. docker/setup-qemu-action's bundled emulators were considered
+      # but dropped mips/mipsle support upstream; apt's package still
+      # covers them.
+      - name: Install QEMU user-mode emulation
+        if: matrix.goarch != 'amd64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static
+
+      - name: Smoke test ${{ matrix.binary }} (linux/${{ matrix.goarch }})
+        run: |
+          bin="dist/${{ matrix.binary }}-linux-${{ matrix.goarch }}"
+
+          runner=""
+          case "${{ matrix.goarch }}" in
+          arm64) runner="qemu-aarch64-static" ;;
+          mipsle) runner="qemu-mipsel-static" ;;
+          mips) runner="qemu-mips-static" ;;
+          esac
+
+          case "${{ matrix.binary }}" in
+          xray-failover-go)
+            if out="$($runner "$bin" -version 2>&1)"; then status=0; else status=$?; fi
+            echo "$out"
+            [ "$status" -eq 0 ] || { echo "::error::exit status $status, want 0"; exit 1; }
+            [ -n "$out" ] || { echo "::error::expected -version to print something"; exit 1; }
+            ;;
+          xray-go-agent | xray-go-control-server)
+            # Neither binary has a no-op flag: both are daemons that load a
+            # config and then run forever. Pointing at a config path that
+            # can't exist on the runner makes them fail fast and
+            # deterministically at the same early loadConfig() call instead,
+            # which is enough to prove the binary is valid machine code for
+            # this architecture and that the Go runtime initializes - a
+            # SIGILL/exec-format crash would exit with a signal-based status
+            # (e.g. 132), not this clean status 1.
+            if out="$($runner "$bin" -config /nonexistent/xray-go-smoke-test.conf 2>&1)"; then status=0; else status=$?; fi
+            echo "$out"
+            [ "$status" -eq 1 ] || { echo "::error::exit status $status, want 1 (missing-config failure)"; exit 1; }
+            case "$out" in
+            *"config:"*) ;;
+            *) echo "::error::expected output to mention 'config:'"; exit 1 ;;
+            esac
+            ;;
+          esac
+
+          echo "OK: $bin runs correctly under linux/${{ matrix.goarch }}"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
