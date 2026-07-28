@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -83,7 +84,7 @@ func isRoutesResult(commandID string) bool { return strings.HasPrefix(commandID,
 
 func (s *Server) authRouter(r *http.Request) *Router {
 	auth := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "); if auth == "" { return nil }
-	s.mu.Lock(); defer s.mu.Unlock(); for _, rt := range s.cfg.Routers { if rt.Token == auth { return rt } }; return nil
+	s.mu.Lock(); defer s.mu.Unlock(); for _, rt := range s.cfg.Routers { if subtle.ConstantTimeCompare([]byte(rt.Token), []byte(auth)) == 1 { return rt } }; return nil
 }
 
 func (s *Server) telegramLoop() {
