@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -19,7 +20,7 @@ import (
 	"time"
 )
 
-type Config struct { ConfigPath string; Listen string; BotToken string; AdminUserID int64; Routers map[string]*Router; CertFile string; KeyFile string; CertFingerprint string }
+type Config struct { ConfigPath string; Listen string; BotToken string; AdminUserID int64; Routers map[string]*Router; CertFile string; KeyFile string; CertFingerprint string; StateFile string }
 type Router struct { ID string; Name string; Token string; LastSeen time.Time; Status string; Queue []Command; Results []Result }
 type Command struct { ID string `json:"id"`; Action string `json:"action"`; Slot string `json:"slot,omitempty"`; Selector string `json:"selector,omitempty"`; Source string `json:"source,omitempty"` }
 type Result struct { CommandID string `json:"command_id"`; RouterID string `json:"router_id"`; OK bool `json:"ok"`; Output string `json:"output"`; At string `json:"at,omitempty"` }
@@ -33,6 +34,7 @@ func main() {
 	fingerprint, err := ensureTLSCert(cfg.CertFile, cfg.KeyFile); if err != nil { log.Fatalf("tls: %v", err) }
 	cfg.CertFingerprint = fingerprint
 	s := &Server{cfg: cfg, activeMenus: map[string]ActiveMenu{}}
+	s.loadStateLocked()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/agent/poll", s.handlePoll)
 	mux.HandleFunc("/agent/result", s.handleResult)
@@ -58,7 +60,7 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 	rt := s.authRouter(r); if rt == nil { http.Error(w, "unauthorized", http.StatusUnauthorized); return }
 	var hb struct{ RouterID, Name, Status string }; _ = json.NewDecoder(r.Body).Decode(&hb)
 	s.mu.Lock(); rt.LastSeen = time.Now(); if hb.Status != "" { rt.Status = hb.Status }
-	var cmd *Command; if len(rt.Queue) > 0 { c := rt.Queue[0]; rt.Queue = rt.Queue[1:]; cmd = &c }
+	var cmd *Command; if len(rt.Queue) > 0 { c := rt.Queue[0]; rt.Queue = rt.Queue[1:]; cmd = &c; s.persistStateLocked() }
 	s.mu.Unlock(); _ = json.NewEncoder(w).Encode(map[string]any{"command": cmd})
 }
 
@@ -67,7 +69,7 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	rt := s.authRouter(r); if rt == nil { http.Error(w, "unauthorized", http.StatusUnauthorized); return }
 	var res Result; if err := json.NewDecoder(r.Body).Decode(&res); err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
 	res.At = time.Now().Format("2006-01-02 15:04:05"); routerID, routerName := rt.ID, rt.Name
-	s.mu.Lock(); rt.Results = append(rt.Results, res); if len(rt.Results) > 20 { rt.Results = rt.Results[len(rt.Results)-20:] }; s.mu.Unlock()
+	s.mu.Lock(); rt.Results = append(rt.Results, res); if len(rt.Results) > 20 { rt.Results = rt.Results[len(rt.Results)-20:] }; s.persistStateLocked(); s.mu.Unlock()
 	_ = json.NewEncoder(w).Encode(map[string]string{"ok":"1"})
 	if s.cfg.BotToken != "" && s.cfg.AdminUserID != 0 {
 		if isRoutesResult(res.CommandID) { if !s.editActiveRoutesResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } } else if isCardPreferredResult(res.CommandID) { if !s.editActiveRouterResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } } else if isStandaloneResult(res.CommandID) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } else if !s.editActiveRouterResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) }
@@ -82,7 +84,7 @@ func isRoutesResult(commandID string) bool { return strings.HasPrefix(commandID,
 
 func (s *Server) authRouter(r *http.Request) *Router {
 	auth := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "); if auth == "" { return nil }
-	s.mu.Lock(); defer s.mu.Unlock(); for _, rt := range s.cfg.Routers { if rt.Token == auth { return rt } }; return nil
+	s.mu.Lock(); defer s.mu.Unlock(); for _, rt := range s.cfg.Routers { if subtle.ConstantTimeCompare([]byte(rt.Token), []byte(auth)) == 1 { return rt } }; return nil
 }
 
 func (s *Server) telegramLoop() {
@@ -173,7 +175,7 @@ func (s *Server) handleAddRouter(chatID int64, text string) {
 
 func (s *Server) handleSetSource(chatID int64, text, slot string) { prefix := "/set_"+slot+"_"; rest := strings.TrimPrefix(text,prefix); parts := strings.Fields(rest); if len(parts)<3 { s.sendMessage(chatID,"Формат: "+prefix+"<router> <selector> <url>"); return }; routerID:=parts[0]; selector:=normalizeSelector(parts[1]); source:=strings.Join(parts[2:]," "); action:="set_primary_source"; if slot=="backup" { action="set_backup_source" }; id,err:=s.enqueue(routerID,Command{Action:action,Selector:selector,Source:source}); if err!=nil { s.sendMessage(chatID,err.Error()); return }; extra:=fmt.Sprintf("⏳ Источник поставлен в очередь\n%s\n\nSlot: %s\nSelector: %s\nЗначение скрыто.", id, slot, selector); mid:=s.sendMessageWithKeyboardID(chatID,s.routerMenuTextWithExtra(routerID,extra),s.currentRouterKeyboard(routerID)); if mid!=0 { s.setActiveMenu(routerID,chatID,mid) } }
 func parseCmdRouter(text string) (string,string,bool) { text = strings.TrimPrefix(strings.Fields(text)[0],"/"); idx := strings.LastIndex(text,"_"); if idx < 0 { return "","",false }; return text[:idx], text[idx+1:], true }
-func (s *Server) enqueue(routerID string, c Command) (string,error) { s.mu.Lock(); defer s.mu.Unlock(); rt := s.cfg.Routers[routerID]; if rt == nil { return "", fmt.Errorf("unknown router: %s", routerID) }; c.ID = fmt.Sprintf("%s-%d", c.Action, time.Now().Unix()); rt.Queue = append(rt.Queue,c); return c.ID,nil }
+func (s *Server) enqueue(routerID string, c Command) (string,error) { s.mu.Lock(); defer s.mu.Unlock(); rt := s.cfg.Routers[routerID]; if rt == nil { return "", fmt.Errorf("unknown router: %s", routerID) }; c.ID = fmt.Sprintf("%s-%d", c.Action, time.Now().Unix()); rt.Queue = append(rt.Queue,c); s.persistStateLocked(); return c.ID,nil }
 func (s *Server) routerList() string { s.mu.Lock(); defer s.mu.Unlock(); ids:=make([]string,0,len(s.cfg.Routers)); for id:=range s.cfg.Routers { ids=append(ids,id) }; sort.Strings(ids); online:=0; items:=[]string{}; for _,id:=range ids { if rt:=s.cfg.Routers[id]; rt!=nil { _,state:=onlineState(rt.LastSeen); if state=="online" { online++ } } }; items=append(items,prettyRouterListHeader(len(ids),online)); for _,id:=range ids { rt:=s.cfg.Routers[id]; if rt==nil { continue }; name:=id; if strings.TrimSpace(rt.Name)!="" { name=rt.Name }; items=append(items,prettyRouterListItem(name,rt.LastSeen,rt.Status)) }; return strings.Join(items,"\n\n") }
 func (s *Server) results(routerID string) string { s.mu.Lock(); defer s.mu.Unlock(); return prettyResults(s.cfg.Routers[routerID]) }
 func (s *Server) setActiveMenu(routerID string, chatID int64, messageID int) { if routerID==""||chatID==0||messageID==0 { return }; s.mu.Lock(); if s.activeMenus==nil { s.activeMenus=map[string]ActiveMenu{} }; s.activeMenus[routerID]=ActiveMenu{ChatID:chatID,MessageID:messageID,RouterID:routerID}; s.mu.Unlock() }
@@ -213,7 +215,7 @@ func helpText() string { return strings.TrimSpace(`❔ Помощь
 Источники:
 /set_primary_<router> <selector> <url>
 /set_backup_<router> <selector> <url>`) }
-func loadConfig(path string) (Config,error) { cfg:=Config{ConfigPath:path,Listen:":18090",Routers:map[string]*Router{}}; data,err:=os.ReadFile(path); if err!=nil { return cfg,err }; vals:=map[string]string{}; for _,line:=range strings.Split(string(data),"\n") { line=strings.TrimSpace(line); if line==""||strings.HasPrefix(line,"#") { continue }; k,v,ok:=strings.Cut(line,"="); if !ok { continue }; vals[strings.TrimSpace(k)]=strings.Trim(strings.TrimSpace(v),"\"") }; if vals["LISTEN"]!="" { cfg.Listen=vals["LISTEN"] }; cfg.BotToken=vals["BOT_TOKEN"]; if vals["ADMIN_USER_ID"]!="" { cfg.AdminUserID,_=strconv.ParseInt(vals["ADMIN_USER_ID"],10,64) }; for _,item:=range strings.Split(vals["ROUTERS"],",") { parts:=strings.SplitN(strings.TrimSpace(item),":",3); if len(parts)<2 { continue }; name:=parts[0]; if len(parts)==3 { name=parts[2] }; cfg.Routers[parts[0]]=&Router{ID:parts[0],Token:parts[1],Name:name} }; if cfg.BotToken==""||cfg.AdminUserID==0 { return cfg,fmt.Errorf("BOT_TOKEN and ADMIN_USER_ID are required") }; if len(cfg.Routers)==0 { return cfg,fmt.Errorf("ROUTERS is required") }; confDir:=filepath.Dir(path); cfg.CertFile=vals["CERT_FILE"]; if cfg.CertFile=="" { cfg.CertFile=filepath.Join(confDir,"xray-go-control-server.crt") }; cfg.KeyFile=vals["KEY_FILE"]; if cfg.KeyFile=="" { cfg.KeyFile=filepath.Join(confDir,"xray-go-control-server.key") }; return cfg,nil }
+func loadConfig(path string) (Config,error) { cfg:=Config{ConfigPath:path,Listen:":18090",Routers:map[string]*Router{}}; data,err:=os.ReadFile(path); if err!=nil { return cfg,err }; vals:=map[string]string{}; for _,line:=range strings.Split(string(data),"\n") { line=strings.TrimSpace(line); if line==""||strings.HasPrefix(line,"#") { continue }; k,v,ok:=strings.Cut(line,"="); if !ok { continue }; vals[strings.TrimSpace(k)]=strings.Trim(strings.TrimSpace(v),"\"") }; if vals["LISTEN"]!="" { cfg.Listen=vals["LISTEN"] }; cfg.BotToken=vals["BOT_TOKEN"]; if vals["ADMIN_USER_ID"]!="" { cfg.AdminUserID,_=strconv.ParseInt(vals["ADMIN_USER_ID"],10,64) }; for _,item:=range strings.Split(vals["ROUTERS"],",") { parts:=strings.SplitN(strings.TrimSpace(item),":",3); if len(parts)<2 { continue }; name:=parts[0]; if len(parts)==3 { name=parts[2] }; cfg.Routers[parts[0]]=&Router{ID:parts[0],Token:parts[1],Name:name} }; if cfg.BotToken==""||cfg.AdminUserID==0 { return cfg,fmt.Errorf("BOT_TOKEN and ADMIN_USER_ID are required") }; if len(cfg.Routers)==0 { return cfg,fmt.Errorf("ROUTERS is required") }; confDir:=filepath.Dir(path); cfg.CertFile=vals["CERT_FILE"]; if cfg.CertFile=="" { cfg.CertFile=filepath.Join(confDir,"xray-go-control-server.crt") }; cfg.KeyFile=vals["KEY_FILE"]; if cfg.KeyFile=="" { cfg.KeyFile=filepath.Join(confDir,"xray-go-control-server.key") }; cfg.StateFile=vals["STATE_FILE"]; if cfg.StateFile=="" { cfg.StateFile=filepath.Join(confDir,"xray-go-control-server.state.json") }; return cfg,nil }
 func (s *Server) persistConfigLocked() error { ids:=make([]string,0,len(s.cfg.Routers)); for id:=range s.cfg.Routers { ids=append(ids,id) }; sort.Strings(ids); items:=make([]string,0,len(ids)); for _,id:=range ids { r:=s.cfg.Routers[id]; items=append(items,r.ID+":"+r.Token+":"+r.Name) }; content:=fmt.Sprintf("LISTEN=\"%s\"\nBOT_TOKEN=\"%s\"\nADMIN_USER_ID=\"%d\"\nROUTERS=\"%s\"\n",s.cfg.Listen,s.cfg.BotToken,s.cfg.AdminUserID,strings.Join(items,",")); return os.WriteFile(s.cfg.ConfigPath,[]byte(content),0660) }
 func compactStatus(status string) string { status=strings.TrimSpace(status); if status=="" { return "нет heartbeat" }; seen:=map[string]bool{}; out:=[]string{}; for _,part:=range strings.Split(status,";") { p:=strings.TrimSpace(part); if p==""||seen[p] { continue }; seen[p]=true; out=append(out,p) }; if len(out)==0 { return status }; return strings.Join(out,"; ") }
 func validRouterID(id string) bool { if id=="" { return false }; for _,r:=range id { if (r>='a'&&r<='z')||(r>='A'&&r<='Z')||(r>='0'&&r<='9')||r=='_'||r=='-' { continue }; return false }; return true }

@@ -15,10 +15,12 @@ PrivateTmp=true
 ProtectHome=true
 ProtectSystem=full
 # The server generates and serves a self-signed TLS cert/key at these paths
-# on first start; both must be writable (even as empty placeholders) under
+# on first start, and persists each router's pending command queue and
+# recent results to state.json so a restart doesn't silently drop them; all
+# three must be writable (even as empty placeholders) under
 # ProtectSystem=full. scripts/xray-go-control-server-install.sh creates them
 # with correct ownership before enabling this unit.
-ReadWritePaths=/etc/xray-go-control-server.conf /etc/xray-go-control-server.crt /etc/xray-go-control-server.key
+ReadWritePaths=/etc/xray-go-control-server.conf /etc/xray-go-control-server.crt /etc/xray-go-control-server.key /etc/xray-go-control-server.state.json
 
 [Install]
 WantedBy=multi-user.target

@@ -72,6 +72,7 @@ func main() {
 	if err := checkSlotChange(cfg); err != nil {
 		log.Printf("slot check failed: %v", err)
 	}
+	consecutiveFailures := 0
 	for {
 		if err := checkSlotChange(cfg); err != nil {
 			log.Printf("slot check failed: %v", err)
@@ -85,6 +86,9 @@ func main() {
 		if err := pollOnce(cfg); err != nil {
 			log.Printf("poll error: %v", err)
 			resultLog("poll error: %v", err)
+			consecutiveFailures++
+		} else {
+			consecutiveFailures = 0
 		}
 		if err := checkSlotChange(cfg); err != nil {
 			log.Printf("slot check failed: %v", err)
@@ -92,8 +96,19 @@ func main() {
 		if *once {
 			return
 		}
-		time.Sleep(cfg.PollInterval)
+		time.Sleep(pollBackoff(cfg.PollInterval, consecutiveFailures))
 	}
+}
+
+// pollBackoff doubles the wait after each consecutive poll failure, capped
+// at 8x the configured interval, so a control-server outage doesn't turn
+// into constant retries; a single success resets consecutiveFailures to 0.
+func pollBackoff(interval time.Duration, consecutiveFailures int) time.Duration {
+	shift := consecutiveFailures
+	if shift > 3 {
+		shift = 3
+	}
+	return interval * time.Duration(1<<uint(shift))
 }
 
 func resultLog(format string, args ...interface{}) {

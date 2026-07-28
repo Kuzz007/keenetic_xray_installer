@@ -7,6 +7,7 @@ BIN="${BIN:-/usr/local/bin/xray-go-control-server}"
 CONF="${CONF:-/etc/xray-go-control-server.conf}"
 CERT_FILE="${CERT_FILE:-/etc/xray-go-control-server.crt}"
 KEY_FILE="${KEY_FILE:-/etc/xray-go-control-server.key}"
+STATE_FILE="${STATE_FILE:-/etc/xray-go-control-server.state.json}"
 SERVICE="${SERVICE:-/etc/systemd/system/xray-go-control-server.service}"
 USER_NAME="${USER_NAME:-xraygo}"
 LISTEN_PORT="${LISTEN_PORT:-18090}"
@@ -36,6 +37,7 @@ Environment overrides:
   CONF=/etc/xray-go-control-server.conf
   CERT_FILE=/etc/xray-go-control-server.crt
   KEY_FILE=/etc/xray-go-control-server.key
+  STATE_FILE=/etc/xray-go-control-server.state.json
   SERVICE=/etc/systemd/system/xray-go-control-server.service
   USER_NAME=xraygo
   UPDATE_ONLY=1
@@ -253,16 +255,20 @@ ensure_config() {
   write_config
 }
 
-ensure_cert_placeholders() {
-  # The server generates its own self-signed cert/key on first start. Under
-  # ProtectSystem=full, only paths listed in ReadWritePaths are writable, so
-  # both files must already exist (even empty) with correct ownership before
-  # the sandboxed process can create/rewrite them.
+ensure_placeholders() {
+  # The server generates its own self-signed cert/key on first start and
+  # writes STATE_FILE (pending command queue + recent results per router) on
+  # every command/result. Under ProtectSystem=full, only paths listed in
+  # ReadWritePaths are writable, so all three must already exist (even
+  # empty) with correct ownership before the sandboxed process can
+  # create/rewrite them.
   [ -f "$CERT_FILE" ] || : > "$CERT_FILE"
   [ -f "$KEY_FILE" ] || : > "$KEY_FILE"
-  chown "$USER_NAME:$USER_NAME" "$CERT_FILE" "$KEY_FILE"
+  [ -f "$STATE_FILE" ] || : > "$STATE_FILE"
+  chown "$USER_NAME:$USER_NAME" "$CERT_FILE" "$KEY_FILE" "$STATE_FILE"
   chmod 0644 "$CERT_FILE"
   chmod 0600 "$KEY_FILE"
+  chmod 0600 "$STATE_FILE"
 }
 
 install_service() {
@@ -277,7 +283,7 @@ install_service() {
   fi
   chown root:"$USER_NAME" "$CONF"
   chmod 0660 "$CONF"
-  ensure_cert_placeholders
+  ensure_placeholders
   cat > "$SERVICE" <<EOF
 [Unit]
 Description=Xray Go Control Server
@@ -295,7 +301,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=full
-ReadWritePaths=${CONF} ${CERT_FILE} ${KEY_FILE}
+ReadWritePaths=${CONF} ${CERT_FILE} ${KEY_FILE} ${STATE_FILE}
 
 [Install]
 WantedBy=multi-user.target
