@@ -1,13 +1,19 @@
 #!/bin/sh
 set -e
 
-# Shared helpers for the xray-go-direct-*.sh family.
+# Shared helpers used across install.sh and several scripts/*.sh entrypoints.
 #
-# This file is not meant to be sourced at runtime - scripts/build-direct-scripts.sh
-# concatenates it into each scripts/xray-go-direct-*.sh so every published script
-# stays a single self-contained file safe to curl and run directly. Edit the
-# functions here, then run scripts/build-direct-scripts.sh to regenerate the
-# published scripts; do not hand-edit these function bodies in the generated files.
+# This file is not meant to be sourced at runtime - scripts/build-generated-scripts.sh
+# concatenates it into each published script (from scripts/src/direct/ and
+# scripts/src/misc/) so every one of them stays a single self-contained file,
+# safe to curl and run directly. Edit the functions here, then run
+# scripts/build-generated-scripts.sh to regenerate the published scripts; do
+# not hand-edit these function bodies in the generated files.
+#
+# Not every published script uses every function here - each still gets the
+# full set, since a few unused shell functions cost nothing at runtime and
+# it keeps this file the single source of truth rather than tracking a
+# per-script subset.
 
 fetch_url() {
     url="$1"
