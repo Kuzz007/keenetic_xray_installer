@@ -30,6 +30,14 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
 result_log() { mkdir -p /opt/var/log 2>/dev/null || true; echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$RESULT_LOG" 2>/dev/null || true; }
 have() { [ -x "$1" ]; }
 exists() { [ -e "$1" ]; }
+shell_syntax_check() {
+  file="$1"
+  /bin/sh -n "$file" >/dev/null 2>&1 || {
+    echo "ERROR: shell syntax check failed: $file"
+    /bin/sh -n "$file"
+    return 1
+  }
+}
 
 clean_output() {
   sed 's/\x1b\[[0-9;]*[A-Za-z]//g; s/\[[0-9][0-9;]*m//g; s/\[m//g' | LC_ALL=C tr -d '\000-\010\013\014\016-\037'
@@ -307,6 +315,10 @@ install_routes_catalog_helper() {
   echo "Installing routes catalog helper..."
   if curl -fsSL -H 'Cache-Control: no-cache' -o "$tmp" "$ROUTES_CATALOG_URL"; then
     if head -n 1 "$tmp" | grep -q '^#!/bin/sh'; then
+      shell_syntax_check "$tmp" || {
+        rm -f "$tmp"
+        return 1
+      }
       chmod +x "$tmp"
       mv "$tmp" "$ROUTES_CATALOG_PATH"
       echo "Installed: $ROUTES_CATALOG_PATH"
@@ -341,6 +353,7 @@ update_scripts_summary() {
   routes_catalog="missing"
   [ -x "$ROUTES_CATALOG_PATH" ] && routes_catalog="installed"
   echo "✅ Scripts update completed"
+  echo "installer: safe-wrapper"
   echo "edition: $edition"
   echo "mode: $mode"
   echo "recovery: $recovery"
@@ -356,6 +369,7 @@ update_scripts_cmd() {
   tmp="/opt/tmp/xray-go-update-scripts.out.$$"
   echo "Updating router scripts via auto_latest repair path..." > "$tmp"
   curl -fsSL -H 'Cache-Control: no-cache' -o "$dst" "$url" >> "$tmp" 2>&1 || { cp "$tmp" "$UPDATE_SCRIPTS_LOG" 2>/dev/null || true; cat "$tmp"; rm -f "$tmp"; return 1; }
+  shell_syntax_check "$dst" >> "$tmp" 2>&1 || { cp "$tmp" "$UPDATE_SCRIPTS_LOG" 2>/dev/null || true; cat "$tmp"; rm -f "$tmp"; return 1; }
   chmod +x "$dst" >> "$tmp" 2>&1 || { cp "$tmp" "$UPDATE_SCRIPTS_LOG" 2>/dev/null || true; cat "$tmp"; rm -f "$tmp"; return 1; }
   "$dst" --update-only --no-restart >> "$tmp" 2>&1
   rc="$?"
@@ -385,6 +399,15 @@ update_agent_cmd() {
   url="https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/xray-go-agent-auto-install.sh"
   dst="/opt/tmp/xray-go-agent-auto-install.sh"
   curl -fsSL -H 'Cache-Control: no-cache' -o "$dst" "$url" || return $?
+  head -n 1 "$dst" | grep -q '^#!/bin/sh' || {
+    echo "ERROR: downloaded agent installer does not look like a shell script"
+    rm -f "$dst"
+    return 1
+  }
+  shell_syntax_check "$dst" || {
+    rm -f "$dst"
+    return 1
+  }
   chmod +x "$dst" || return $?
   agent="auto"
   [ -x /opt/bin/xray-go-agent ] && agent="go"
