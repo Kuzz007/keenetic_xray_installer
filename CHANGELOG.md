@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/Kuzz007/keenetic_xray_installer/compare/v0.2.0...v0.2.1) (2026-07-28)
+
+
+### Bug Fixes
+
+* agent/bot reliability + security fixes (shell hardening, state persistence, constant-time auth, backoff, dead-code cleanup) ([#277](https://github.com/Kuzz007/keenetic_xray_installer/issues/277)) ([36f23a0](https://github.com/Kuzz007/keenetic_xray_installer/commit/36f23a0cd119ced16ae4565cfca1a4bd40fb0cdf))
+
 ## [0.2.0](https://github.com/Kuzz007/keenetic_xray_installer/compare/keenetic_xray_installer-v0.1.4...keenetic_xray_installer-v0.2.0) (2026-07-28)
 
 
