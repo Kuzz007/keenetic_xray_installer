@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 func agentUpdateKeyboard(routerID string) inlineKeyboard {
@@ -19,6 +20,13 @@ func agentUpdateKeyboard(routerID string) inlineKeyboard {
 			{Text: "⬅️ К роутеру", CallbackData: "router:" + routerID},
 			{Text: "🏠 Главное меню", CallbackData: "menu"},
 		},
+	}}
+}
+
+func agentUpdatePendingKeyboard(routerID string) inlineKeyboard {
+	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
+		{{Text: "⬅️ К роутеру", CallbackData: "router:" + routerID}},
+		{{Text: "🏠 Главное меню", CallbackData: "menu"}},
 	}}
 }
 
@@ -50,16 +58,42 @@ func agentUpdateRollbackConfirmKeyboard(routerID string) inlineKeyboard {
 func agentBootstrapKeyboard(routerID string) inlineKeyboard {
 	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
 		{
-			{Text: "✅ Latest bootstrap", CallbackData: "agent-bootstrap:latest:" + routerID},
-			{Text: "🧪 Dev bootstrap", CallbackData: "agent-bootstrap:dev:" + routerID},
+			{Text: "✅ Latest", CallbackData: "agent-bootstrap:latest:" + routerID},
+			{Text: "🧪 Dev", CallbackData: "agent-bootstrap:dev:" + routerID},
 		},
 		{{Text: "⬅️ К роутеру", CallbackData: "router:" + routerID}},
 	}}
 }
 
+func agentBootstrapPendingKeyboard(routerID string) inlineKeyboard {
+	return inlineKeyboard{InlineKeyboard: [][]inlineButton{
+		{{Text: "🔄 Проверить статус", CallbackData: "agent-update:" + routerID}},
+		{{Text: "⬅️ К роутеру", CallbackData: "router:" + routerID}},
+	}}
+}
+
 func (s *Server) openAgentUpdateMenu(callbackID string, chatID int64, messageID int, routerID string) {
+	s.mu.Lock()
+	rt := s.cfg.Routers[routerID]
+	lastSeen := time.Time{}
+	if rt != nil {
+		lastSeen = rt.LastSeen
+	}
+	s.mu.Unlock()
+	if rt == nil {
+		s.editMenuOnly(callbackID, chatID, messageID, "Роутер не найден: "+routerID, s.routersKeyboardWithUpdateScripts())
+		return
+	}
+	if _, state := onlineState(lastSeen); state != "online" {
+		text := "🤖 Агент\n\nНет свежего heartbeat от роутера. Обновление не поставлено в очередь, чтобы не выбрать неверный механизм для неизвестной версии.\n\nПосле восстановления связи нажмите Агент ещё раз."
+		s.editMenuOnly(callbackID, chatID, messageID, text, inlineKeyboard{InlineKeyboard: [][]inlineButton{
+			{{Text: "🔄 Проверить снова", CallbackData: "agent-update:" + routerID}},
+			{{Text: "⬅️ К роутеру", CallbackData: "router:" + routerID}},
+		}})
+		return
+	}
 	if !s.agentReleaseUpdateSupported(routerID) {
-		text := "🤖 Агент\n\nТекущая версия ещё не поддерживает безопасные каналы latest/dev. Выберите одноразовый bootstrap: бот покажет готовую команду для роутера.\n\nПосле первого запуска новый агент создаст A/B-слоты, и следующие обновления/откаты будут выполняться прямо из этого сообщения."
+		text := "🤖 Агент\n\nТекущая версия использует старый механизм обновления. Выберите Latest или Dev — бот сам отправит привычную команду update_agent. Скачанный установщик возьмёт выбранный канал у control-server, обновит агент и переведёт его на HTTPS.\n\nКоманду на роутере копировать не нужно."
 		s.editMenuOnly(callbackID, chatID, messageID, text, agentBootstrapKeyboard(routerID))
 		return
 	}
@@ -73,30 +107,42 @@ func (s *Server) openAgentUpdateMenu(callbackID string, chatID int64, messageID 
 	s.editMenuOnly(callbackID, chatID, messageID, text, agentUpdateKeyboard(routerID))
 }
 
-func (s *Server) showAgentBootstrapCommand(callbackID string, chatID int64, messageID int, data string) {
+func (s *Server) enqueueLegacyAgentBootstrap(callbackID string, chatID int64, messageID int, data string) {
 	channel, routerID, ok := parseAgentChannelCallback(data, "agent-bootstrap")
 	if !ok {
 		s.editMenuOnly(callbackID, chatID, messageID, "Некорректная кнопка bootstrap", mainMenuKeyboard())
 		return
 	}
-	s.mu.Lock()
-	rt := s.cfg.Routers[routerID]
-	listen := s.cfg.Listen
-	fingerprint := s.cfg.CertFingerprint
-	routerName := ""
-	routerToken := ""
-	if rt != nil {
-		routerName = rt.Name
-		routerToken = rt.Token
-	}
-	s.mu.Unlock()
-	if rt == nil {
-		s.editMenuOnly(callbackID, chatID, messageID, "Роутер не найден: "+routerID, s.routersKeyboardWithUpdateScripts())
+	s.setActiveAgentMenu(routerID, chatID, messageID)
+	id, err := s.enqueueLegacyAgentChannelUpdate(routerID, channel)
+	if err != nil {
+		s.editMenuOnly(callbackID, chatID, messageID, err.Error(), s.routersKeyboardWithUpdateScripts())
 		return
 	}
-	command := buildAgentInstallCommandForChannel(publicServerURL(listen), routerID, routerName, routerToken, fingerprint, channel)
-	text := fmt.Sprintf("🤖 Bootstrap %s\n\nСкопируйте и выполните на роутере:\n\n%s\n\nЭто одноразовая прямая замена старого агента. После его запуска вернитесь в кнопку Агент: появятся безопасные latest/dev, A/B-слоты и откат.", strings.ToUpper(channel), command)
-	s.editMenuOnly(callbackID, chatID, messageID, text, agentBootstrapKeyboard(routerID))
+	text := s.agentUpdateMenuText(routerID, fmt.Sprintf("⏳ Обновление до %s поставлено в очередь\n%s\n\nСтарый агент выполнит обычный update_agent автоматически. После запуска новая версия переведёт подключение на HTTPS.", strings.ToUpper(channel), id))
+	s.editMenuOnly(callbackID, chatID, messageID, text, agentBootstrapPendingKeyboard(routerID))
+}
+
+func (s *Server) enqueueLegacyAgentChannelUpdate(routerID, channel string) (string, error) {
+	s.mu.Lock()
+	rt := s.cfg.Routers[routerID]
+	if rt == nil {
+		s.mu.Unlock()
+		return "", fmt.Errorf("unknown router: %s", routerID)
+	}
+	channel = normalizedAgentChannel(channel)
+	rt.RequestedAgentChannel = channel
+	queue := rt.Queue[:0]
+	for _, pending := range rt.Queue {
+		if pending.Action != "update_agent" {
+			queue = append(queue, pending)
+		}
+	}
+	id := fmt.Sprintf("update_agent-%d", time.Now().Unix())
+	rt.Queue = append(queue, Command{ID: id, Action: "update_agent", Channel: channel})
+	s.persistStateLocked()
+	s.mu.Unlock()
+	return id, nil
 }
 
 func (s *Server) enqueueAgentUpdateStatus(callbackID string, chatID int64, messageID int, routerID string) {
@@ -121,8 +167,8 @@ func (s *Server) enqueueAgentUpdateCheck(callbackID string, chatID int64, messag
 		s.editMenuOnly(callbackID, chatID, messageID, err.Error(), s.routersKeyboardWithUpdateScripts())
 		return
 	}
-	extra := fmt.Sprintf("⏳ Проверяю канал %s…\n%s\n\nУстановка не начнётся без отдельного подтверждения.", strings.ToUpper(channel), id)
-	s.editMenuOnly(callbackID, chatID, messageID, s.agentUpdateMenuText(routerID, extra), agentUpdateKeyboard(routerID))
+	extra := fmt.Sprintf("⏳ Проверяю канал %s…\n%s\n\nЕсли доступна другая сборка, установка продолжится автоматически в неактивный A/B-слот.", strings.ToUpper(channel), id)
+	s.editMenuOnly(callbackID, chatID, messageID, s.agentUpdateMenuText(routerID, extra), agentUpdatePendingKeyboard(routerID))
 }
 
 func (s *Server) showAgentUpdateApplyConfirm(callbackID string, chatID int64, messageID int, data string) {
@@ -238,7 +284,7 @@ func agentVersionFromRouterStatus(status string) string {
 }
 
 func isAgentUpdateResult(commandID string) bool {
-	return strings.HasPrefix(commandID, "agent_update_") || commandID == "agent_start"
+	return strings.HasPrefix(commandID, "agent_update_") || strings.HasPrefix(commandID, "update_agent-") || commandID == "agent_start"
 }
 
 func (s *Server) editActiveAgentUpdateResult(routerID string, res Result) bool {
@@ -246,15 +292,26 @@ func (s *Server) editActiveAgentUpdateResult(routerID string, res Result) bool {
 	if !ok || active.Kind != "agent-update" {
 		return false
 	}
-	text := s.agentUpdateMenuText(routerID, formatAgentUpdateResult(res))
+	extra := formatAgentUpdateResult(res)
 	keyboard := agentUpdateKeyboard(routerID)
 	if strings.HasPrefix(res.CommandID, "agent_update_check-") && res.OK {
 		values := parseAgentUpdateValues(res.Output)
 		channel := values["channel"]
 		if values["update_available"] == "yes" && (channel == "latest" || channel == "dev") {
-			keyboard = agentUpdateInstallKeyboard(routerID, channel)
+			version := strings.TrimSpace(values["target_version"])
+			sha := strings.ToLower(strings.TrimSpace(values["target_sha256"]))
+			if version != "" && len(sha) == 64 {
+				id, err := s.enqueue(routerID, Command{Action: "agent_update_apply", Channel: channel, ExpectedVersion: version, ExpectedSHA256: sha})
+				if err != nil {
+					extra += "\n\n❌ Не удалось поставить установку в очередь: " + err.Error()
+				} else {
+					extra += "\n\n⏳ Установка " + strings.ToUpper(channel) + " запущена автоматически.\n" + id
+					keyboard = agentUpdatePendingKeyboard(routerID)
+				}
+			}
 		}
 	}
+	text := s.agentUpdateMenuText(routerID, extra)
 	return s.editMessageWithKeyboard(active.ChatID, active.MessageID, text, keyboard)
 }
 
@@ -268,6 +325,12 @@ func formatAgentUpdateResult(res Result) string {
 		lines = append(lines, "⚠️ Новая версия не прошла проверку. Выполнен автоматический откат.")
 	case res.CommandID == "agent_start":
 		lines = append(lines, "✅ Агент снова в сети после запуска.")
+	case strings.HasPrefix(res.CommandID, "update_agent-"):
+		if res.OK {
+			lines = append(lines, "⏳ Старый агент принял автоматическое обновление и запускает установщик выбранного канала.")
+		} else {
+			lines = append(lines, "❌ Старый агент не смог запустить автоматическое обновление.")
+		}
 	case strings.HasPrefix(res.CommandID, "agent_update_check-"):
 		if res.OK {
 			lines = append(lines, "🔎 Проверка канала завершена.")

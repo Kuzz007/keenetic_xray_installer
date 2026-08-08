@@ -16,8 +16,9 @@ import (
 // poll, so restoring a stale value after a restart would misrepresent a
 // router as recently online right up until its next real poll corrects it.
 type RouterState struct {
-	Queue   []Command `json:"queue,omitempty"`
-	Results []Result  `json:"results,omitempty"`
+	Queue                 []Command `json:"queue,omitempty"`
+	Results               []Result  `json:"results,omitempty"`
+	RequestedAgentChannel string    `json:"requested_agent_channel,omitempty"`
 }
 
 // loadStateLocked restores each router's Queue/Results from cfg.StateFile.
@@ -25,6 +26,9 @@ type RouterState struct {
 func (s *Server) loadStateLocked() {
 	data, err := os.ReadFile(s.cfg.StateFile)
 	if err != nil {
+		return
+	}
+	if len(data) == 0 {
 		return
 	}
 	var state map[string]RouterState
@@ -36,6 +40,7 @@ func (s *Server) loadStateLocked() {
 		if rt := s.cfg.Routers[id]; rt != nil {
 			rt.Queue = st.Queue
 			rt.Results = st.Results
+			rt.RequestedAgentChannel = st.RequestedAgentChannel
 		}
 	}
 }
@@ -50,10 +55,14 @@ func (s *Server) loadStateLocked() {
 func (s *Server) persistStateLocked() {
 	state := make(map[string]RouterState, len(s.cfg.Routers))
 	for id, rt := range s.cfg.Routers {
-		if len(rt.Queue) == 0 && len(rt.Results) == 0 {
+		if len(rt.Queue) == 0 && len(rt.Results) == 0 && rt.RequestedAgentChannel == "" {
 			continue
 		}
-		state[id] = RouterState{Queue: rt.Queue, Results: rt.Results}
+		state[id] = RouterState{
+			Queue:                 rt.Queue,
+			Results:               rt.Results,
+			RequestedAgentChannel: rt.RequestedAgentChannel,
+		}
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
