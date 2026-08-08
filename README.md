@@ -4,6 +4,8 @@
 > installer bundles, `FULL` and `MINIMAL`, for arm64/mipsle. Both include the
 > remotely managed Go agent; Minimal keeps bot parity and targets constrained
 > routers by avoiding extra background services. Details: [docs/router-bundles.md](docs/router-bundles.md).
+> Self-hosted AmneziaWG support is being delivered in isolated stages; Premium
+> and full-access keys are excluded. See [docs/amneziawg-roadmap.md](docs/amneziawg-roadmap.md).
 
 Автоматический установщик Xray/VLESS Failover для роутеров Keenetic с Entware.
 
