@@ -93,7 +93,7 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 	case strings.HasPrefix(data, "agent-check:"):
 		s.enqueueAgentUpdateCheck(cb.ID, chatID, messageID, data)
 	case strings.HasPrefix(data, "agent-bootstrap:"):
-		s.showAgentBootstrapCommand(cb.ID, chatID, messageID, data)
+		s.enqueueLegacyAgentBootstrap(cb.ID, chatID, messageID, data)
 	case strings.HasPrefix(data, "agent-apply-confirm:"):
 		s.showAgentUpdateApplyConfirm(cb.ID, chatID, messageID, data)
 	case strings.HasPrefix(data, "agent-apply:"):

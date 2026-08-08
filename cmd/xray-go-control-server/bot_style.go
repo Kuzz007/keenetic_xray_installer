@@ -61,8 +61,11 @@ func prettyRouterCard(rt *Router) string {
 		fmt.Sprintf("📡 %s", rt.Name),
 		fmt.Sprintf("%s %s", dot, state),
 		fmt.Sprintf("heartbeat: %s", heartbeatAge(rt.LastSeen)),
-		"",
 	}
+	if rt.LastTransport != "" {
+		lines = append(lines, "transport: "+rt.LastTransport)
+	}
+	lines = append(lines, "")
 	parts := importantStatusParts(rt.Status)
 	if len(parts) == 0 {
 		lines = append(lines, "status: нет данных")

@@ -48,6 +48,8 @@ TLS:
   KEY_FILE on first start (no domain name or reverse proxy required).
   Router agents pin its SHA256 fingerprint instead of validating a CA
   chain; this installer prints that fingerprint at the end.
+  ALLOW_LEGACY_HTTP=1 (default) keeps pre-TLS agents online on the same port
+  until the admin migrates them and explicitly disables compatibility mode.
 USAGE
 }
 
@@ -228,6 +230,7 @@ LISTEN="${listen}"
 BOT_TOKEN="${bot_token}"
 ADMIN_USER_ID="${admin_id}"
 ROUTERS="${routers}"
+ALLOW_LEGACY_HTTP="1"
 EOF
   if [ -f "$CONF" ]; then
     cp "$CONF" "${CONF}.bak.$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
@@ -264,7 +267,8 @@ ensure_placeholders() {
   # create/rewrite them.
   [ -f "$CERT_FILE" ] || : > "$CERT_FILE"
   [ -f "$KEY_FILE" ] || : > "$KEY_FILE"
-  [ -f "$STATE_FILE" ] || : > "$STATE_FILE"
+  [ -f "$STATE_FILE" ] || printf '{}\n' > "$STATE_FILE"
+  [ -s "$STATE_FILE" ] || printf '{}\n' > "$STATE_FILE"
   chown "$USER_NAME:$USER_NAME" "$CERT_FILE" "$KEY_FILE" "$STATE_FILE"
   chmod 0644 "$CERT_FILE"
   chmod 0600 "$KEY_FILE"
@@ -354,12 +358,10 @@ main() {
     echo "    curl -fsSk $(fingerprint_url)"
   fi
   echo
-  echo "IMPORTANT: the server only serves TLS now (self-signed). Any router"
-  echo "agent still configured with an http:// SERVER_URL from before this"
-  echo "install will stop connecting. Re-pair each one with the fingerprint"
-  echo "above, either via the bot's 📦 Установка агента button (which embeds"
-  echo "it automatically) or by re-running the agent installer with:"
-  echo "  --server-url https://<this-vps>:<port> --server-fingerprint $fingerprint"
+  echo "Legacy HTTP migration: enabled by default on the same port so existing"
+  echo "http:// agents stay online. New/bootstrap installs switch to pinned TLS."
+  echo "After every router reports HTTPS, set ALLOW_LEGACY_HTTP=0 in $CONF"
+  echo "and restart the service to return to TLS-only mode."
   echo
   echo "Telegram commands after router agent connects:"
   echo "  /routers"

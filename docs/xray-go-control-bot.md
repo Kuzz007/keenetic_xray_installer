@@ -56,6 +56,9 @@ Responsibilities:
   poll/result traffic a network MITM could otherwise read or tamper with.
   A real CA-signed certificate (e.g. behind a reverse proxy) works too —
   just leave `SERVER_FINGERPRINT` empty.
+- During migration, `ALLOW_LEGACY_HTTP=1` lets existing plaintext agents use
+  the same port while new/bootstrap installs are moved to pinned TLS. Set it
+  to `0` after every router card reports `transport: https`.
 - Commands are allowlisted; arbitrary shell execution is intentionally unsupported.
 - Source URLs are accepted only for dedicated source-update actions and are redacted from results.
 - Support diagnostics use `xray-go doctor --support`.
@@ -111,6 +114,7 @@ real CA-signed certificate.
 
 ```sh
 LISTEN=":18090"
+ALLOW_LEGACY_HTTP="1"
 BOT_TOKEN="123456:telegram-token"
 ADMIN_USER_ID="123456789"
 ROUTERS="home:token1:Дом,dacha:token2:Дача,office:token3:Офис"
@@ -119,6 +123,10 @@ ROUTERS="home:token1:Дом,dacha:token2:Дача,office:token3:Офис"
 `CERT_FILE`/`KEY_FILE` default to `xray-go-control-server.crt`/`.key`
 next to the config file and rarely need to be set explicitly; the
 server generates a self-signed cert there on first start.
+
+`ALLOW_LEGACY_HTTP` defaults to `1` for compatibility with agents installed
+before TLS pinning. HTTP is intended only as a migration bridge; disable it
+after all routers have updated.
 
 ## Telegram command examples
 

@@ -22,6 +22,7 @@ func TestPersistAndLoadStateRoundTrip(t *testing.T) {
 	rt := s.cfg.Routers["home"]
 	rt.Queue = []Command{{ID: "agent_update_apply-1", Action: "agent_update_apply", Channel: "dev", ExpectedVersion: "dev-abc", ExpectedSHA256: "abc123"}}
 	rt.Results = []Result{{CommandID: "agent_start", RouterID: "home", OK: true, Output: "started"}}
+	rt.RequestedAgentChannel = "dev"
 
 	s.persistStateLocked()
 
@@ -38,6 +39,9 @@ func TestPersistAndLoadStateRoundTrip(t *testing.T) {
 	}
 	if len(rrt.Results) != 1 || rrt.Results[0].Output != "started" {
 		t.Fatalf("results not restored correctly: %+v", rrt.Results)
+	}
+	if rrt.RequestedAgentChannel != "dev" {
+		t.Fatalf("requested agent channel not restored: %q", rrt.RequestedAgentChannel)
 	}
 }
 

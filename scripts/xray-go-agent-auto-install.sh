@@ -3,8 +3,11 @@ set -eu
 
 REPO="${REPO:-Kuzz007/keenetic_xray_installer}"
 REF="${REF:-main}"
+TAG="${TAG:-}"
+BOOTSTRAP_CONF="${BOOTSTRAP_CONF:-/opt/etc/xray/xray-go-agent.conf}"
 FORCE_AGENT="${FORCE_AGENT:-auto}"
 FORCE_LEGACY_SHELL="${FORCE_LEGACY_SHELL:-0}"
+BOOTSTRAP_ARGS=""
 
 usage() {
   cat <<EOF
@@ -97,6 +100,78 @@ download_installer() {
   printf '%s\n' "$dst"
 }
 
+shell_quote() {
+  printf '%s' "$1" | sed "s/'/'\\''/g"
+}
+
+discover_bootstrap_profile() {
+  if [ -n "$TAG" ]; then
+    export TAG
+    return 0
+  fi
+  TAG="latest"
+  [ -f "$BOOTSTRAP_CONF" ] || { export TAG; return 0; }
+  if ! grep -Eq '^[[:space:]]*(SERVER_URL|AGENT_TOKEN)=' "$BOOTSTRAP_CONF" 2>/dev/null; then
+    export TAG
+    return 0
+  fi
+
+  SERVER_URL="" AGENT_TOKEN=""
+  . "$BOOTSTRAP_CONF" || true
+  [ -n "${SERVER_URL:-}" ] && [ -n "${AGENT_TOKEN:-}" ] || { export TAG; return 0; }
+  case "$SERVER_URL" in
+    http://*|https://*) ;;
+    *) export TAG; return 0 ;;
+  esac
+
+  endpoint="${SERVER_URL%/}/agent/bootstrap"
+  response="/opt/tmp/xray-go-agent-bootstrap.$$"
+  rm -f "$response"
+  if command -v curl >/dev/null 2>&1; then
+    case "$endpoint" in
+      https://*) curl -kfsS --max-time 20 -H "Authorization: Bearer $AGENT_TOKEN" -o "$response" "$endpoint" 2>/dev/null || true ;;
+      *) curl -fsS --max-time 20 -H "Authorization: Bearer $AGENT_TOKEN" -o "$response" "$endpoint" 2>/dev/null || true ;;
+    esac
+  elif command -v wget >/dev/null 2>&1; then
+    case "$endpoint" in
+      https://*) wget --no-check-certificate -qO "$response" --header="Authorization: Bearer $AGENT_TOKEN" "$endpoint" 2>/dev/null || true ;;
+      *) wget -qO "$response" --header="Authorization: Bearer $AGENT_TOKEN" "$endpoint" 2>/dev/null || true ;;
+    esac
+  fi
+  [ -s "$response" ] || { rm -f "$response"; export TAG; return 0; }
+
+  channel="$(sed -n 's/^channel=//p' "$response" | sed -n '1p')"
+  bootstrap_server="$(sed -n 's/^server_url=//p' "$response" | sed -n '1p')"
+  bootstrap_fingerprint="$(sed -n 's/^server_fingerprint=//p' "$response" | sed -n '1p' | tr 'A-F' 'a-f')"
+  rm -f "$response"
+
+  case "$channel" in
+    latest|dev) TAG="$channel" ;;
+    *) TAG="latest" ;;
+  esac
+  case "$bootstrap_server" in
+    https://*) ;;
+    *) bootstrap_server="" ;;
+  esac
+  case "$bootstrap_server" in
+    *[[:space:]]*) bootstrap_server="" ;;
+  esac
+  case "$bootstrap_fingerprint" in
+    *[!0-9a-f]*) bootstrap_fingerprint="" ;;
+  esac
+  [ "${#bootstrap_fingerprint}" -eq 64 ] || bootstrap_fingerprint=""
+
+  if [ -n "$bootstrap_server" ] && [ -n "$bootstrap_fingerprint" ]; then
+    quoted_server="$(shell_quote "$bootstrap_server")"
+    quoted_fingerprint="$(shell_quote "$bootstrap_fingerprint")"
+    BOOTSTRAP_ARGS=" --server-url '$quoted_server' --server-fingerprint '$quoted_fingerprint'"
+    echo "Control-server bootstrap: selected $TAG and pinned TLS migration."
+  else
+    echo "Control-server bootstrap: selected $TAG; existing connection settings preserved."
+  fi
+  export TAG
+}
+
 main() {
   args=""
   while [ "$#" -gt 0 ]; do
@@ -115,11 +190,14 @@ main() {
     esac
   done
 
+  discover_bootstrap_profile
+
   selected="$(detect_agent "$FORCE_AGENT")"
   echo "Detected Entware arch: $(opkg_arches || true)"
   echo "Detected kernel arch: $(kernel_arch)"
   echo "Requested agent: $FORCE_AGENT"
   echo "Selected agent: $selected"
+  echo "Selected release channel: $TAG"
 
   case "$selected" in
     unified)
@@ -135,7 +213,7 @@ main() {
       ;;
   esac
 
-  eval "\"$installer\"$args"
+  eval "\"$installer\"$BOOTSTRAP_ARGS$args"
 }
 
 main "$@"
