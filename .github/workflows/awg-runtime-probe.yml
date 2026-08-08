@@ -1,0 +1,124 @@
+name: AWG runtime probe
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/build-awg-runtime-probe.sh'
+      - 'scripts/smoke-awg-runtime-linux.sh'
+      - '.github/workflows/awg-runtime-probe.yml'
+      - 'docs/amneziawg-runtime.md'
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/build-awg-runtime-probe.sh'
+      - 'scripts/smoke-awg-runtime-linux.sh'
+      - '.github/workflows/awg-runtime-probe.yml'
+      - 'docs/amneziawg-runtime.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            compiler_package: gcc-aarch64-linux-gnu
+            qemu: qemu-aarch64-static
+          - arch: mipsle
+            compiler_package: gcc-mipsel-linux-gnu
+            qemu: qemu-mipsel-static
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+
+      - name: Install cross compiler and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static ${{ matrix.compiler_package }}
+
+      - name: Build pinned AWG runtime
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+          OUT_DIR: dist/awg-runtime-probe
+        run: sh scripts/build-awg-runtime-probe.sh
+
+      - name: Verify cross-built executables
+        run: |
+          runtime="dist/awg-runtime-probe/amneziawg-go-linux-${{ matrix.arch }}"
+          tools="dist/awg-runtime-probe/amneziawg-tools-linux-${{ matrix.arch }}"
+
+          runtime_version="$(${{ matrix.qemu }} "$runtime" --version)"
+          tools_version="$(${{ matrix.qemu }} "$tools" --version)"
+          printf '%s\n' "$runtime_version"
+          printf '%s\n' "$tools_version"
+          printf '%s\n' "$runtime_version" | grep -F 'v3.0.20260805'
+          printf '%s\n' "$tools_version" | grep -F 'v3.0.20260805'
+
+          if readelf -l "$tools" | grep -q 'Requesting program interpreter'; then
+            echo "::error::amneziawg-tools must be statically linked"
+            exit 1
+          fi
+
+          runtime_sha="$(sha256sum "$runtime" | awk '{print $1}')"
+          tools_sha="$(sha256sum "$tools" | awk '{print $1}')"
+          [ "$runtime_sha" = "$(cat "$runtime.sha256")" ]
+          [ "$tools_sha" = "$(cat "$tools.sha256")" ]
+
+      - name: Upload probe artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: awg-runtime-probe-linux-${{ matrix.arch }}
+          path: dist/awg-runtime-probe/*
+          if-no-files-found: error
+
+  native-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+
+      - name: Install runtime probe dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iproute2
+
+      - name: Build native probe runtime
+        env:
+          TARGET_ARCH: amd64
+          OUT_DIR: dist/awg-runtime-probe
+        run: sh scripts/build-awg-runtime-probe.sh
+
+      - name: Configure AWG2 interface and measure idle memory
+        run: |
+          sudo sh scripts/smoke-awg-runtime-linux.sh \
+            "$(pwd)/dist/awg-runtime-probe/amneziawg-go-linux-amd64" \
+            "$(pwd)/dist/awg-runtime-probe/amneziawg-tools-linux-amd64" \
+            | tee dist/awg-runtime-probe/runtime-measurements.txt
+
+          {
+            echo '### AWG native runtime probe'
+            echo
+            sed 's/^/- /' dist/awg-runtime-probe/runtime-measurements.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload native measurements
+        uses: actions/upload-artifact@v4
+        with:
+          name: awg-runtime-probe-linux-amd64
+          path: dist/awg-runtime-probe/*
+          if-no-files-found: error

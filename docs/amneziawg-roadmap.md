@@ -59,10 +59,12 @@ choices.
    - Never print or JSON-serialize the private native configuration.
 
 2. **AWG runtime probe**
-   - Select maintained `amneziawg-go` and tools versions.
+   - Pin maintained `amneziawg-go` and tools versions with immutable commits.
    - Cross-build and run architecture smoke tests for `arm64` and `mipsle`.
    - Measure memory on the 40 MB target before including AWG in MINIMAL.
    - Detect required TUN, routing and interface-binding support read-only.
+   - See [`amneziawg-runtime.md`](amneziawg-runtime.md) for the automated
+     pre-router checks and the remaining live-router gate.
 
 3. **Single AWG slot**
    - Store a validated AWG profile atomically with mode `0600`.
