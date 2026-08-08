@@ -61,7 +61,7 @@ jobs:
           tools_version="$(${{ matrix.qemu }} "$tools" --version)"
           printf '%s\n' "$runtime_version"
           printf '%s\n' "$tools_version"
-          printf '%s\n' "$runtime_version" | grep -F 'v3.0.20260805'
+          printf '%s\n' "$runtime_version" | grep -F 'amneziawg-go 0.0.20250522'
           printf '%s\n' "$tools_version" | grep -F 'v3.0.20260805'
 
           if readelf -l "$tools" | grep -q 'Requesting program interpreter'; then

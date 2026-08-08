@@ -13,6 +13,9 @@ router.
 
 Both repositories are cloned by exact tag and then checked against the pinned
 commit before compilation. A moved or replaced upstream tag fails the build.
+The pinned `amneziawg-go` tag embeds the separate upstream runtime version
+`0.0.20250522`; the QEMU check verifies that exact `--version` output as well
+as the immutable source commit.
 The Go daemon is built with `CGO_ENABLED=0`; the small `awg` configurator is
 statically linked and is only run during interface setup or diagnostics.
 Probe artifacts include both upstream license texts and the exact
