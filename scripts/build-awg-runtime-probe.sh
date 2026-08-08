@@ -71,8 +71,9 @@ tools_source_out="$OUT_DIR/amneziawg-tools-source-${AWG_TOOLS_VERSION#v}.tar.gz"
         go build -trimpath -ldflags "-s -w" -o "$runtime_out" .
 )
 
-make -C "$tools_source/src" clean >/dev/null
+make -C "$tools_source/src" TARGET_ARCH= clean >/dev/null
 make -C "$tools_source/src" \
+    TARGET_ARCH= \
     PLATFORM=linux \
     RUNSTATEDIR=/var/run \
     CC="$cc" \
