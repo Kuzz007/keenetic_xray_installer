@@ -20,7 +20,7 @@ func TestPersistAndLoadStateRoundTrip(t *testing.T) {
 	stateFile := filepath.Join(t.TempDir(), "state.json")
 	s := newTestServer(t, stateFile)
 	rt := s.cfg.Routers["home"]
-	rt.Queue = []Command{{ID: "switch_primary-1", Action: "switch_primary"}}
+	rt.Queue = []Command{{ID: "agent_update_apply-1", Action: "agent_update_apply", Channel: "dev", ExpectedVersion: "dev-abc", ExpectedSHA256: "abc123"}}
 	rt.Results = []Result{{CommandID: "agent_start", RouterID: "home", OK: true, Output: "started"}}
 
 	s.persistStateLocked()
@@ -33,7 +33,7 @@ func TestPersistAndLoadStateRoundTrip(t *testing.T) {
 	restored.loadStateLocked()
 
 	rrt := restored.cfg.Routers["home"]
-	if len(rrt.Queue) != 1 || rrt.Queue[0].ID != "switch_primary-1" {
+	if len(rrt.Queue) != 1 || rrt.Queue[0].ID != "agent_update_apply-1" || rrt.Queue[0].Channel != "dev" || rrt.Queue[0].ExpectedVersion != "dev-abc" || rrt.Queue[0].ExpectedSHA256 != "abc123" {
 		t.Fatalf("queue not restored correctly: %+v", rrt.Queue)
 	}
 	if len(rrt.Results) != 1 || rrt.Results[0].Output != "started" {

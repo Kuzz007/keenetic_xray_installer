@@ -4,8 +4,11 @@ on:
   pull_request:
     paths:
       - 'cmd/**'
+      - 'internal/**'
+      - 'packaging/router/**'
       - 'go.mod'
       - 'scripts/build-go-installers.sh'
+      - 'scripts/build-router-bundles.sh'
       - '.github/workflows/go-ci.yml'
   push:
     branches:
@@ -13,8 +16,11 @@ on:
       - feature-router-groups
     paths:
       - 'cmd/**'
+      - 'internal/**'
+      - 'packaging/router/**'
       - 'go.mod'
       - 'scripts/build-go-installers.sh'
+      - 'scripts/build-router-bundles.sh'
       - '.github/workflows/go-ci.yml'
   workflow_dispatch:
 
@@ -117,16 +123,16 @@ jobs:
           esac
 
           case "${{ matrix.binary }}" in
-          xray-failover-go)
+          xray-failover-go | xray-go-agent)
             if out="$($runner "$bin" -version 2>&1)"; then status=0; else status=$?; fi
             echo "$out"
             [ "$status" -eq 0 ] || { echo "::error::exit status $status, want 0"; exit 1; }
             [ -n "$out" ] || { echo "::error::expected -version to print something"; exit 1; }
             ;;
-          xray-go-agent | xray-go-control-server)
-            # Neither binary has a no-op flag: both are daemons that load a
-            # config and then run forever. Pointing at a config path that
-            # can't exist on the runner makes them fail fast and
+          xray-go-control-server)
+            # The control server has no no-op flag: it is a daemon that loads
+            # a config and then runs forever. Pointing at a config path that
+            # can't exist on the runner makes it fail fast and
             # deterministically at the same early loadConfig() call instead,
             # which is enough to prove the binary is valid machine code for
             # this architecture and that the Go runtime initializes - a
@@ -149,4 +155,53 @@ jobs:
         with:
           name: ${{ matrix.binary }}-linux-${{ matrix.goarch }}
           path: dist/${{ matrix.binary }}-linux-${{ matrix.goarch }}
+          if-no-files-found: error
+
+  router-bundles:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [arm64, mipsle]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Build FULL and MINIMAL bundles (linux/${{ matrix.goarch }})
+        env:
+          ARCHES: ${{ matrix.goarch }}
+          VERSION: ci-${{ github.sha }}
+          CHANNEL: dev
+          COMMIT: ${{ github.sha }}
+          OUT_DIR: dist/router-bundles
+          WORK_DIR: dist/router-bundle-work
+        run: sh scripts/build-router-bundles.sh
+
+      - name: Install QEMU user-mode emulation
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static
+
+      - name: Verify bundles under linux/${{ matrix.goarch }}
+        run: |
+          case "${{ matrix.goarch }}" in
+          arm64) runner="qemu-aarch64-static" ;;
+          mipsle) runner="qemu-mipsel-static" ;;
+          esac
+          for edition in full minimal; do
+            bundle="dist/router-bundles/keenetic-vpn-$edition-linux-${{ matrix.goarch }}.run"
+            "$runner" "$bundle" verify
+            "$runner" "$bundle" info
+          done
+
+      - name: Upload router bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: router-bundles-linux-${{ matrix.goarch }}
+          path: dist/router-bundles/*
           if-no-files-found: error

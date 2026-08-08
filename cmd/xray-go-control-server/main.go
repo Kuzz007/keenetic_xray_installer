@@ -22,9 +22,9 @@ import (
 
 type Config struct { ConfigPath string; Listen string; BotToken string; AdminUserID int64; Routers map[string]*Router; CertFile string; KeyFile string; CertFingerprint string; StateFile string }
 type Router struct { ID string; Name string; Token string; LastSeen time.Time; Status string; Queue []Command; Results []Result }
-type Command struct { ID string `json:"id"`; Action string `json:"action"`; Slot string `json:"slot,omitempty"`; Selector string `json:"selector,omitempty"`; Source string `json:"source,omitempty"` }
+type Command struct { ID string `json:"id"`; Action string `json:"action"`; Slot string `json:"slot,omitempty"`; Selector string `json:"selector,omitempty"`; Source string `json:"source,omitempty"`; Channel string `json:"channel,omitempty"`; ExpectedVersion string `json:"expected_version,omitempty"`; ExpectedSHA256 string `json:"expected_sha256,omitempty"` }
 type Result struct { CommandID string `json:"command_id"`; RouterID string `json:"router_id"`; OK bool `json:"ok"`; Output string `json:"output"`; At string `json:"at,omitempty"` }
-type ActiveMenu struct { ChatID int64; MessageID int; RouterID string }
+type ActiveMenu struct { ChatID int64; MessageID int; RouterID string; Kind string }
 type Server struct { cfg Config; mu sync.Mutex; lastUpdID int64; activeMenus map[string]ActiveMenu }
 
 func main() {
@@ -72,7 +72,7 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock(); rt.Results = append(rt.Results, res); if len(rt.Results) > 20 { rt.Results = rt.Results[len(rt.Results)-20:] }; s.persistStateLocked(); s.mu.Unlock()
 	_ = json.NewEncoder(w).Encode(map[string]string{"ok":"1"})
 	if s.cfg.BotToken != "" && s.cfg.AdminUserID != 0 {
-		if isRoutesResult(res.CommandID) { if !s.editActiveRoutesResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } } else if isCardPreferredResult(res.CommandID) { if !s.editActiveRouterResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } } else if isStandaloneResult(res.CommandID) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } else if !s.editActiveRouterResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) }
+		if isAgentUpdateResult(res.CommandID) { if !s.editActiveAgentUpdateResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } } else if isRoutesResult(res.CommandID) { if !s.editActiveRoutesResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } } else if isCardPreferredResult(res.CommandID) { if !s.editActiveRouterResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } } else if isStandaloneResult(res.CommandID) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) } else if !s.editActiveRouterResult(routerID, res) { s.sendMessage(s.cfg.AdminUserID, prettyResultMessage(routerName, res)) }
 		if summary, ok := s.recordDoctorAllResult(routerName, res); ok { s.sendMessage(s.cfg.AdminUserID, summary) }
 		if summary, ok := s.recordUpdateScriptsAllResult(routerName, res); ok { s.sendMessage(s.cfg.AdminUserID, summary) }
 	}
@@ -178,7 +178,8 @@ func parseCmdRouter(text string) (string,string,bool) { text = strings.TrimPrefi
 func (s *Server) enqueue(routerID string, c Command) (string,error) { s.mu.Lock(); defer s.mu.Unlock(); rt := s.cfg.Routers[routerID]; if rt == nil { return "", fmt.Errorf("unknown router: %s", routerID) }; c.ID = fmt.Sprintf("%s-%d", c.Action, time.Now().Unix()); rt.Queue = append(rt.Queue,c); s.persistStateLocked(); return c.ID,nil }
 func (s *Server) routerList() string { s.mu.Lock(); defer s.mu.Unlock(); ids:=make([]string,0,len(s.cfg.Routers)); for id:=range s.cfg.Routers { ids=append(ids,id) }; sort.Strings(ids); online:=0; items:=[]string{}; for _,id:=range ids { if rt:=s.cfg.Routers[id]; rt!=nil { _,state:=onlineState(rt.LastSeen); if state=="online" { online++ } } }; items=append(items,prettyRouterListHeader(len(ids),online)); for _,id:=range ids { rt:=s.cfg.Routers[id]; if rt==nil { continue }; name:=id; if strings.TrimSpace(rt.Name)!="" { name=rt.Name }; items=append(items,prettyRouterListItem(name,rt.LastSeen,rt.Status)) }; return strings.Join(items,"\n\n") }
 func (s *Server) results(routerID string) string { s.mu.Lock(); defer s.mu.Unlock(); return prettyResults(s.cfg.Routers[routerID]) }
-func (s *Server) setActiveMenu(routerID string, chatID int64, messageID int) { if routerID==""||chatID==0||messageID==0 { return }; s.mu.Lock(); if s.activeMenus==nil { s.activeMenus=map[string]ActiveMenu{} }; s.activeMenus[routerID]=ActiveMenu{ChatID:chatID,MessageID:messageID,RouterID:routerID}; s.mu.Unlock() }
+func (s *Server) setActiveMenu(routerID string, chatID int64, messageID int) { if routerID==""||chatID==0||messageID==0 { return }; s.mu.Lock(); if s.activeMenus==nil { s.activeMenus=map[string]ActiveMenu{} }; s.activeMenus[routerID]=ActiveMenu{ChatID:chatID,MessageID:messageID,RouterID:routerID,Kind:"router"}; s.mu.Unlock() }
+func (s *Server) setActiveAgentMenu(routerID string, chatID int64, messageID int) { if routerID==""||chatID==0||messageID==0 { return }; s.mu.Lock(); if s.activeMenus==nil { s.activeMenus=map[string]ActiveMenu{} }; s.activeMenus[routerID]=ActiveMenu{ChatID:chatID,MessageID:messageID,RouterID:routerID,Kind:"agent-update"}; s.mu.Unlock() }
 func (s *Server) activeMenu(routerID string) (ActiveMenu,bool) { s.mu.Lock(); defer s.mu.Unlock(); m,ok:=s.activeMenus[routerID]; return m,ok }
 func (s *Server) currentRouterKeyboard(routerID string) inlineKeyboard { s.mu.Lock(); rt:=s.cfg.Routers[routerID]; status:=""; if rt!=nil { status=rt.Status }; s.mu.Unlock(); return routerKeyboardForStatus(routerID,status) }
 func (s *Server) routerMenuTextWithExtra(routerID, extra string) string { s.mu.Lock(); rt:=s.cfg.Routers[routerID]; card:=prettyRouterCard(rt); s.mu.Unlock(); if strings.TrimSpace(extra)=="" { return card }; return limit(card+"\n\n"+extra,3900) }

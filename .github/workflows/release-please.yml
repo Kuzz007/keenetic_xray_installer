@@ -73,6 +73,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build and upload stable router bundles
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="$RELEASE_TAG" \
+          CHANNEL=latest \
+          COMMIT="$(git rev-parse "$RELEASE_TAG^{commit}")" \
+          PUBLISHED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+          OUT_DIR=dist-router-bundles \
+          WORK_DIR=/tmp/keenetic-router-bundle-work \
+            sh scripts/build-router-bundles.sh
+          gh release upload "$RELEASE_TAG" dist-router-bundles/* --repo "$GITHUB_REPOSITORY" --clobber
+
       # GoReleaser only materializes correctly-named binary-format
       # artifacts as part of the actual upload, not locally beforehand -
       # download them back to build the legacy per-file .sha256 sidecars
@@ -87,6 +100,16 @@ jobs:
           gh release download "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --dir dist-latest
+
+      - name: Build latest agent channel manifest
+        run: |
+          CHANNEL=latest \
+          VERSION="$RELEASE_TAG" \
+          COMMIT="$(git rev-parse "$RELEASE_TAG^{commit}")" \
+          PUBLISHED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+          ASSET_DIR=dist-latest \
+          OUT=dist-latest/agent-channel.json \
+            sh scripts/build-agent-channel-manifest.sh
 
       - name: Generate per-file sha256 sidecars
         run: |
@@ -123,4 +146,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload latest dist-latest/* --repo "$GITHUB_REPOSITORY" --clobber
+          set -e
+          for asset in dist-latest/*; do
+            case "$asset" in
+              dist-latest/agent-channel.json|dist-latest/agent-channel.json.sha256) continue ;;
+            esac
+            gh release upload latest "$asset" --repo "$GITHUB_REPOSITORY" --clobber
+          done
+          # The mutable pointer is uploaded after all binaries, minimizing the
+          # publication window where a router could need to retry a download.
+          gh release upload latest dist-latest/agent-channel.json* --repo "$GITHUB_REPOSITORY" --clobber

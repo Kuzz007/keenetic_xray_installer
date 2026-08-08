@@ -1,0 +1,122 @@
+name: Dev release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'cmd/xray-go-agent/**'
+      - 'cmd/xray-go-control-server/**'
+      - 'cmd/keenetic-vpn-installer/**'
+      - 'cmd/router-bundle-packer/**'
+      - 'internal/routerbundle/**'
+      - 'packaging/router/**'
+      - 'scripts/build-agent-channel-manifest.sh'
+      - 'scripts/build-router-bundles.sh'
+      - '.github/workflows/dev-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dev-agent-release
+  cancel-in-progress: true
+
+jobs:
+  publish-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build dev agent and control-server matrices
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOMIPS: softfloat
+        run: |
+          set -e
+          mkdir -p dist-dev
+          version="dev-$(printf '%s' "$GITHUB_SHA" | cut -c1-12)"
+          for arch in arm64 mipsle mips; do
+            GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.agentVersion=$version" \
+              -o "dist-dev/xray-go-agent-linux-$arch" ./cmd/xray-go-agent
+            chmod +x "dist-dev/xray-go-agent-linux-$arch"
+          done
+          build_time="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          for arch in amd64 arm64; do
+            GOARCH="$arch" go build -trimpath \
+              -ldflags "-s -w -X main.controlServerVersion=$version -X main.buildCommit=$GITHUB_SHA -X main.buildTime=$build_time" \
+              -o "dist-dev/xray-go-control-server-linux-$arch" ./cmd/xray-go-control-server
+            chmod +x "dist-dev/xray-go-control-server-linux-$arch"
+          done
+          printf '%s\n' "$version" > dist-dev/dev-version.txt
+
+      - name: Build dev channel manifest and checksums
+        run: |
+          set -e
+          version="$(cat dist-dev/dev-version.txt)"
+
+          ARCHES="arm64 mipsle" \
+          VERSION="$version" \
+          CHANNEL=dev \
+          COMMIT="$GITHUB_SHA" \
+          PUBLISHED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+          OUT_DIR=dist-dev \
+          WORK_DIR=/tmp/keenetic-router-bundle-work \
+            sh scripts/build-router-bundles.sh
+
+          CHANNEL=dev \
+          VERSION="$version" \
+          COMMIT="$GITHUB_SHA" \
+          PUBLISHED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+          ASSET_DIR=dist-dev \
+          OUT=dist-dev/agent-channel.json \
+            sh scripts/build-agent-channel-manifest.sh
+          rm -f dist-dev/dev-version.txt
+          cd dist-dev
+          for file in *; do
+            case "$file" in *.sha256) continue ;; esac
+            sha256sum "$file" | awk '{print $1}' > "$file.sha256"
+          done
+
+      - name: Move dev tag
+        run: |
+          git tag -f dev "$GITHUB_SHA"
+          git push origin refs/tags/dev --force
+
+      - name: Create or update dev prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          version="dev-$(printf '%s' "$GITHUB_SHA" | cut -c1-12)"
+          notes="Automated test build from main at $GITHUB_SHA. Intended for live-router testing through the Agent > Dev menu. The router keeps a local A/B rollback slot."
+          if gh release view dev --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit dev --repo "$GITHUB_REPOSITORY" --title "$version" --notes "$notes" --prerelease
+          else
+            gh release create dev --repo "$GITHUB_REPOSITORY" --title "$version" --notes "$notes" --prerelease --target "$GITHUB_SHA"
+          fi
+
+      - name: Upload dev assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Publish binaries first and the mutable channel pointer last. A
+          # router can then never observe a new manifest before its binary is
+          # available; SHA256 still rejects any transient mismatch.
+          gh release upload dev dist-dev/xray-go-agent-* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload dev dist-dev/xray-go-control-server-* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload dev dist-dev/keenetic-vpn-*.run* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload dev dist-dev/agent-channel.json* --repo "$GITHUB_REPOSITORY" --clobber

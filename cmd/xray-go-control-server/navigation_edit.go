@@ -90,6 +90,22 @@ func (s *Server) handleCallbackEditable(cb *tgCallbackQuery) {
 			return
 		}
 		s.editMenuOnly(cb.ID, chatID, messageID, text, kb)
+	case strings.HasPrefix(data, "agent-check:"):
+		s.enqueueAgentUpdateCheck(cb.ID, chatID, messageID, data)
+	case strings.HasPrefix(data, "agent-bootstrap:"):
+		s.showAgentBootstrapCommand(cb.ID, chatID, messageID, data)
+	case strings.HasPrefix(data, "agent-apply-confirm:"):
+		s.showAgentUpdateApplyConfirm(cb.ID, chatID, messageID, data)
+	case strings.HasPrefix(data, "agent-apply:"):
+		s.enqueueAgentUpdateApply(cb.ID, chatID, messageID, data)
+	case strings.HasPrefix(data, "agent-rollback-confirm:"):
+		s.showAgentUpdateRollbackConfirm(cb.ID, chatID, messageID, strings.TrimPrefix(data, "agent-rollback-confirm:"))
+	case strings.HasPrefix(data, "agent-rollback:"):
+		s.enqueueAgentUpdateRollback(cb.ID, chatID, messageID, strings.TrimPrefix(data, "agent-rollback:"))
+	case strings.HasPrefix(data, "agent-status:"):
+		s.enqueueAgentUpdateStatus(cb.ID, chatID, messageID, strings.TrimPrefix(data, "agent-status:"))
+	case strings.HasPrefix(data, "agent-update:"):
+		s.openAgentUpdateMenu(cb.ID, chatID, messageID, strings.TrimPrefix(data, "agent-update:"))
 	case strings.HasPrefix(data, "install:"):
 		routerID := strings.TrimPrefix(data, "install:")
 		s.setActiveMenu(routerID, chatID, messageID)

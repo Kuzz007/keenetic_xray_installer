@@ -29,13 +29,24 @@ func (s *Server) sendAgentInstallCommand(chatID int64, routerID string) {
 }
 
 func buildAgentInstallCommand(serverURL, routerID, routerName, token, fingerprint string) string {
+	return buildAgentInstallCommandForChannel(serverURL, routerID, routerName, token, fingerprint, "latest")
+}
+
+func buildAgentInstallCommandForChannel(serverURL, routerID, routerName, token, fingerprint, channel string) string {
+	if channel != "dev" {
+		channel = "latest"
+	}
 	tool := "cu" + "rl"
 	base := "https://raw.githubusercontent.com/Kuzz007/keenetic_xray_installer/main/scripts/"
 	installer := "xray-go-agent-unified-install.sh"
 	bin := "xray-go-agent-unified-install"
 	flagToken := "--agent-" + "token"
-	return fmt.Sprintf("%s -fsSL -o /opt/bin/%s %s%s && chmod +x /opt/bin/%s && /opt/bin/%s --server-url '%s' --server-fingerprint '%s' --router-id '%s' --router-name '%s' %s '%s' --poll-interval 10",
-		tool, bin, base, installer, bin, bin, serverURL, fingerprint, routerID, routerName, flagToken, token)
+	return fmt.Sprintf("%s -fsSL -o /opt/bin/%s %s%s && chmod +x /opt/bin/%s && TAG=%s /opt/bin/%s --server-url %s --server-fingerprint %s --router-id %s --router-name %s %s %s --poll-interval 10",
+		tool, bin, base, installer, bin, shellSingleQuote(channel), bin, shellSingleQuote(serverURL), shellSingleQuote(fingerprint), shellSingleQuote(routerID), shellSingleQuote(routerName), flagToken, shellSingleQuote(token))
+}
+
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func publicServerURL(listen string) string {
