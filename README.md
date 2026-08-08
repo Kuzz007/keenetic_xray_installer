@@ -1,5 +1,10 @@
 # Keenetic Xray VLESS Auto Installer
 
+> Developer preview: the project can now build two self-verifying router
+> installer bundles, `FULL` and `MINIMAL`, for arm64/mipsle. Both include the
+> remotely managed Go agent; Minimal keeps bot parity and targets constrained
+> routers by avoiding extra background services. Details: [docs/router-bundles.md](docs/router-bundles.md).
+
 Автоматический установщик Xray/VLESS Failover для роутеров Keenetic с Entware.
 
 ## Рекомендуемая установка: Auto Latest

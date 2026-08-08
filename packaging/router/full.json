@@ -1,0 +1,33 @@
+{
+  "edition": "full",
+  "files": [
+    {"source":"@BIN/xray-failover-go","target":"/opt/bin/xray-failover-go","mode":"0755","role":"profile-resolver","policy":"replace"},
+    {"source":"@BIN/xray-go-agent","target":"/opt/bin/xray-go-agent","mode":"0755","role":"remote-agent","policy":"preserve"},
+    {"source":"packaging/router/files/xray-go-agent-setup.sh","target":"/opt/bin/xray-go-agent-setup","mode":"0755","role":"agent-setup","policy":"replace"},
+    {"source":"scripts/xray-go.sh","target":"/opt/bin/xray-go","mode":"0755","role":"management-cli","policy":"replace"},
+    {"source":"scripts/failover-go.sh","target":"/opt/bin/failover-go","mode":"0755","role":"failover-menu","policy":"replace"},
+    {"source":"scripts/vless-go-update.sh","target":"/opt/bin/vless-go-update","mode":"0755","role":"source-update","policy":"replace"},
+    {"source":"scripts/vless-go-auto-update.sh","target":"/opt/bin/vless-go-auto-update","mode":"0755","role":"scheduled-source-update","policy":"replace"},
+    {"source":"scripts/vless-go-failover.sh","target":"/opt/bin/vless-go-failover","mode":"0755","role":"profile-switch","policy":"replace"},
+    {"source":"scripts/vless-go-watchdog.sh","target":"/opt/bin/vless-go-watchdog","mode":"0755","role":"watchdog","policy":"replace"},
+    {"source":"scripts/vless-go-recover.sh","target":"/opt/bin/vless-go-recover","mode":"0755","role":"recovery","policy":"replace"},
+    {"source":"scripts/vless-go-doctor.sh","target":"/opt/bin/vless-go-doctor","mode":"0755","role":"doctor","policy":"replace"},
+    {"source":"scripts/vless-go-doctor-summary.sh","target":"/opt/bin/vless-go-doctor-summary","mode":"0755","role":"doctor-summary","policy":"replace"},
+    {"source":"scripts/vless-go-privacy-check.sh","target":"/opt/bin/vless-go-privacy-check","mode":"0755","role":"privacy-check","policy":"replace"},
+    {"source":"scripts/vless-go-history.sh","target":"/opt/bin/vless-go-history","mode":"0755","role":"history","policy":"replace"},
+    {"source":"scripts/vless-go-cleanup.sh","target":"/opt/bin/vless-go-cleanup","mode":"0755","role":"cleanup","policy":"replace"},
+    {"source":"scripts/vless-go-socks-auth.sh","target":"/opt/bin/vless-go-socks-auth","mode":"0755","role":"socks-auth","policy":"replace"},
+    {"source":"scripts/vless-go-xray-core-update.sh","target":"/opt/bin/vless-go-xray-core-update","mode":"0755","role":"xray-core-update","policy":"replace"},
+    {"source":"scripts/xray-go-installer-update.sh","target":"/opt/bin/xray-go-installer-update","mode":"0755","role":"installer-update","policy":"replace"},
+    {"source":"scripts/xray-go-manifest.sh","target":"/opt/bin/xray-go-manifest","mode":"0755","role":"install-manifest","policy":"replace"},
+    {"source":"scripts/xray-go-safety-check.sh","target":"/opt/bin/xray-go-safety-check","mode":"0755","role":"safety-check","policy":"replace"},
+    {"source":"scripts/xray-go-size-check.sh","target":"/opt/bin/xray-go-size-check","mode":"0755","role":"size-check","policy":"replace"},
+    {"source":"scripts/xray-go-space-gate.sh","target":"/opt/bin/xray-go-space-gate","mode":"0755","role":"space-gate","policy":"replace"},
+    {"source":"scripts/xray-go-direct-setup-wizard.sh","target":"/opt/bin/xray-go-setup","mode":"0755","role":"setup-wizard","policy":"replace"},
+    {"source":"scripts/xray-go-direct-full.sh","target":"/opt/bin/xray-go-direct-full","mode":"0755","role":"full-updater","policy":"replace"},
+    {"source":"scripts/xray-go-direct-uninstall.sh","target":"/opt/bin/xray-go-direct-uninstall","mode":"0755","role":"uninstall-planner","policy":"replace"},
+    {"source":"scripts/xray-keenetic-routes-catalog.sh","target":"/opt/bin/xray-keenetic-routes-catalog","mode":"0755","role":"routes-catalog","policy":"replace"},
+    {"source":"scripts/vless-go-lock.sh","target":"/opt/libexec/vless-go-lock.sh","mode":"0644","role":"lock-library","policy":"replace"},
+    {"source":"scripts/vless-go-lan-ip.sh","target":"/opt/libexec/vless-go-lan-ip.sh","mode":"0644","role":"lan-ip-library","policy":"replace"}
+  ]
+}

@@ -31,11 +31,14 @@ type Config struct {
 }
 
 type Command struct {
-	ID       string `json:"id"`
-	Action   string `json:"action"`
-	Slot     string `json:"slot,omitempty"`
-	Selector string `json:"selector,omitempty"`
-	Source   string `json:"source,omitempty"`
+	ID              string `json:"id"`
+	Action          string `json:"action"`
+	Slot            string `json:"slot,omitempty"`
+	Selector        string `json:"selector,omitempty"`
+	Source          string `json:"source,omitempty"`
+	Channel         string `json:"channel,omitempty"`
+	ExpectedVersion string `json:"expected_version,omitempty"`
+	ExpectedSHA256  string `json:"expected_sha256,omitempty"`
 }
 
 type Result struct {
@@ -58,16 +61,37 @@ const routesCatalogPath = "/opt/bin/xray-keenetic-routes-catalog"
 func main() {
 	cfgPath := flag.String("config", "/opt/etc/xray/xray-go-agent.conf", "config path")
 	once := flag.Bool("once", false, "run one poll cycle and exit")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Printf("xray-go-agent %s\n", agentVersion)
+		return
+	}
 
 	cfg, err := loadConfig(*cfgPath)
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
+	rolledBack, rollbackReason := reconcileAgentUpdateState()
 	log.Printf("xray-go-agent started version=%s router_id=%s name=%s server=%s", agentVersion, cfg.RouterID, cfg.RouterName, cfg.ServerURL)
 	resultLog("agent start version=%s router_id=%s", agentVersion, cfg.RouterID)
 	if err := notifyStartup(cfg); err != nil {
 		log.Printf("startup notification failed: %v", err)
+	} else {
+		committed, err := markAgentUpdateHealthy()
+		if err != nil {
+			log.Printf("agent update health commit failed: %v", err)
+		} else if committed {
+			_, summary := agentReleaseUpdateStatus()
+			_ = postResult(cfg, Result{CommandID: "agent_update_committed", RouterID: cfg.RouterID, OK: true, Output: summary})
+		}
+		if rolledBack {
+			_, summary := agentReleaseUpdateStatus()
+			if rollbackReason != "" {
+				summary += "\nrollback_reason: " + rollbackReason
+			}
+			_ = postResult(cfg, Result{CommandID: "agent_update_rolled_back", RouterID: cfg.RouterID, OK: false, Output: summary})
+		}
 	}
 	if err := checkSlotChange(cfg); err != nil {
 		log.Printf("slot check failed: %v", err)
@@ -297,6 +321,14 @@ func runAllowed(c Command) (bool, string) {
 		return updateScripts()
 	case "update_agent":
 		return updateAgent()
+	case "agent_update_status":
+		return agentReleaseUpdateStatus()
+	case "agent_update_check":
+		return checkAgentRelease(c.Channel)
+	case "agent_update_apply":
+		return scheduleAgentRelease(c.Channel, c.ExpectedVersion, c.ExpectedSHA256)
+	case "agent_update_rollback":
+		return scheduleAgentRollback()
 	case "update_subscription":
 		return updateSubscription()
 	case "set_primary_source":
@@ -641,6 +673,9 @@ func detectFeatures() []string {
 	if exists("/bin/sh") {
 		features = append(features, "reboot", "update_scripts", "update_agent")
 	}
+	if exists("/bin/sh") && exists("/opt/bin/xray-go-agent") && exists("/opt/etc/init.d/S28xray-go-agent") {
+		features = append(features, "agent_release_update")
+	}
 	if exists(routesCatalogPath) {
 		features = append(features, "routes_catalog")
 	}
@@ -698,6 +733,9 @@ func detectCapabilities(features []string) []string {
 	}
 	if has["update_agent"] {
 		capabilities = append(capabilities, "update_agent")
+	}
+	if has["agent_release_update"] {
+		capabilities = append(capabilities, "agent_update_status", "agent_update_check", "agent_update_apply", "agent_update_rollback")
 	}
 	if has["routes_catalog"] {
 		capabilities = append(capabilities, "routes_list", "routes_preview", "routes_apply", "routes_apply_custom", "routes_remove")

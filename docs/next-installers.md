@@ -12,14 +12,29 @@ See `docs/legacy.md`.
 
 ```text
 Full Go/Entware:
-  latest feed, subscriptions, doctor, watchdog, menu, updater
+  latest feed, VLESS/self-hosted AWG roadmap, agent/bot, doctor, watchdog, menu, updater
 
 Minimal Go:
-  direct vless://, primary/backup failover, no python3, target low-storage routers around 40 MB free
+  same agent/bot control, primary/backup failover, no python3, target routers around 40 MB RAM
 
 Legacy Minimal:
   old shell backend, kept for compatibility
 ```
+
+## New binary router bundles (developer preview)
+
+FULL and MINIMAL are now also assembled as self-verifying ELF `.run` files:
+
+```text
+keenetic-vpn-full-linux-{arm64|mipsle}.run
+keenetic-vpn-minimal-linux-{arm64|mipsle}.run
+```
+
+The source remains modular: the bundle contains the two router-side Go
+binaries and small shell helpers instead of merging the runtime into one large
+process. Both editions include `xray-go-agent`; Minimal does not lose bot
+features. See [router-bundles.md](router-bundles.md) for the format, safety
+model, channel URLs and current first-install boundary.
 
 ## New auto latest entrypoint
 

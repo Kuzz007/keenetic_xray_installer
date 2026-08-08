@@ -102,8 +102,10 @@ func routerKeyboardForStatus(routerID, status string) inlineKeyboard {
 	if f.has("update_scripts") {
 		updateRow = append(updateRow, inlineButton{Text: "🔄 Скрипты", CallbackData: "act:update_scripts:" + routerID})
 	}
-	if f.has("update_agent") {
-		updateRow = append(updateRow, inlineButton{Text: "🔁 Агент", CallbackData: "act:update_agent:" + routerID})
+	if f["agent_release_update"] {
+		updateRow = append(updateRow, inlineButton{Text: "🤖 Агент", CallbackData: "agent-update:" + routerID})
+	} else if f.has("update_agent") {
+		updateRow = append(updateRow, inlineButton{Text: "🤖 Агент", CallbackData: "agent-update:" + routerID})
 	}
 	if len(updateRow) > 0 {
 		rows = append(rows, updateRow)
