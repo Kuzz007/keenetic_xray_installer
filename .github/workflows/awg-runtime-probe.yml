@@ -5,16 +5,20 @@ on:
     paths:
       - 'scripts/build-awg-runtime-probe.sh'
       - 'scripts/smoke-awg-runtime-linux.sh'
+      - 'scripts/keenetic-awg-live-probe.sh'
       - '.github/workflows/awg-runtime-probe.yml'
       - 'docs/amneziawg-runtime.md'
+      - 'docs/amneziawg-live-router-probe.md'
   push:
     branches:
       - main
     paths:
       - 'scripts/build-awg-runtime-probe.sh'
       - 'scripts/smoke-awg-runtime-linux.sh'
+      - 'scripts/keenetic-awg-live-probe.sh'
       - '.github/workflows/awg-runtime-probe.yml'
       - 'docs/amneziawg-runtime.md'
+      - 'docs/amneziawg-live-router-probe.md'
   workflow_dispatch:
 
 permissions:
@@ -50,6 +54,7 @@ jobs:
         env:
           TARGET_ARCH: ${{ matrix.arch }}
           OUT_DIR: dist/awg-runtime-probe
+          PROJECT_COMMIT: ${{ github.sha }}
         run: sh scripts/build-awg-runtime-probe.sh
 
       - name: Verify cross-built executables
@@ -101,6 +106,7 @@ jobs:
         env:
           TARGET_ARCH: amd64
           OUT_DIR: dist/awg-runtime-probe
+          PROJECT_COMMIT: ${{ github.sha }}
         run: sh scripts/build-awg-runtime-probe.sh
 
       - name: Configure AWG2 interface and measure idle memory
@@ -114,6 +120,52 @@ jobs:
             echo '### AWG native runtime probe'
             echo
             sed 's/^/- /' dist/awg-runtime-probe/runtime-measurements.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Exercise fail-closed live router probe
+        run: |
+          probe="$(pwd)/dist/awg-runtime-probe/keenetic-awg-live-probe.sh"
+          runtime="$(pwd)/dist/awg-runtime-probe/amneziawg-go-linux-amd64"
+          tools="$(pwd)/dist/awg-runtime-probe/amneziawg-tools-linux-amd64"
+
+          sudo sh "$probe" preflight \
+            | tee dist/awg-runtime-probe/live-router-preflight.txt
+
+          if no_confirm_output="$(sudo sh "$probe" run \
+            --runtime "$runtime" \
+            --tools "$tools" \
+            --seconds 1 2>&1)"; then
+            echo '::error::live probe started without explicit --yes'
+            exit 1
+          fi
+          printf '%s\n' "$no_confirm_output" \
+            >dist/awg-runtime-probe/live-router-no-confirm.txt
+          grep -F 'run requires explicit --yes' \
+            dist/awg-runtime-probe/live-router-no-confirm.txt
+          if ip link show awgprobe0 >/dev/null 2>&1; then
+            echo '::error::no-confirm path left awgprobe0 behind'
+            exit 1
+          fi
+
+          sudo sh "$probe" run --yes \
+            --runtime "$runtime" \
+            --tools "$tools" \
+            --seconds 1 \
+            | tee dist/awg-runtime-probe/live-router-measurements.txt
+
+          grep -F 'AWG_PROBE_ROUTE_RESTORED=yes' \
+            dist/awg-runtime-probe/live-router-measurements.txt
+          grep -F 'AWG_PROBE_RULES_RESTORED=yes' \
+            dist/awg-runtime-probe/live-router-measurements.txt
+          grep -F 'AWG_PROBE_MANAGED_STATE_RESTORED=yes' \
+            dist/awg-runtime-probe/live-router-measurements.txt
+          grep -F 'AWG_PROBE_RESULT=pass' \
+            dist/awg-runtime-probe/live-router-measurements.txt
+
+          {
+            echo '### Fail-closed live router probe'
+            echo
+            sed 's/^/- /' dist/awg-runtime-probe/live-router-measurements.txt
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload native measurements

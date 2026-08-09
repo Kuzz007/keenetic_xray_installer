@@ -225,6 +225,24 @@ check_contains packaging/entware/failover-go/postinst 'asset_name_for_arch' "Pac
 check_contains packaging/entware/failover-go/postinst 'xray-failover-go-linux-mipsle' "Package postinst supports mipsle resolver asset"
 
 info ""
+info "== AmneziaWG live probe guardrails =="
+check_file_exists scripts/keenetic-awg-live-probe.sh
+check_syntax scripts/keenetic-awg-live-probe.sh
+check_file_exists docs/amneziawg-live-router-probe.md
+check_contains scripts/keenetic-awg-live-probe.sh 'preflight' "AWG live probe exposes read-only preflight"
+check_contains scripts/keenetic-awg-live-probe.sh 'run requires explicit --yes' "AWG live probe requires explicit confirmation"
+check_contains scripts/keenetic-awg-live-probe.sh '127.0.0.1:9' "AWG live probe uses a loopback dummy endpoint"
+check_contains scripts/keenetic-awg-live-probe.sh 'PROBE_MIN_AVAILABLE_KB=24576' "AWG live probe keeps the default memory safety floor"
+check_contains scripts/keenetic-awg-live-probe.sh 'verify_managed_state' "AWG live probe verifies managed state after cleanup"
+check_contains scripts/keenetic-awg-live-probe.sh 'AWG_PROBE_ROUTE_RESTORED=yes' "AWG live probe reports restored routes"
+check_contains scripts/build-awg-runtime-probe.sh 'keenetic-awg-live-probe.sh' "AWG runtime artifact includes the live probe"
+check_not_contains scripts/keenetic-awg-live-probe.sh 'ip route add' "AWG live probe never adds a route"
+check_not_contains scripts/keenetic-awg-live-probe.sh 'ip rule add' "AWG live probe never adds a routing rule"
+check_not_contains scripts/keenetic-awg-live-probe.sh 'ndmc' "AWG live probe never calls Keenetic configuration CLI"
+check_not_contains scripts/keenetic-awg-live-probe.sh 'minimal-go-switch' "AWG live probe never switches Minimal slots"
+check_not_contains scripts/keenetic-awg-live-probe.sh 'vless-go-failover' "AWG live probe never invokes VLESS failover"
+
+info ""
 info "== Helper scripts syntax =="
 for file in "$ROOT_DIR"/scripts/*.sh; do [ -e "$file" ] || continue; rel="scripts/$(basename "$file")"; check_syntax "$rel"; done
 
