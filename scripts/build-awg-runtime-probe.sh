@@ -1,10 +1,13 @@
 #!/bin/sh
 set -eu
 
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 AWG_GO_VERSION="${AWG_GO_VERSION:-v3.0.20260805}"
 AWG_GO_COMMIT="${AWG_GO_COMMIT:-08d68cdae27762c3e07f36bbb12d2bad32f81926}"
 AWG_TOOLS_VERSION="${AWG_TOOLS_VERSION:-v3.0.20260805}"
 AWG_TOOLS_COMMIT="${AWG_TOOLS_COMMIT:-9f70177d204d5be66c5b043518a57b7d62b3f9d1}"
+PROJECT_COMMIT="${PROJECT_COMMIT:-unknown}"
 TARGET_ARCH="${TARGET_ARCH:-}"
 OUT_DIR="${OUT_DIR:-dist/awg-runtime-probe}"
 
@@ -64,6 +67,8 @@ OUT_DIR="$(CDPATH= cd -- "$OUT_DIR" && pwd)"
 runtime_out="$OUT_DIR/amneziawg-go-linux-$TARGET_ARCH"
 tools_out="$OUT_DIR/amneziawg-tools-linux-$TARGET_ARCH"
 tools_source_out="$OUT_DIR/amneziawg-tools-source-${AWG_TOOLS_VERSION#v}.tar.gz"
+live_probe_out="$OUT_DIR/keenetic-awg-live-probe.sh"
+live_probe_doc_out="$OUT_DIR/README-live-router-probe-ru.md"
 
 (
     cd "$go_source"
@@ -85,11 +90,15 @@ git -C "$tools_source" archive --format=tar.gz \
     -o "$tools_source_out" HEAD
 cp "$go_source/LICENSE" "$OUT_DIR/amneziawg-go-LICENSE.txt"
 cp "$tools_source/COPYING" "$OUT_DIR/amneziawg-tools-COPYING.txt"
-chmod 0755 "$runtime_out" "$tools_out"
+cp "$SCRIPT_DIR/keenetic-awg-live-probe.sh" "$live_probe_out"
+cp "$REPO_ROOT/docs/amneziawg-live-router-probe.md" "$live_probe_doc_out"
+chmod 0755 "$runtime_out" "$tools_out" "$live_probe_out"
 
 sha256sum "$runtime_out" | awk '{print $1}' >"$runtime_out.sha256"
 sha256sum "$tools_out" | awk '{print $1}' >"$tools_out.sha256"
 sha256sum "$tools_source_out" | awk '{print $1}' >"$tools_source_out.sha256"
+sha256sum "$live_probe_out" | awk '{print $1}' >"$live_probe_out.sha256"
+sha256sum "$live_probe_doc_out" | awk '{print $1}' >"$live_probe_doc_out.sha256"
 
 cat >"$OUT_DIR/awg-runtime-provenance.txt" <<EOF
 amneziawg_go_version=$AWG_GO_VERSION
@@ -97,9 +106,11 @@ amneziawg_go_commit=$AWG_GO_COMMIT
 amneziawg_tools_version=$AWG_TOOLS_VERSION
 amneziawg_tools_commit=$AWG_TOOLS_COMMIT
 target=linux/$TARGET_ARCH
+project_commit=$PROJECT_COMMIT
 runtime_source=https://github.com/amnezia-vpn/amneziawg-go
 tools_source=https://github.com/amnezia-vpn/amneziawg-tools
 EOF
 
 printf 'Built %s (%s bytes)\n' "$runtime_out" "$(wc -c <"$runtime_out" | tr -d ' ')"
 printf 'Built %s (%s bytes)\n' "$tools_out" "$(wc -c <"$tools_out" | tr -d ' ')"
+printf 'Included %s\n' "$live_probe_out"

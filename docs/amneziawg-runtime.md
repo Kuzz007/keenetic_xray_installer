@@ -59,4 +59,7 @@ usage is not representative. The native CI RSS measurement is an early budget
 signal only. Before AWG is added to MINIMAL, the exact mipsle runtime must be
 started on the 40 MB router and measured together with Xray, the Go agent and
 the existing watchdog. No bundle inclusion is allowed until that live gate
-passes.
+passes. The artifact includes a fail-closed router runner and Russian
+instructions in [`amneziawg-live-router-probe.md`](amneziawg-live-router-probe.md).
+Its first `preflight` mode is read-only; the explicit live mode creates no
+address or route and verifies cleanup before reporting success.

@@ -65,6 +65,8 @@ choices.
    - Detect required TUN, routing and interface-binding support read-only.
    - See [`amneziawg-runtime.md`](amneziawg-runtime.md) for the automated
      pre-router checks and the remaining live-router gate.
+   - Use [`amneziawg-live-router-probe.md`](amneziawg-live-router-probe.md)
+     for the isolated MIPSLE preflight and memory measurement.
 
 3. **Single AWG slot**
    - Store a validated AWG profile atomically with mode `0600`.
