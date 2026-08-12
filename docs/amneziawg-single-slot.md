@@ -21,8 +21,13 @@ physical-RAM router remains outside the proven target set.
 
 ## Safety model
 
-- Only self-hosted AWG guest `vpn://` links are accepted. Premium/API,
-  full-access and non-AWG links fail closed.
+- AWG guest `vpn://` links are accepted in Amnezia's JSON/Qt envelope and
+  direct base64-encoded native client formats. Recognizable Premium/API,
+  full-access and non-AWG envelopes fail closed. A direct native link contains
+  no service-ownership metadata, so the importer cannot independently prove
+  that its endpoint is self-hosted; this format is supported only for a
+  user-confirmed self-hosted export and still passes the same strict section,
+  key, endpoint and hook validation.
 - Import reads the link from stdin or a file. It is never accepted as a command
   line argument, which keeps it out of `ps` and normal shell history.
 - The validated native profile is atomically stored as

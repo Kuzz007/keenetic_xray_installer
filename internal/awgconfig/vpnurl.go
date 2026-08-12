@@ -83,12 +83,17 @@ type awgClientConfig struct {
 	Config string `json:"config"`
 }
 
-// ParseVPNURL decodes and validates an Amnezia self-hosted guest vpn:// link.
-// It deliberately rejects managed/Premium and full-access server configs.
+// ParseVPNURL decodes and validates a supported AmneziaWG guest vpn:// link.
+// It deliberately rejects managed/Premium and full-access server envelopes.
+// Direct native links contain no ownership metadata, so callers must limit
+// those otherwise-valid guest client profiles to their self-hosted service.
 func ParseVPNURL(raw string) (Profile, error) {
 	payload, err := decodeVPNURL(raw)
 	if err != nil {
 		return Profile{}, err
+	}
+	if !json.Valid(payload) {
+		return profileFromNativeVPNPayload(payload)
 	}
 
 	var envelope vpnEnvelope
@@ -154,6 +159,27 @@ func ParseVPNURL(raw string) (Profile, error) {
 	}, nil
 }
 
+func profileFromNativeVPNPayload(payload []byte) (Profile, error) {
+	raw := strings.TrimSpace(string(payload))
+	native, err := ParseNativeConfig(raw)
+	if err != nil {
+		return Profile{}, fmt.Errorf("%w: %v", ErrInvalidVPNLink, err)
+	}
+	return Profile{
+		Name:         "Native AWG guest",
+		HostName:     native.EndpointHost,
+		Container:    "amnezia-awg-native",
+		AWGVersion:   native.AWGVersion,
+		EndpointHost: native.EndpointHost,
+		EndpointPort: native.EndpointPort,
+		Addresses:    native.Addresses,
+		AllowedIPs:   native.AllowedIPs,
+		DNS:          native.DNS,
+		MTU:          native.MTU,
+		nativeConfig: raw + "\n",
+	}, nil
+}
+
 func decodeVPNURL(raw string) ([]byte, error) {
 	raw = strings.TrimSpace(raw)
 	if !strings.HasPrefix(raw, "vpn://") {
@@ -164,7 +190,7 @@ func decodeVPNURL(raw string) ([]byte, error) {
 		return nil, fmt.Errorf("%w: invalid encoded payload", ErrInvalidVPNLink)
 	}
 
-	compressed, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(encoded, "="))
+	compressed, err := decodeVPNBase64(encoded)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid base64 payload", ErrInvalidVPNLink)
 	}
@@ -172,6 +198,9 @@ func decodeVPNURL(raw string) ([]byte, error) {
 		return nil, fmt.Errorf("%w: decoded payload is too large", ErrInvalidVPNLink)
 	}
 	if json.Valid(compressed) {
+		return compressed, nil
+	}
+	if looksLikeNativeConfig(compressed) {
 		return compressed, nil
 	}
 	if len(compressed) < 6 {
@@ -195,6 +224,28 @@ func decodeVPNURL(raw string) ([]byte, error) {
 		return nil, fmt.Errorf("%w: decoded payload is not valid JSON", ErrInvalidVPNLink)
 	}
 	return decoded, nil
+}
+
+func decodeVPNBase64(encoded string) ([]byte, error) {
+	encoded = strings.TrimRight(encoded, "=")
+	decoded, urlErr := base64.RawURLEncoding.DecodeString(encoded)
+	if urlErr == nil {
+		return decoded, nil
+	}
+	decoded, stdErr := base64.RawStdEncoding.DecodeString(encoded)
+	if stdErr == nil {
+		return decoded, nil
+	}
+	return nil, urlErr
+}
+
+func looksLikeNativeConfig(payload []byte) bool {
+	trimmed := strings.TrimSpace(string(payload))
+	if len(trimmed) == 0 || len(trimmed) > maxNativeConfigSize {
+		return false
+	}
+	firstLine, _, _ := strings.Cut(trimmed, "\n")
+	return strings.EqualFold(strings.TrimSpace(strings.TrimSuffix(firstLine, "\r")), "[Interface]")
 }
 
 func decodeNestedJSON(raw json.RawMessage) ([]byte, error) {
