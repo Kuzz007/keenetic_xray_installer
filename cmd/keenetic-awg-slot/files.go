@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 )
@@ -63,6 +64,25 @@ func loadState(opts options) (runtimeState, error) {
 	}
 	if state.Schema != stateSchema || state.Runtime == "" || state.Tools == "" || state.Interface == "" {
 		return runtimeState{}, errors.New("AWG runtime state has an unsupported format")
+	}
+	networkValues := 0
+	for _, value := range []uint32{state.RouteTable, state.RouteMark, state.RulePref} {
+		if value != 0 {
+			networkValues++
+		}
+	}
+	if networkValues != 0 && networkValues != 3 {
+		return runtimeState{}, errors.New("AWG runtime state has an incomplete network plan")
+	}
+	if networkValues == 3 {
+		if len(state.RoutePrefixes) == 0 {
+			return runtimeState{}, errors.New("AWG runtime state has an incomplete network plan")
+		}
+		for _, prefix := range state.RoutePrefixes {
+			if _, err := netip.ParsePrefix(prefix); err != nil {
+				return runtimeState{}, errors.New("AWG runtime state has an invalid route prefix")
+			}
+		}
 	}
 	return state, nil
 }

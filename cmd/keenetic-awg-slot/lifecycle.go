@@ -24,10 +24,20 @@ import (
 )
 
 const (
-	routeTable = "51820"
-	routeMark  = "51820"
-	rulePref   = "18020"
+	legacyRouteTable      = uint32(51820)
+	legacyRouteMark       = uint32(51820)
+	legacyRulePref        = uint32(18020)
+	routeTableBase        = uint32(200)
+	routeMarkBase         = uint32(51820)
+	rulePrefBase          = uint32(18020)
+	networkCandidateCount = uint32(16)
 )
+
+type networkPlan struct {
+	Table    uint32
+	Mark     uint32
+	RulePref uint32
+}
 
 type socksEndpoint struct {
 	Address  string
@@ -76,7 +86,8 @@ func activateSlot(opts options) (resultErr error) {
 			return fmt.Errorf("required command not found: %s", command)
 		}
 	}
-	if err := checkNetworkAvailable(opts.interfaceName); err != nil {
+	network, err := selectNetworkPlan(opts.interfaceName)
+	if err != nil {
 		return err
 	}
 	xrayBinary, err := findXrayBinary(opts.xrayBinary)
@@ -111,10 +122,14 @@ func activateSlot(opts options) (resultErr error) {
 		return fmt.Errorf("store Xray rollback config: %w", err)
 	}
 	state := runtimeState{
-		Phase:     "starting",
-		Runtime:   opts.runtime,
-		Tools:     opts.tools,
-		Interface: opts.interfaceName,
+		Phase:         "starting",
+		Runtime:       opts.runtime,
+		Tools:         opts.tools,
+		Interface:     opts.interfaceName,
+		RouteTable:    network.Table,
+		RouteMark:     network.Mark,
+		RulePref:      network.RulePref,
+		RoutePrefixes: append([]string(nil), profile.AllowedIPs...),
 	}
 	if err := saveState(opts, state); err != nil {
 		return err
@@ -131,7 +146,7 @@ func activateSlot(opts options) (resultErr error) {
 	if err != nil {
 		return fmt.Errorf("read Xray rollback config: %w", err)
 	}
-	awgXrayConfig, socks, err := buildAWGXrayConfig(rollbackConfig, opts.interfaceName)
+	awgXrayConfig, socks, err := buildAWGXrayConfig(rollbackConfig, opts.interfaceName, network.Mark)
 	if err != nil {
 		return err
 	}
@@ -187,7 +202,7 @@ func activateSlot(opts options) (resultErr error) {
 	if err := configureInterface(opts, profile, setConfPath); err != nil {
 		return err
 	}
-	if err := configurePolicyRoutes(opts.interfaceName, profile.AllowedIPs); err != nil {
+	if err := configurePolicyRoutes(opts.interfaceName, profile.AllowedIPs, network); err != nil {
 		return err
 	}
 	if err := validateXrayConfig(xrayBinary, awgXrayConfig, opts.dir); err != nil {
@@ -309,7 +324,7 @@ func bootStop(opts options) error {
 	if err := stopRuntime(state); err != nil {
 		failures = append(failures, err.Error())
 	}
-	if err := removeNetwork(state.Interface); err != nil {
+	if err := removeNetwork(state); err != nil {
 		failures = append(failures, err.Error())
 	}
 	_ = os.Remove(statePath(opts))
@@ -342,7 +357,7 @@ func bootRecover(opts options) error {
 	}
 	_ = stopRuntime(state)
 	if state.Interface != "" {
-		if err := removeNetwork(state.Interface); err != nil {
+		if err := removeNetwork(state); err != nil {
 			return err
 		}
 	}
@@ -368,7 +383,7 @@ func rollback(opts options, state runtimeState, restart bool) error {
 		failures = append(failures, err.Error())
 	}
 	if state.Interface != "" {
-		if err := removeNetwork(state.Interface); err != nil {
+		if err := removeNetwork(state); err != nil {
 			failures = append(failures, err.Error())
 		}
 	}
@@ -497,12 +512,17 @@ func configureInterface(opts options, profile awgconfig.NativeProfile, setConfPa
 	return runQuiet("ip", "link", "set", "dev", opts.interfaceName, "up")
 }
 
-func configurePolicyRoutes(interfaceName string, allowedIPs []string) error {
+func configurePolicyRoutes(interfaceName string, allowedIPs []string, network networkPlan) error {
+	table := strconv.FormatUint(uint64(network.Table), 10)
+	mark := strconv.FormatUint(uint64(network.Mark), 10)
+	pref := strconv.FormatUint(uint64(network.RulePref), 10)
 	hasV4 := false
 	hasV6 := false
 	for _, prefix := range allowedIPs {
 		family := ipFamily(prefix)
-		args := []string{"route", "replace", prefix, "dev", interfaceName, "table", routeTable}
+		// The selected table was verified empty. Use add, not replace, so a
+		// concurrent foreign route makes activation fail instead of overwriting it.
+		args := []string{"route", "add", prefix, "dev", interfaceName, "table", table}
 		if family == "-6" {
 			hasV6 = true
 			args = append([]string{"-6"}, args...)
@@ -514,60 +534,165 @@ func configurePolicyRoutes(interfaceName string, allowedIPs []string) error {
 		}
 	}
 	if hasV4 {
-		if err := runQuiet("ip", "rule", "add", "pref", rulePref, "fwmark", routeMark, "table", routeTable); err != nil {
+		if err := runQuiet("ip", "rule", "add", "pref", pref, "fwmark", mark, "table", table); err != nil {
 			return err
 		}
 	}
 	if hasV6 {
-		if err := runQuiet("ip", "-6", "rule", "add", "pref", rulePref, "fwmark", routeMark, "table", routeTable); err != nil {
+		if err := runQuiet("ip", "-6", "rule", "add", "pref", pref, "fwmark", mark, "table", table); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func checkNetworkAvailable(interfaceName string) error {
+func selectNetworkPlan(interfaceName string) (networkPlan, error) {
 	if err := exec.Command("ip", "link", "show", interfaceName).Run(); err == nil {
-		return fmt.Errorf("AWG interface already exists: %s", interfaceName)
+		return networkPlan{}, fmt.Errorf("AWG interface already exists: %s", interfaceName)
 	}
 	if _, err := os.Stat(filepath.Join("/var/run/amneziawg", interfaceName+".sock")); err == nil {
-		return fmt.Errorf("AWG UAPI socket already exists for interface %s", interfaceName)
+		return networkPlan{}, fmt.Errorf("AWG UAPI socket already exists for interface %s", interfaceName)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return errors.New("cannot inspect AWG UAPI socket")
+		return networkPlan{}, errors.New("cannot inspect AWG UAPI socket")
 	}
-	if output, _ := exec.Command("ip", "rule", "show").CombinedOutput(); bytes.Contains(output, []byte("lookup "+routeTable)) || bytes.Contains(output, []byte(rulePref+":")) {
-		return errors.New("routing table 51820 is already managed by another IPv4 rule")
+	ipv4Rules, err := runIPInspect("rule", "show")
+	if err != nil {
+		return networkPlan{}, fmt.Errorf("inspect IPv4 policy rules: %w", err)
 	}
-	if output, _ := exec.Command("ip", "-6", "rule", "show").CombinedOutput(); bytes.Contains(output, []byte("lookup "+routeTable)) || bytes.Contains(output, []byte(rulePref+":")) {
-		return errors.New("routing table 51820 is already managed by another IPv6 rule")
+	ipv6Rules, err := runIPInspect("-6", "rule", "show")
+	if err != nil {
+		return networkPlan{}, fmt.Errorf("inspect IPv6 policy rules: %w", err)
 	}
-	if output, _ := exec.Command("ip", "route", "show", "table", routeTable).CombinedOutput(); len(bytes.TrimSpace(output)) != 0 {
-		return errors.New("routing table 51820 already contains IPv4 routes")
-	}
-	if output, _ := exec.Command("ip", "-6", "route", "show", "table", routeTable).CombinedOutput(); len(bytes.TrimSpace(output)) != 0 {
-		return errors.New("routing table 51820 already contains IPv6 routes")
-	}
-	return nil
+	return chooseNetworkPlan(ipv4Rules, ipv6Rules, routeTableUsed)
 }
 
-func removeNetwork(interfaceName string) error {
+func chooseNetworkPlan(ipv4Rules, ipv6Rules []byte, tableUsed func(bool, uint32) (bool, error)) (networkPlan, error) {
+	for offset := uint32(0); offset < networkCandidateCount; offset++ {
+		candidate := networkPlan{Table: routeTableBase + offset, Mark: routeMarkBase + offset, RulePref: rulePrefBase + offset}
+		if rulePlanConflicts(ipv4Rules, candidate) || rulePlanConflicts(ipv6Rules, candidate) {
+			continue
+		}
+		used, err := tableUsed(false, candidate.Table)
+		if err != nil {
+			return networkPlan{}, err
+		}
+		if used {
+			continue
+		}
+		used, err = tableUsed(true, candidate.Table)
+		if err != nil {
+			return networkPlan{}, err
+		}
+		if !used {
+			return candidate, nil
+		}
+	}
+	return networkPlan{}, errors.New("no compatible free AWG routing table, mark and rule priority were found")
+}
+
+func routeTableUsed(ipv6 bool, table uint32) (bool, error) {
+	args := []string{"route", "show", "table", strconv.FormatUint(uint64(table), 10)}
+	if ipv6 {
+		args = append([]string{"-6"}, args...)
+	}
+	output, err := runIPInspect(args...)
+	if err != nil {
+		family := "IPv4"
+		if ipv6 {
+			family = "IPv6"
+		}
+		return false, fmt.Errorf("inspect %s routing table %d: %w", family, table, err)
+	}
+	return len(bytes.TrimSpace(output)) != 0, nil
+}
+
+func runIPInspect(args ...string) ([]byte, error) {
+	output, err := exec.Command("ip", args...).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("ip %s failed: %s", strings.Join(args, " "), redactedCommandError(output))
+	}
+	return output, nil
+}
+
+func rulePlanConflicts(output []byte, network networkPlan) bool {
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if priority, err := strconv.ParseUint(strings.TrimSuffix(fields[0], ":"), 10, 32); err == nil && uint32(priority) == network.RulePref {
+			return true
+		}
+		for index := 0; index+1 < len(fields); index++ {
+			switch fields[index] {
+			case "lookup":
+				if table, err := strconv.ParseUint(fields[index+1], 10, 32); err == nil && uint32(table) == network.Table {
+					return true
+				}
+			case "fwmark":
+				markText, maskText, hasMask := strings.Cut(fields[index+1], "/")
+				mark, markErr := strconv.ParseUint(markText, 0, 32)
+				mask := uint64(^uint32(0))
+				var maskErr error
+				if hasMask {
+					mask, maskErr = strconv.ParseUint(maskText, 0, 32)
+				}
+				if markErr == nil && maskErr == nil && uint64(network.Mark)&mask == mark&mask {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func networkPlanFromState(state runtimeState) networkPlan {
+	if state.RouteTable != 0 && state.RouteMark != 0 && state.RulePref != 0 {
+		return networkPlan{Table: state.RouteTable, Mark: state.RouteMark, RulePref: state.RulePref}
+	}
+	return networkPlan{Table: legacyRouteTable, Mark: legacyRouteMark, RulePref: legacyRulePref}
+}
+
+func removeNetwork(state runtimeState) error {
 	var failures []string
-	for _, args := range [][]string{
-		{"rule", "del", "pref", rulePref, "fwmark", routeMark, "table", routeTable},
-		{"-6", "rule", "del", "pref", rulePref, "fwmark", routeMark, "table", routeTable},
-		{"route", "flush", "table", routeTable},
-		{"-6", "route", "flush", "table", routeTable},
-		{"link", "delete", interfaceName},
-	} {
+	for _, args := range networkCleanupCommands(state) {
 		if output, err := exec.Command("ip", args...).CombinedOutput(); err != nil && commandExistsForCleanup(args, output) {
 			failures = append(failures, fmt.Sprintf("ip %s failed", strings.Join(args, " ")))
 		}
 	}
-	_ = os.Remove(filepath.Join("/var/run/amneziawg", interfaceName+".sock"))
+	_ = os.Remove(filepath.Join("/var/run/amneziawg", state.Interface+".sock"))
 	if len(failures) > 0 {
 		return errors.New(strings.Join(failures, "; "))
 	}
 	return nil
+}
+
+func networkCleanupCommands(state runtimeState) [][]string {
+	network := networkPlanFromState(state)
+	table := strconv.FormatUint(uint64(network.Table), 10)
+	mark := strconv.FormatUint(uint64(network.Mark), 10)
+	pref := strconv.FormatUint(uint64(network.RulePref), 10)
+	commands := [][]string{
+		{"rule", "del", "pref", pref, "fwmark", mark, "table", table},
+		{"-6", "rule", "del", "pref", pref, "fwmark", mark, "table", table},
+	}
+	if len(state.RoutePrefixes) == 0 {
+		// States written before the network plan was persisted can only be
+		// recovered by flushing their fixed, legacy table.
+		commands = append(commands,
+			[]string{"route", "flush", "table", table},
+			[]string{"-6", "route", "flush", "table", table},
+		)
+	} else {
+		for _, prefix := range state.RoutePrefixes {
+			args := []string{"route", "del", prefix, "dev", state.Interface, "table", table}
+			if ipFamily(prefix) == "-6" {
+				args = append([]string{"-6"}, args...)
+			}
+			commands = append(commands, args)
+		}
+	}
+	return append(commands, []string{"link", "delete", state.Interface})
 }
 
 func commandExistsForCleanup(_ []string, output []byte) bool {
@@ -702,7 +827,7 @@ func validateXrayConfig(binary string, config []byte, dir string) error {
 	return nil
 }
 
-func buildAWGXrayConfig(raw []byte, interfaceName string) ([]byte, socksEndpoint, error) {
+func buildAWGXrayConfig(raw []byte, interfaceName string, routeMark uint32) ([]byte, socksEndpoint, error) {
 	var config map[string]any
 	if err := json.Unmarshal(raw, &config); err != nil {
 		return nil, socksEndpoint{}, errors.New("current Xray config is invalid JSON")
@@ -717,7 +842,7 @@ func buildAWGXrayConfig(raw []byte, interfaceName string) ([]byte, socksEndpoint
 			"protocol": "freedom",
 			"settings": map[string]any{"domainStrategy": "UseIP"},
 			"streamSettings": map[string]any{
-				"sockopt": map[string]any{"interface": interfaceName, "mark": 51820},
+				"sockopt": map[string]any{"interface": interfaceName, "mark": routeMark},
 			},
 		},
 		map[string]any{"tag": "block", "protocol": "blackhole"},

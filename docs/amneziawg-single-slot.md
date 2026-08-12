@@ -40,7 +40,12 @@ physical-RAM router remains outside the proven target set.
   Only its outbound changes to `freedom` with `sockopt.interface=awgx0` and a
   dedicated routing mark/table.
 - The manager refuses to reuse an existing interface, UAPI socket, rule
-  priority or routing table.
+  priority, fwmark or routing table. It selects a free BusyBox-compatible
+  table in the reserved `200..215` range together with an unused mark and rule
+  priority, stores the exact tuple and routed prefixes in runtime state, and
+  removes only those owned routes during rollback.
+  Failures from `ip` inspection are reported instead of being mistaken for an
+  occupied table.
 - A runtime-state ownership marker blocks the bundled VLESS update, failover,
   watchdog, hourly recovery and Minimal daemon paths from overwriting Xray
   while AWG is active. Previously running failover daemons are also stopped
