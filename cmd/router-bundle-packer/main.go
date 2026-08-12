@@ -172,6 +172,13 @@ func resolveSource(source, sourceRoot, binaryDir string) (string, error) {
 		}
 		return filepath.Join(binaryDir, name), nil
 	}
+	if strings.HasPrefix(source, "@BUILD/") {
+		name := strings.TrimPrefix(source, "@BUILD/")
+		if name == "" || strings.ContainsAny(name, "/\\") {
+			return "", fmt.Errorf("unsafe build source %q", source)
+		}
+		return filepath.Join(binaryDir, name), nil
+	}
 	if strings.Contains(source, "\\") || strings.HasPrefix(source, "/") || path.Clean(source) != source || strings.HasPrefix(source, "../") {
 		return "", fmt.Errorf("unsafe repository source %q", source)
 	}

@@ -3,6 +3,7 @@ set -e
 
 GO_UPDATE_CMD="/opt/bin/vless-go-update"
 GO_FAILOVER_CMD="/opt/bin/vless-go-failover"
+AWG_RUNTIME_STATE="/opt/etc/xray/awg/runtime.json"
 CRON_FILE="/opt/var/spool/cron/crontabs/root"
 LOG_FILE="/opt/var/log/vless-go-auto-update.log"
 MARKER="vless-go-auto-update"
@@ -86,6 +87,10 @@ status_auto() {
 }
 
 run_now() {
+    if [ -s "$AWG_RUNTIME_STATE" ]; then
+        echo "ERROR: isolated AWG slot owns Xray; auto-update skipped." >&2
+        return 1
+    fi
     if [ -x "$GO_FAILOVER_CMD" ]; then
         "$GO_FAILOVER_CMD" update-active --no-restart
         if [ -x /opt/etc/init.d/S24xray ]; then

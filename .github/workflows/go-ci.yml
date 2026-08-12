@@ -9,6 +9,7 @@ on:
       - 'go.mod'
       - 'scripts/build-go-installers.sh'
       - 'scripts/build-router-bundles.sh'
+      - 'scripts/build-awg-runtime-probe.sh'
       - '.github/workflows/go-ci.yml'
   push:
     branches:
@@ -21,6 +22,7 @@ on:
       - 'go.mod'
       - 'scripts/build-go-installers.sh'
       - 'scripts/build-router-bundles.sh'
+      - 'scripts/build-awg-runtime-probe.sh'
       - '.github/workflows/go-ci.yml'
   workflow_dispatch:
 
@@ -37,7 +39,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22.x'
+          go-version: '1.25.x'
 
       - name: Check formatting
         run: |
@@ -73,6 +75,10 @@ jobs:
             goarch: mipsle
           - binary: xray-go-agent
             goarch: mips
+          - binary: keenetic-awg-slot
+            goarch: arm64
+          - binary: keenetic-awg-slot
+            goarch: mipsle
           - binary: xray-go-control-server
             goarch: amd64
           - binary: xray-go-control-server
@@ -84,7 +90,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22.x'
+          go-version: '1.25.x'
 
       - name: Build ${{ matrix.binary }} (linux/${{ matrix.goarch }})
         env:
@@ -123,7 +129,7 @@ jobs:
           esac
 
           case "${{ matrix.binary }}" in
-          xray-failover-go | xray-go-agent)
+          xray-failover-go | xray-go-agent | keenetic-awg-slot)
             if out="$($runner "$bin" -version 2>&1)"; then status=0; else status=$?; fi
             echo "$out"
             [ "$status" -eq 0 ] || { echo "::error::exit status $status, want 0"; exit 1; }
@@ -170,7 +176,15 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22.x'
+          go-version: '1.25.x'
+
+      - name: Install AWG cross compiler
+        run: |
+          sudo apt-get update
+          case "${{ matrix.goarch }}" in
+          arm64) sudo apt-get install -y gcc-aarch64-linux-gnu ;;
+          mipsle) sudo apt-get install -y gcc-mipsel-linux-gnu ;;
+          esac
 
       - name: Build FULL and MINIMAL bundles (linux/${{ matrix.goarch }})
         env:

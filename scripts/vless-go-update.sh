@@ -13,6 +13,7 @@ SOCKS_AUTH_CONF="$XRAY_DIR/vless-go-socks-auth.conf"
 MUX_STATE_CONF="$XRAY_DIR/mux-state.json"
 TMP_DIR="/opt/tmp"
 LOCK_HELPER="/opt/libexec/vless-go-lock.sh"
+AWG_RUNTIME_STATE="$XRAY_DIR/awg/runtime.json"
 
 if [ -s "$LOCK_HELPER" ]; then
     . "$LOCK_HELPER"
@@ -293,6 +294,11 @@ while [ "$#" -gt 0 ]; do
 done
 
 vless_go_acquire_lock "vless-go-update"
+
+if [ -s "$AWG_RUNTIME_STATE" ]; then
+    echo "ERROR: isolated AWG slot owns Xray; deactivate or recover AWG before updating VLESS." >&2
+    exit 1
+fi
 
 mkdir -p "$XRAY_DIR" "$TMP_DIR"
 load_socks_auth

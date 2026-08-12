@@ -9,10 +9,14 @@ on:
       - 'cmd/xray-go-control-server/**'
       - 'cmd/keenetic-vpn-installer/**'
       - 'cmd/router-bundle-packer/**'
+      - 'cmd/keenetic-awg-slot/**'
+      - 'internal/awgconfig/**'
       - 'internal/routerbundle/**'
       - 'packaging/router/**'
       - 'scripts/build-agent-channel-manifest.sh'
       - 'scripts/build-router-bundles.sh'
+      - 'scripts/build-awg-runtime-probe.sh'
+      - 'packaging/router/files/S23keenetic-awg-recover'
       - '.github/workflows/dev-release.yml'
   workflow_dispatch:
 
@@ -35,7 +39,12 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22.x'
+          go-version: '1.25.x'
+
+      - name: Install AWG cross compilers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-mipsel-linux-gnu
 
       - name: Test
         run: go test ./...

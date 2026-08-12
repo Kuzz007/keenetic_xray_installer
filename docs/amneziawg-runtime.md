@@ -89,3 +89,10 @@ must also prove a real self-hosted handshake, Xray outbound binding to the AWG
 interface, SOCKS5 health and transactional rollback to the existing VLESS
 slot. A true 40 MB physical-RAM target, if required, must repeat the isolated
 runtime test on that exact hardware.
+
+The single-slot implementation now packages the pinned runtime in both Dev
+bundles and enforces the same 24576 kB available-memory floor before starting
+it. Its activation path performs the remaining real handshake, Xray binding,
+SOCKS and rollback checks on the target router. See
+[`amneziawg-single-slot.md`](amneziawg-single-slot.md). Passing that live test
+does not waive the separate requirement for a real 40 MB physical-RAM model.

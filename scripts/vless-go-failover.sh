@@ -9,6 +9,7 @@ ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 GO_UPDATE_CMD="/opt/bin/vless-go-update"
 HISTORY_CMD="/opt/bin/vless-go-history"
 LOCK_HELPER="/opt/libexec/vless-go-lock.sh"
+AWG_RUNTIME_STATE="$XRAY_DIR/awg/runtime.json"
 
 if [ -s "$LOCK_HELPER" ]; then
     . "$LOCK_HELPER"
@@ -182,6 +183,11 @@ run_update() {
     ACTION="${3:-update-active}"
     shift 3
     parse_update_flags "$@"
+
+    if [ -s "$AWG_RUNTIME_STATE" ]; then
+        echo "ERROR: isolated AWG slot owns Xray; deactivate or recover AWG before switching VLESS." >&2
+        exit 1
+    fi
 
     validate_source "$SOURCE_VALUE" || { history_log failed_update slot="$SLOT" reason=invalid_source; exit 1; }
     [ -x "$GO_UPDATE_CMD" ] || { history_log failed_update slot="$SLOT" reason=missing_update_command; echo "ОШИБКА: команда обновления не найдена: $GO_UPDATE_CMD" >&2; exit 1; }

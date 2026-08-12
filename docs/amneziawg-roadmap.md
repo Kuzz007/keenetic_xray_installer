@@ -77,6 +77,10 @@ choices.
      health-check.
    - Reuse the existing local SOCKS5 address and Keenetic policy.
    - Run the AWG daemon only while an AWG slot is active or being checked.
+   - Status: implemented behind the local `keenetic-awg-slot` CLI and bundled
+     in FULL/MINIMAL for Dev validation. It is deliberately separate from the
+     existing primary/backup selector. See
+     [`amneziawg-single-slot.md`](amneziawg-single-slot.md).
 
 4. **Mixed failover**
    - Generalize primary/backup from VLESS sources to typed VPN profiles.
@@ -91,9 +95,10 @@ choices.
      MINIMAL agents.
 
 6. **Bundles, live Dev validation and Latest**
-   - Embed the AWG runtime in both installer editions only after the memory
-     probe passes; otherwise make MINIMAL capability-based without reducing
-     agent management.
+   - Embed the AWG runtime in both installer editions for the tested 124528 kB
+     MIPSLE/arm64 class. Activation retains a 24576 kB available-memory gate;
+     a true 40 MB target remains capability-gated until tested without
+     reducing agent management.
    - Test one router through the `dev` channel, including forced failover and
      automatic rollback.
    - Promote the verified bot, agent and router bundles to `latest`.

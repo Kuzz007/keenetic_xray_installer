@@ -4,21 +4,25 @@ on:
   pull_request:
     paths:
       - 'scripts/build-awg-runtime-probe.sh'
+      - 'scripts/build-router-bundles.sh'
       - 'scripts/smoke-awg-runtime-linux.sh'
       - 'scripts/keenetic-awg-live-probe.sh'
       - '.github/workflows/awg-runtime-probe.yml'
       - 'docs/amneziawg-runtime.md'
       - 'docs/amneziawg-live-router-probe.md'
+      - 'docs/amneziawg-single-slot.md'
   push:
     branches:
       - main
     paths:
       - 'scripts/build-awg-runtime-probe.sh'
+      - 'scripts/build-router-bundles.sh'
       - 'scripts/smoke-awg-runtime-linux.sh'
       - 'scripts/keenetic-awg-live-probe.sh'
       - '.github/workflows/awg-runtime-probe.yml'
       - 'docs/amneziawg-runtime.md'
       - 'docs/amneziawg-live-router-probe.md'
+      - 'docs/amneziawg-single-slot.md'
   workflow_dispatch:
 
 permissions:
