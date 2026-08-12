@@ -10,6 +10,7 @@ FAILOVER_CMD="/opt/bin/vless-go-failover"
 GO_RESOLVER="/opt/bin/xray-failover-go"
 HISTORY_CMD="/opt/bin/vless-go-history"
 CONFIG_FILE="${CONFIG_FILE:-$XRAY_DIR/vless-go-watchdog.conf}"
+AWG_RUNTIME_STATE="$XRAY_DIR/awg/runtime.json"
 
 SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
 SOCKS_PORT="${SOCKS_PORT:-10808}"
@@ -71,6 +72,10 @@ history_log() {
 
 active_slot() {
     [ -s "$ACTIVE_STORE" ] && sed -n '1p' "$ACTIVE_STORE" || echo "unknown"
+}
+
+awg_owns_xray() {
+    [ -s "$AWG_RUNTIME_STATE" ]
 }
 
 selector_file() {
@@ -222,6 +227,10 @@ refresh_proxy0_if_needed() {
 switch_to() {
     SLOT="$1"
     REASON="${2:-manual}"
+    if awg_owns_xray; then
+        log "VLESS switch skipped: isolated AWG slot owns Xray"
+        return 1
+    fi
     ensure_failover_cmd
     log "Переключение на $SLOT"
 
@@ -354,6 +363,10 @@ recover_primary_once() {
 }
 
 check_and_switch() {
+    if awg_owns_xray; then
+        log "VLESS watchdog skipped: isolated AWG slot owns Xray"
+        return 0
+    fi
     SLOT="$(active_slot)"
     log "Проверка активного слота: $SLOT через SOCKS $SOCKS_HOST:$SOCKS_PORT"
 
@@ -484,6 +497,10 @@ run_daemon() {
     log "Daemon запущен: interval=${WATCHDOG_INTERVAL}s failover_failures_required=$FAILOVER_FAILURES_REQUIRED check_retries=$CHECK_RETRIES auto_recover_primary=$AUTO_RECOVER_PRIMARY post_switch_delay=${POST_SWITCH_DELAY}s proxy0_refresh=$PROXY0_REFRESH socks_auth=$XRAY_SOCKS_AUTH"
 
     while true; do
+        if awg_owns_xray; then
+            sleep "$WATCHDOG_INTERVAL"
+            continue
+        fi
         SLOT="$(active_slot)"
         case "$SLOT" in
             primary) handle_daemon_primary ;;

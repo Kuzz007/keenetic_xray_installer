@@ -25,7 +25,7 @@ type NativeProfile struct {
 	MTU          int
 }
 
-var awgKeys = map[string]struct{}{
+var commonAWGKeys = map[string]struct{}{
 	"jc": {}, "jmin": {}, "jmax": {},
 	"s1": {}, "s2": {}, "s3": {}, "s4": {},
 	"h1": {}, "h2": {}, "h3": {}, "h4": {},
@@ -33,6 +33,23 @@ var awgKeys = map[string]struct{}{
 	"headerprotectionkey": {}, "contentpaddingaddition": {},
 	"rekeyaftertime": {}, "rekeytimeout": {}, "rejectaftertime": {},
 	"keepalivetimeout": {}, "maxhandshakeattempts": {},
+}
+
+var nativeSectionKeys = map[string]map[string]struct{}{
+	"interface": {
+		"privatekey": {}, "listenport": {}, "address": {}, "dns": {}, "mtu": {},
+	},
+	"peer": {
+		"publickey": {}, "presharedkey": {}, "allowedips": {}, "endpoint": {}, "persistentkeepalive": {},
+	},
+}
+
+func init() {
+	for _, section := range nativeSectionKeys {
+		for key := range commonAWGKeys {
+			section[key] = struct{}{}
+		}
+	}
 }
 
 func ParseNativeConfig(raw string) (NativeProfile, error) {
@@ -47,6 +64,14 @@ func ParseNativeConfig(raw string) (NativeProfile, error) {
 	peer := sections["peer"]
 	if iface == nil || peer == nil {
 		return NativeProfile{}, fmt.Errorf("%w: exactly one Interface and one Peer section are required", ErrInvalidNativeConfig)
+	}
+	for sectionName, section := range sections {
+		allowed := nativeSectionKeys[sectionName]
+		for key := range section {
+			if _, ok := allowed[key]; !ok {
+				return NativeProfile{}, fmt.Errorf("%w: unsupported %s key %q", ErrInvalidNativeConfig, sectionName, key)
+			}
+		}
 	}
 	if err := validateKey(iface["privatekey"]); err != nil {
 		return NativeProfile{}, fmt.Errorf("%w: invalid Interface private key", ErrInvalidNativeConfig)
@@ -244,7 +269,7 @@ func inferAWGVersion(sections ...map[string]string) string {
 	values := make(map[string]string)
 	for _, section := range sections {
 		for key, value := range section {
-			if _, ok := awgKeys[key]; ok {
+			if _, ok := commonAWGKeys[key]; ok {
 				values[key] = value
 			}
 		}

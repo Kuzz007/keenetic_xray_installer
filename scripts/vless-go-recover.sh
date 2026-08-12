@@ -3,6 +3,7 @@ set -e
 
 XRAY_DIR="/opt/etc/xray"
 XRAY_INIT="/opt/etc/init.d/S24xray"
+AWG_RUNTIME_STATE="$XRAY_DIR/awg/runtime.json"
 FULL_ACTIVE_STORE="$XRAY_DIR/vless-go.active"
 FULL_PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
 FULL_BACKUP_STORE="$XRAY_DIR/vless-go.backup"
@@ -420,6 +421,10 @@ try_slot_recovery() {
 }
 
 run_recovery() {
+    if [ -s "$AWG_RUNTIME_STATE" ]; then
+        [ "$QUIET" = "1" ] || echo "Recovery skipped: isolated AWG slot owns Xray"
+        return 0
+    fi
     ensure_dependencies || true
     if health_check; then return 0; fi
     MODE="$(detect_mode)"
@@ -454,6 +459,10 @@ log_top_processes() {
 }
 
 run_system_check() {
+    if [ -s "$AWG_RUNTIME_STATE" ]; then
+        [ "$QUIET" = "1" ] || echo "System recovery skipped: isolated AWG slot owns Xray"
+        return 0
+    fi
     ensure_dependencies || true
     up="$(uptime_seconds)"
     if [ "$up" -lt "$SYSTEM_GRACE_AFTER_BOOT" ]; then system_state_reset_count; [ "$QUIET" = "1" ] || echo "System check skipped: boot grace ${up}/${SYSTEM_GRACE_AFTER_BOOT}s"; return 0; fi

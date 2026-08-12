@@ -19,5 +19,5 @@ jobs:
 
       - name: Run shellcheck
         run: |
-          files="$(git ls-files '*.sh' 'packaging/entware/failover-go/postinst' 'packaging/entware/failover-go/prerm')"
+          files="$(git ls-files '*.sh' 'packaging/entware/failover-go/postinst' 'packaging/entware/failover-go/prerm' 'packaging/router/files/S23keenetic-awg-recover')"
           echo "$files" | xargs shellcheck -s sh -S warning

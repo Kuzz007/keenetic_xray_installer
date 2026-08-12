@@ -1,0 +1,24 @@
+#!/bin/sh
+
+MANAGER="/opt/bin/keenetic-awg-slot"
+case "${1:-}" in
+start)
+    [ -x "$MANAGER" ] || { echo "ERROR: AWG manager not found: $MANAGER" >&2; exit 1; }
+    "$MANAGER" boot-recover
+    ;;
+stop)
+    [ -x "$MANAGER" ] || exit 0
+    "$MANAGER" boot-stop
+    ;;
+restart)
+    "$0" start
+    ;;
+status)
+    [ -x "$MANAGER" ] || exit 1
+    "$MANAGER" status
+    ;;
+*)
+    echo "Usage: $0 start|stop|restart|status" >&2
+    exit 2
+    ;;
+esac

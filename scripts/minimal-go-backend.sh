@@ -243,7 +243,7 @@ generate_config() { slot="$1"; source="$2"; listen="$3"; port="$4"; output="$5";
 test_config() { bin="$(get_xray_bin)"; [ -n "$bin" ] || return 1; "$bin" run -test -config "$1" >/dev/null 2>&1 || "$bin" test -config "$1" >/dev/null 2>&1; }
 health_check() { host="$1"; port="$2"; for url in $CHECK_URLS; do curl -fsS --socks5-hostname "$host:$port" --connect-timeout 5 --max-time 10 "$url" >/dev/null 2>&1 && return 0; done; return 1; }
 wait_socks() { i=0; while [ "$i" -lt 10 ]; do netstat -lnt 2>/dev/null | grep -q ":$SOCKS_PORT" && return 0; sleep 1; i=$((i+1)); done; return 1; }
-switch_slot() { slot="$1"; source="$(source_for_slot "$slot")" || return 1; tmp="$TMP_DIR/minimal-go-$slot.$$.json"; old="$TMP_DIR/minimal-go-before-switch.$$.json"; generate_config "$slot" "$source" "$SOCKS_LISTEN" "$SOCKS_PORT" "$tmp" || return 1; test_config "$tmp" || return 1; cp "$XRAY_CONFIG" "$old" 2>/dev/null || true; cp "$tmp" "$XRAY_CONFIG"; chmod 600 "$XRAY_CONFIG" 2>/dev/null || true; "$XRAY_INIT" restart || "$XRAY_INIT" start || { [ -s "$old" ] && cp "$old" "$XRAY_CONFIG"; return 1; }; wait_socks || return 1; health_check "127.0.0.1" "$SOCKS_PORT" || return 1; echo "$slot" > "$ACTIVE_STORE"; write_history "switch target=$slot"; rm -f "$tmp" "$old"; }
+switch_slot() { slot="$1"; [ ! -s "$XRAY_DIR/awg/runtime.json" ] || { echo "ERROR: isolated AWG slot owns Xray" >&2; return 1; }; source="$(source_for_slot "$slot")" || return 1; tmp="$TMP_DIR/minimal-go-$slot.$$.json"; old="$TMP_DIR/minimal-go-before-switch.$$.json"; generate_config "$slot" "$source" "$SOCKS_LISTEN" "$SOCKS_PORT" "$tmp" || return 1; test_config "$tmp" || return 1; cp "$XRAY_CONFIG" "$old" 2>/dev/null || true; cp "$tmp" "$XRAY_CONFIG"; chmod 600 "$XRAY_CONFIG" 2>/dev/null || true; "$XRAY_INIT" restart || "$XRAY_INIT" start || { [ -s "$old" ] && cp "$old" "$XRAY_CONFIG"; return 1; }; wait_socks || return 1; health_check "127.0.0.1" "$SOCKS_PORT" || return 1; echo "$slot" > "$ACTIVE_STORE"; write_history "switch target=$slot"; rm -f "$tmp" "$old"; }
 test_temp_slot() { slot="$1"; port="$2"; source="$(source_for_slot "$slot")" || return 1; tmp="$TMP_DIR/minimal-go-test-$slot.$$.json"; log="$TMP_DIR/minimal-go-test-$slot.$$.log"; bin="$(get_xray_bin)"; generate_config "$slot" "$source" "$TEMP_HOST" "$port" "$tmp" || return 1; test_config "$tmp" || return 1; "$bin" run -config "$tmp" >"$log" 2>&1 & pid="$!"; sleep 3; kill -0 "$pid" 2>/dev/null || { cat "$log" 2>/dev/null; return 1; }; health_check "$TEMP_HOST" "$port"; rc="$?"; kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; rm -f "$tmp" "$log"; return "$rc"; }
 COMMON
     sed -i \
@@ -302,6 +302,10 @@ primary_fail=0
 primary_recover=0
 backup_fail=0
 while true; do
+  if [ -s /opt/etc/xray/awg/runtime.json ]; then
+    sleep "\$CHECK_INTERVAL"
+    continue
+  fi
   active="\$(cat "\$ACTIVE_STORE" 2>/dev/null || echo primary)"
   if [ "\$active" = primary ]; then
     if health_check 127.0.0.1 "\$SOCKS_PORT"; then

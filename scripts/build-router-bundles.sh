@@ -46,6 +46,21 @@ for arch in $ARCHES; do
     CGO_ENABLED=0 GOOS=linux GOARCH="$arch" GOMIPS=softfloat \
         go build -trimpath -ldflags "-s -w -X main.installerVersion=$VERSION" \
         -o "$arch_dir/keenetic-vpn-installer" ./cmd/keenetic-vpn-installer
+    CGO_ENABLED=0 GOOS=linux GOARCH="$arch" GOMIPS=softfloat \
+        go build -trimpath -ldflags "-s -w -X main.slotVersion=$VERSION" \
+        -o "$arch_dir/keenetic-awg-slot" ./cmd/keenetic-awg-slot
+
+    echo "Building pinned AmneziaWG runtime for linux/$arch..."
+    TARGET_ARCH="$arch" \
+    OUT_DIR="$arch_dir/awg-runtime" \
+    PROJECT_COMMIT="$COMMIT" \
+        sh scripts/build-awg-runtime-probe.sh
+    cp "$arch_dir/awg-runtime/amneziawg-go-linux-$arch" "$arch_dir/amneziawg-go"
+    cp "$arch_dir/awg-runtime/amneziawg-tools-linux-$arch" "$arch_dir/amneziawg-tools"
+    cp "$arch_dir/awg-runtime/amneziawg-go-LICENSE.txt" "$arch_dir/amneziawg-go-LICENSE.txt"
+    cp "$arch_dir/awg-runtime/amneziawg-tools-COPYING.txt" "$arch_dir/amneziawg-tools-COPYING.txt"
+    cp "$arch_dir/awg-runtime/amneziawg-tools-source-3.0.20260805.tar.gz" "$arch_dir/amneziawg-tools-source.tar.gz"
+    cp "$arch_dir/awg-runtime/awg-runtime-provenance.txt" "$arch_dir/awg-runtime-provenance.txt"
 
     for edition in full minimal; do
         output="$OUT_DIR/keenetic-vpn-$edition-linux-$arch.run"

@@ -57,6 +57,7 @@ var agentVersion = "dev"
 const slotStateFile = "/opt/var/run/xray-go-agent.last-slot"
 const resultLogPath = "/opt/var/log/xray-go-agent-result.log"
 const routesCatalogPath = "/opt/bin/xray-keenetic-routes-catalog"
+const awgRuntimeStatePath = "/opt/etc/xray/awg/runtime.json"
 
 func main() {
 	cfgPath := flag.String("config", "/opt/etc/xray/xray-go-agent.conf", "config path")
@@ -101,7 +102,7 @@ func main() {
 		if err := checkSlotChange(cfg); err != nil {
 			log.Printf("slot check failed: %v", err)
 		}
-		if reapplied, msg := muxAutoReapplyIfNeeded(); reapplied {
+		if reapplied, msg := muxAutoReapplyUnlessAWG(); reapplied {
 			resultLog("XMUX/XUDP auto-reapply: %s", msg)
 			if err := postResult(cfg, Result{CommandID: "mux_auto_reapply", RouterID: cfg.RouterID, OK: true, Output: msg}); err != nil {
 				log.Printf("mux auto-reapply notify failed: %v", err)
@@ -122,6 +123,13 @@ func main() {
 		}
 		time.Sleep(pollBackoff(cfg.PollInterval, consecutiveFailures))
 	}
+}
+
+func muxAutoReapplyUnlessAWG() (bool, string) {
+	if awgOwnsXray() {
+		return false, ""
+	}
+	return muxAutoReapplyIfNeeded()
 }
 
 // pollBackoff doubles the wait after each consecutive poll failure, capped
@@ -289,6 +297,9 @@ func parseActiveSlot(out string) string {
 }
 
 func runAllowed(c Command) (bool, string) {
+	if awgOwnsXray() && actionMutatesXray(c.Action) {
+		return false, "isolated AWG slot owns Xray; deactivate or recover AWG before this action"
+	}
 	var cmd []string
 	switch c.Action {
 	case "status", "source_status":
@@ -364,6 +375,21 @@ func runAllowed(c Command) (bool, string) {
 		return false, "unsupported action on this router: " + c.Action
 	}
 	return run(cmd, 180*time.Second)
+}
+
+func awgOwnsXray() bool {
+	info, err := os.Stat(awgRuntimeStatePath)
+	return err == nil && info.Mode().IsRegular() && info.Size() > 0
+}
+
+func actionMutatesXray(action string) bool {
+	switch action {
+	case "switch_primary", "switch_backup", "set_primary_source", "set_backup_source", "update_subscription",
+		"recover_run", "mux_enable", "mux_disable", "mux_snapshot", "mux_rollback":
+		return true
+	default:
+		return false
+	}
 }
 
 func runRoutesCatalog(subcommand, listID string) (bool, string) {
@@ -620,12 +646,16 @@ func shortStatus() string {
 	agentLine := "agent: go version=" + agentVersion
 	capabilityLine := "capabilities: " + strings.Join(capabilities, ",")
 	featureLine := "features: " + strings.Join(features, ",")
+	awgLine := ""
+	if awgOwnsXray() {
+		awgLine = "; vpn: awg-single-slot-active"
+	}
 	if len(cmd) == 0 {
-		return "status_error: no supported status command; " + agentLine + "; " + capabilityLine + "; " + featureLine
+		return "status_error: no supported status command; " + agentLine + "; " + capabilityLine + "; " + featureLine + awgLine
 	}
 	ok, out := run(cmd, 25*time.Second)
 	if !ok {
-		return "status_error: " + out + "; " + agentLine + "; " + capabilityLine + "; " + featureLine
+		return "status_error: " + out + "; " + agentLine + "; " + capabilityLine + "; " + featureLine + awgLine
 	}
 	lines := []string{}
 	for _, line := range strings.Split(out, "\n") {
@@ -638,6 +668,9 @@ func shortStatus() string {
 		lines = append(lines, muxLine)
 	}
 	lines = append(lines, agentLine, capabilityLine, featureLine)
+	if awgOwnsXray() {
+		lines = append(lines, "vpn: awg-single-slot-active")
+	}
 	return strings.Join(lines, "; ")
 }
 
