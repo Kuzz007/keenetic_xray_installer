@@ -50,6 +50,20 @@ physical-RAM router remains outside the proven target set.
 Install the matching FULL or MINIMAL bundle from the `dev` release first. The
 single-slot manager does not change the active VPN during installation.
 
+The installer verifies the complete bundle before changing files, then streams
+one file at a time and skips project files whose mode, size and SHA-256 already
+match. It does not unpack the whole payload into `/opt/tmp`; transactional
+backups are retained only until the complete install succeeds. Remove the old
+live-probe directory after recording its result so it does not consume the
+router's limited `/opt` space:
+
+```sh
+rm -rf /opt/tmp/awg-live-probe
+df -k /opt
+```
+
+The downloaded `.run` file should also be removed after a successful install.
+
 Create a private temporary input without placing the link in the command:
 
 ```sh

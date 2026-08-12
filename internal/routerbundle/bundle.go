@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ const (
 	maxBundleFileSize = 128 << 20
 	maxBundleFiles    = 256
 	maxInstalledSize  = 256 << 20
+	installReserve    = 1 << 20
 )
 
 var footerMagic = [16]byte{'K', 'V', 'P', 'N', 'B', 'U', 'N', 'D', 'L', 'E', 'v', '1'}
@@ -67,6 +69,7 @@ type Input struct {
 type InstallResult struct {
 	Installed []string
 	Preserved []string
+	Unchanged []string
 }
 
 type footer struct {
@@ -316,38 +319,30 @@ func (bundle *Bundle) Install(root string) (InstallResult, error) {
 	if err != nil {
 		return result, err
 	}
-	if err := os.MkdirAll(filepath.Join(root, "opt", "tmp"), 0755); err != nil {
-		return result, fmt.Errorf("create staging parent: %w", err)
-	}
-	stage, err := os.MkdirTemp(filepath.Join(root, "opt", "tmp"), ".keenetic-vpn-install-")
+	// Verify the complete bundle before touching an installed file. The second
+	// scan below verifies every streamed file again and rolls back if the bundle
+	// changes between passes.
+	verifiedManifest, err := bundle.scan(nil)
 	if err != nil {
-		return result, fmt.Errorf("create staging directory: %w", err)
+		return result, fmt.Errorf("verify bundle before install: %w", err)
 	}
-	defer os.RemoveAll(stage)
-
-	staged := make(map[string]string, len(bundle.Manifest.Files))
-	_, err = bundle.scan(func(file File, reader io.Reader) error {
-		stagedPath := filepath.Join(stage, "payload", filepath.FromSlash(file.ArchivePath))
-		if err := os.MkdirAll(filepath.Dir(stagedPath), 0755); err != nil {
-			return err
-		}
-		out, err := os.OpenFile(stagedPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-		if err != nil {
-			return err
-		}
-		_, copyErr := io.Copy(out, reader)
-		closeErr := out.Close()
-		if copyErr != nil {
-			return copyErr
-		}
-		if closeErr != nil {
-			return closeErr
-		}
-		staged[file.ArchivePath] = stagedPath
-		return nil
-	})
+	if !reflect.DeepEqual(verifiedManifest, bundle.Manifest) {
+		return result, errors.New("bundle manifest changed after it was opened")
+	}
+	optRoot := filepath.Join(root, "opt")
+	if err := os.MkdirAll(optRoot, 0755); err != nil {
+		return result, fmt.Errorf("create install root: %w", err)
+	}
+	requiredBytes, err := requiredInstallBytes(root, bundle.Manifest)
 	if err != nil {
-		return result, fmt.Errorf("extract verified payload: %w", err)
+		return result, fmt.Errorf("calculate install space: %w", err)
+	}
+	availableBytes, supported, err := availableInstallBytes(optRoot)
+	if err != nil {
+		return result, fmt.Errorf("check free install space: %w", err)
+	}
+	if err := checkInstallSpace(requiredBytes, availableBytes, supported); err != nil {
+		return result, err
 	}
 
 	type appliedFile struct {
@@ -356,84 +351,162 @@ func (bundle *Bundle) Install(root string) (InstallResult, error) {
 		hadBackup bool
 	}
 	applied := make([]appliedFile, 0, len(bundle.Manifest.Files))
-	rollback := func() {
+	rollback := func() error {
+		var failures []string
 		for i := len(applied) - 1; i >= 0; i-- {
 			item := applied[i]
-			_ = os.Remove(item.target)
+			if err := os.Remove(item.target); err != nil && !errors.Is(err, os.ErrNotExist) {
+				failures = append(failures, fmt.Sprintf("remove %s: %v", item.target, err))
+			}
 			if item.hadBackup {
-				_ = os.Rename(item.backup, item.target)
+				if err := os.Rename(item.backup, item.target); err != nil {
+					failures = append(failures, fmt.Sprintf("restore %s: %v", item.target, err))
+				}
 			}
 		}
+		if len(failures) > 0 {
+			return errors.New(strings.Join(failures, "; "))
+		}
+		return nil
 	}
 
 	transactionID := fmt.Sprintf("%d", time.Now().UnixNano())
-	for _, file := range bundle.Manifest.Files {
+	installedManifest, err := bundle.scan(func(file File, reader io.Reader) error {
 		target, err := resolveTarget(root, file.TargetPath)
 		if err != nil {
-			rollback()
-			return result, err
+			return err
 		}
 		targetInfo, targetErr := os.Lstat(target)
 		if targetErr == nil && !targetInfo.Mode().IsRegular() {
-			rollback()
-			return result, fmt.Errorf("refusing to replace non-regular target %q", file.TargetPath)
+			return fmt.Errorf("refusing to replace non-regular target %q", file.TargetPath)
 		}
 		if targetErr != nil && !errors.Is(targetErr, os.ErrNotExist) {
-			rollback()
-			return result, targetErr
+			return targetErr
 		}
 		if file.Policy == "preserve" {
 			if targetErr == nil {
 				result.Preserved = append(result.Preserved, file.TargetPath)
-				continue
+				return nil
+			}
+		}
+		if targetErr == nil {
+			matches, err := installedFileMatches(target, targetInfo, file)
+			if err != nil {
+				return err
+			}
+			if matches {
+				result.Unchanged = append(result.Unchanged, file.TargetPath)
+				return nil
 			}
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-			rollback()
-			return result, err
+			return err
 		}
 		if err := ensureWithinRoot(root, filepath.Dir(target)); err != nil {
-			rollback()
-			return result, err
+			return err
 		}
 
 		newPath := filepath.Join(filepath.Dir(target), "."+filepath.Base(target)+".kvpn-new-"+transactionID)
 		backupPath := filepath.Join(filepath.Dir(target), "."+filepath.Base(target)+".kvpn-old-"+transactionID)
-		if err := copyFile(staged[file.ArchivePath], newPath, os.FileMode(file.Mode)); err != nil {
-			rollback()
-			return result, err
+		if err := copyReader(reader, newPath, os.FileMode(file.Mode)); err != nil {
+			return err
 		}
+		defer os.Remove(newPath)
 
 		hadBackup := false
 		if _, err := os.Lstat(target); err == nil {
 			if err := os.Rename(target, backupPath); err != nil {
-				_ = os.Remove(newPath)
-				rollback()
-				return result, err
+				return err
 			}
 			hadBackup = true
 		} else if !errors.Is(err, os.ErrNotExist) {
-			_ = os.Remove(newPath)
-			rollback()
-			return result, err
-		}
-		if err := os.Rename(newPath, target); err != nil {
-			if hadBackup {
-				_ = os.Rename(backupPath, target)
-			}
-			_ = os.Remove(newPath)
-			rollback()
-			return result, err
+			return err
 		}
 		applied = append(applied, appliedFile{target: target, backup: backupPath, hadBackup: hadBackup})
+		if err := os.Rename(newPath, target); err != nil {
+			return err
+		}
 		result.Installed = append(result.Installed, file.TargetPath)
+		return nil
+	})
+	if err != nil {
+		if rollbackErr := rollback(); rollbackErr != nil {
+			return result, fmt.Errorf("stream install failed: %w; rollback failed: %v", err, rollbackErr)
+		}
+		return result, fmt.Errorf("stream install failed: %w", err)
 	}
+	if !reflect.DeepEqual(installedManifest, bundle.Manifest) {
+		if rollbackErr := rollback(); rollbackErr != nil {
+			return result, fmt.Errorf("bundle manifest changed during install; rollback failed: %v", rollbackErr)
+		}
+		return result, errors.New("bundle manifest changed during install")
+	}
+	var cleanupFailures []string
 	for _, item := range applied {
 		if item.hadBackup {
-			_ = os.Remove(item.backup)
+			if err := os.Remove(item.backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+				cleanupFailures = append(cleanupFailures, fmt.Sprintf("remove completed-install backup %q: %v", item.backup, err))
+			}
 		}
 	}
+	if len(cleanupFailures) > 0 {
+		return result, errors.New(strings.Join(cleanupFailures, "; "))
+	}
 	return result, nil
+}
+
+func installedFileMatches(target string, info os.FileInfo, file File) (bool, error) {
+	if info.Size() != file.Size || uint32(info.Mode().Perm()) != file.Mode {
+		return false, nil
+	}
+	f, err := os.Open(target)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, f); err != nil {
+		return false, err
+	}
+	return hex.EncodeToString(hash.Sum(nil)) == strings.ToLower(file.SHA256), nil
+}
+
+func requiredInstallBytes(root string, manifest Manifest) (uint64, error) {
+	var required uint64
+	for _, file := range manifest.Files {
+		target, err := resolveTarget(root, file.TargetPath)
+		if err != nil {
+			return 0, err
+		}
+		info, statErr := os.Lstat(target)
+		if statErr == nil && !info.Mode().IsRegular() {
+			return 0, fmt.Errorf("refusing to replace non-regular target %q", file.TargetPath)
+		}
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return 0, statErr
+		}
+		if statErr == nil && file.Policy == "preserve" {
+			continue
+		}
+		if statErr == nil {
+			matches, err := installedFileMatches(target, info, file)
+			if err != nil {
+				return 0, err
+			}
+			if matches {
+				continue
+			}
+		}
+		required += uint64(file.Size)
+	}
+	return required, nil
+}
+
+func checkInstallSpace(required, available uint64, supported bool) error {
+	if supported && available < required+installReserve {
+		return fmt.Errorf("insufficient free space on /opt: need %d bytes plus %d bytes reserve, have %d bytes", required, installReserve, available)
+	}
+	return nil
 }
 
 func (bundle *Bundle) scan(consume func(File, io.Reader) error) (Manifest, error) {
@@ -631,22 +704,22 @@ func ensureWithinRoot(root, directory string) error {
 	return ensureLexicallyWithinRoot(realRoot, realDirectory)
 }
 
-func copyFile(sourcePath, targetPath string, mode os.FileMode) error {
-	source, err := os.Open(sourcePath)
-	if err != nil {
-		return err
-	}
-	defer source.Close()
+func copyReader(source io.Reader, targetPath string, mode os.FileMode) error {
 	target, err := os.OpenFile(targetPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 	if err != nil {
 		return err
 	}
 	_, copyErr := io.Copy(target, source)
+	chmodErr := target.Chmod(mode)
 	syncErr := target.Sync()
 	closeErr := target.Close()
 	if copyErr != nil {
 		_ = os.Remove(targetPath)
 		return copyErr
+	}
+	if chmodErr != nil {
+		_ = os.Remove(targetPath)
+		return chmodErr
 	}
 	if syncErr != nil {
 		_ = os.Remove(targetPath)
