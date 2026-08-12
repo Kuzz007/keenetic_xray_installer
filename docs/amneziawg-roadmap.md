@@ -61,18 +61,22 @@ choices.
 2. **AWG runtime probe**
    - Pin maintained `amneziawg-go` and tools versions with immutable commits.
    - Cross-build and run architecture smoke tests for `arm64` and `mipsle`.
-   - Measure memory on the 40 MB target before including AWG in MINIMAL.
+   - Measure memory on constrained targets before including AWG in MINIMAL.
    - Detect required TUN, routing and interface-binding support read-only.
    - See [`amneziawg-runtime.md`](amneziawg-runtime.md) for the automated
-     pre-router checks and the remaining live-router gate.
+     checks and the completed 124528 kB MIPSLE router measurement.
    - Use [`amneziawg-live-router-probe.md`](amneziawg-live-router-probe.md)
      for the isolated MIPSLE preflight and memory measurement.
+   - Status: isolated runtime/cleanup passed on the tested MIPSLE router;
+     a true 40 MB physical-RAM model still requires its own measurement if
+     one is put in scope.
 
 3. **Single AWG slot**
    - Store a validated AWG profile atomically with mode `0600`.
    - Start/stop the AWG interface with rollback on failed handshake or SOCKS
      health-check.
    - Reuse the existing local SOCKS5 address and Keenetic policy.
+   - Run the AWG daemon only while an AWG slot is active or being checked.
 
 4. **Mixed failover**
    - Generalize primary/backup from VLESS sources to typed VPN profiles.

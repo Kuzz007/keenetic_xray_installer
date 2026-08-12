@@ -52,14 +52,40 @@ Local Windows cross-builds produced stripped `amneziawg-go` sizes of
 3,276,962 bytes for arm64 and 3,801,281 bytes for mipsle. CI is authoritative
 for the Linux-built artifacts and static configurator.
 
-## Remaining router gate
+## Live MIPSLE result
+
+The isolated runner was executed on a real MIPSLE Keenetic on 2026-08-12 while
+the existing Xray, Go agent and router services remained online. The router
+reported `MemTotal: 124528 kB`, no swap and approximately 25-27 MB available
+memory before each run. `/opt` had approximately 18 MB free after the probe
+artifacts were copied to it.
+
+| Duration | Runtime RSS | Runtime HWM | Threads | Available before | Available during | Available after |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 second | 4388 kB | 4616 kB | 12 | 25812 kB | 21960 kB | 25536 kB |
+| 5 seconds | 5412 kB | 5412 kB | 12 | 25348 kB | 22560 kB | 25136 kB |
+
+Both runs completed with matching binary SHA256 values and reported restored
+routes, routing rules and managed Xray/active-slot state. `Proxy0` and the
+active slot were not touched. No real peer, handshake or traffic was used.
+
+This passes the isolated runtime and cleanup gate for the tested router. It
+supports proceeding to the single-slot integration stage with an on-demand
+daemon policy. It does not prove that the same runtime is safe on a device
+with only 40 MB of physical RAM; that remains a separate target-specific gate
+if such a router is put in scope.
+
+## Remaining integration gates
 
 QEMU proves that the binaries execute for each architecture, but its memory
 usage is not representative. The native CI RSS measurement is an early budget
-signal only. Before AWG is added to MINIMAL, the exact mipsle runtime must be
-started on the 40 MB router and measured together with Xray, the Go agent and
-the existing watchdog. No bundle inclusion is allowed until that live gate
-passes. The artifact includes a fail-closed router runner and Russian
+signal only. The artifact includes a fail-closed router runner and Russian
 instructions in [`amneziawg-live-router-probe.md`](amneziawg-live-router-probe.md).
 Its first `preflight` mode is read-only; the explicit live mode creates no
 address or route and verifies cleanup before reporting success.
+
+Before AWG is included in a user-facing MINIMAL bundle, the next implementation
+must also prove a real self-hosted handshake, Xray outbound binding to the AWG
+interface, SOCKS5 health and transactional rollback to the existing VLESS
+slot. A true 40 MB physical-RAM target, if required, must repeat the isolated
+runtime test on that exact hardware.
