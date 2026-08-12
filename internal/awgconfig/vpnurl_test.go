@@ -95,6 +95,62 @@ func TestParseVPNURLAllowsUncompressedJSONAndObjectLastConfig(t *testing.T) {
 	}
 }
 
+func TestParseVPNURLAllowsNativeAWGGuest(t *testing.T) {
+	native := validNativeConfig(t, `Jc = 4
+Jmin = 87
+Jmax = 192
+S1 = 72
+S2 = 62
+S3 = 48
+S4 = 6
+H1 = 269108616-272715816
+H2 = 859374505-876048586
+H3 = 1324057189-1463998296
+H4 = 1688358172-2010631103
+I1 = <b 0xc000000001081d2f><r 28><b 0x5f19994d><r 32><r 16>`)
+	link := "vpn://" + base64.RawURLEncoding.EncodeToString([]byte(native))
+
+	profile, err := ParseVPNURL(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Container != "amnezia-awg-native" || profile.AWGVersion != "2" {
+		t.Fatalf("unexpected native profile: %#v", profile)
+	}
+	if profile.EndpointHost != "vpn.example.com" || profile.EndpointPort != 443 {
+		t.Fatalf("unexpected endpoint: %#v", profile)
+	}
+	if profile.NativeConfig() != native {
+		t.Fatal("native guest config was not retained exactly")
+	}
+}
+
+func TestParseVPNURLNativeGuestKeepsStrictValidation(t *testing.T) {
+	native := strings.Replace(validNativeConfig(t, "Jc = 4"), "Address = 10.8.0.2/32", "Address = 10.8.0.2/32\nPostUp = curl https://example.com", 1)
+	link := "vpn://" + base64.RawStdEncoding.EncodeToString([]byte(native))
+	if _, err := ParseVPNURL(link); !errors.Is(err, ErrInvalidVPNLink) {
+		t.Fatalf("native guest hook error = %v, want invalid vpn link", err)
+	}
+}
+
+func TestDecodeVPNBase64AcceptsURLAndStandardAlphabets(t *testing.T) {
+	payload := []byte{0xfb, 0xff, 0xef}
+	for name, encoded := range map[string]string{
+		"url":      base64.RawURLEncoding.EncodeToString(payload),
+		"standard": base64.RawStdEncoding.EncodeToString(payload),
+	} {
+		t.Run(name, func(t *testing.T) {
+			decoded, err := decodeVPNBase64(encoded)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(decoded, payload) {
+				t.Fatalf("decoded payload = %x, want %x", decoded, payload)
+			}
+		})
+	}
+}
+
 func TestParseVPNURLRejectsOutOfScopeConfigs(t *testing.T) {
 	tests := []struct {
 		name   string
