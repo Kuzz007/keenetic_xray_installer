@@ -101,6 +101,9 @@ func run(args []string) error {
 		if len(result.Preserved) > 0 {
 			fmt.Printf(", %d existing file(s) preserved", len(result.Preserved))
 		}
+		if len(result.Unchanged) > 0 {
+			fmt.Printf(", %d file(s) already current", len(result.Unchanged))
+		}
 		fmt.Println()
 		fmt.Println("VPN sources and /opt/etc/xray configuration were not changed.")
 		return nil

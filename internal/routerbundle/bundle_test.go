@@ -36,6 +36,13 @@ func TestBuildOpenAndInstall(t *testing.T) {
 	writeTestFile(t, filepath.Join(root, "opt", "bin"), "xray-failover-go", "old resolver")
 	writeTestFile(t, filepath.Join(root, "opt", "bin"), "xray-go-agent", "running agent")
 	writeTestFile(t, filepath.Join(root, "opt", "etc", "xray"), "config.json", "user config")
+	required, err := requiredInstallBytes(root, bundle.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := uint64(len("new resolver")); required != want {
+		t.Fatalf("required install bytes = %d, want %d", required, want)
+	}
 	result, err := bundle.Install(root)
 	if err != nil {
 		t.Fatal(err)
@@ -105,6 +112,75 @@ func TestInstallRollsBackEarlierFiles(t *testing.T) {
 	assertTestFile(t, filepath.Join(root, "opt", "bin", "first"), "old first")
 }
 
+func TestInstallSkipsUnchangedReplaceFile(t *testing.T) {
+	t.Parallel()
+	temp := t.TempDir()
+	root := filepath.Join(temp, "root")
+	target := writeTestFile(t, filepath.Join(root, "opt", "bin"), "current", "already current")
+	targetInfo, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := writeTestFile(t, temp, "current-source", "already current")
+	manifest, inputs := testManifest(t, []testInput{
+		{source: source, archive: "files/000-current", target: "/opt/bin/current", policy: "replace"},
+	})
+	manifest.Files[0].Mode = uint32(targetInfo.Mode().Perm())
+	inputs[0].File = manifest.Files[0]
+	bundlePath := buildTestBundle(t, temp, manifest, inputs)
+	bundle, err := Open(bundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	required, err := requiredInstallBytes(root, bundle.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if required != 0 {
+		t.Fatalf("required install bytes = %d, want 0 for an unchanged target", required)
+	}
+
+	result, err := bundle.Install(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Installed) != 0 || len(result.Unchanged) != 1 || result.Unchanged[0] != "/opt/bin/current" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	assertTestFile(t, target, "already current")
+}
+
+func TestInstallDoesNotRequireOptTmpStaging(t *testing.T) {
+	t.Parallel()
+	temp := t.TempDir()
+	source := writeTestFile(t, temp, "source", "streamed payload")
+	manifest, inputs := testManifest(t, []testInput{
+		{source: source, archive: "files/000-source", target: "/opt/bin/source", policy: "replace"},
+	})
+	bundlePath := buildTestBundle(t, temp, manifest, inputs)
+	bundle, err := Open(bundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root := filepath.Join(temp, "root")
+	if err := os.MkdirAll(filepath.Join(root, "opt"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "opt", "tmp"), []byte("must remain a regular file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := bundle.Install(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Installed) != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	assertTestFile(t, filepath.Join(root, "opt", "bin", "source"), "streamed payload")
+	assertTestFile(t, filepath.Join(root, "opt", "tmp"), "must remain a regular file")
+}
+
 func TestValidateManifestRejectsUnsafeTargetAndPolicy(t *testing.T) {
 	t.Parallel()
 	manifest, _ := testManifest(t, []testInput{{source: "unused", archive: "files/000-source", target: "/opt/bin/source", policy: "replace", content: "payload"}})
@@ -116,6 +192,19 @@ func TestValidateManifestRejectsUnsafeTargetAndPolicy(t *testing.T) {
 	manifest.Files[0].Policy = "overwrite-always"
 	if err := ValidateManifest(manifest); err == nil {
 		t.Fatal("ValidateManifest() accepted unknown policy")
+	}
+}
+
+func TestCheckInstallSpace(t *testing.T) {
+	t.Parallel()
+	if err := checkInstallSpace(10, 0, false); err != nil {
+		t.Fatalf("unsupported free-space check must not fail: %v", err)
+	}
+	if err := checkInstallSpace(10, 10+installReserve, true); err != nil {
+		t.Fatalf("exact required space and reserve must pass: %v", err)
+	}
+	if err := checkInstallSpace(10, 9+installReserve, true); err == nil || !strings.Contains(err.Error(), "insufficient free space") {
+		t.Fatalf("space check error = %v, want insufficient free space", err)
 	}
 }
 
