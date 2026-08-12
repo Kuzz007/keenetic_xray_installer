@@ -56,6 +56,10 @@ type runtimeState struct {
 	Runtime        string   `json:"runtime"`
 	Tools          string   `json:"tools"`
 	Interface      string   `json:"interface"`
+	RouteTable     uint32   `json:"route_table,omitempty"`
+	RouteMark      uint32   `json:"route_mark,omitempty"`
+	RulePref       uint32   `json:"rule_pref,omitempty"`
+	RoutePrefixes  []string `json:"route_prefixes,omitempty"`
 	PausedServices []string `json:"paused_services,omitempty"`
 	ActivatedAt    string   `json:"activated_at,omitempty"`
 }
@@ -69,6 +73,9 @@ type statusOutput struct {
 	Phase         string `json:"phase"`
 	Runtime       string `json:"runtime"`
 	InterfaceName string `json:"interface,omitempty"`
+	RouteTable    uint32 `json:"route_table,omitempty"`
+	RouteMark     uint32 `json:"route_mark,omitempty"`
+	RulePref      uint32 `json:"rule_pref,omitempty"`
 }
 
 func main() {
@@ -290,6 +297,9 @@ func printStatus(opts options) error {
 	if state, err := loadState(opts); err == nil {
 		status.Phase = state.Phase
 		status.InterfaceName = state.Interface
+		status.RouteTable = state.RouteTable
+		status.RouteMark = state.RouteMark
+		status.RulePref = state.RulePref
 		if state.PID > 0 && processMatches(state.PID, state.Runtime) {
 			status.Runtime = "running"
 		}
@@ -309,6 +319,11 @@ func printStatus(opts options) error {
 	fmt.Printf("AWG_SLOT_RUNTIME=%s\n", status.Runtime)
 	if status.InterfaceName != "" {
 		fmt.Printf("AWG_SLOT_INTERFACE=%s\n", status.InterfaceName)
+	}
+	if status.RouteTable != 0 {
+		fmt.Printf("AWG_SLOT_ROUTE_TABLE=%d\n", status.RouteTable)
+		fmt.Printf("AWG_SLOT_ROUTE_MARK=%d\n", status.RouteMark)
+		fmt.Printf("AWG_SLOT_RULE_PREF=%d\n", status.RulePref)
 	}
 	return nil
 }
