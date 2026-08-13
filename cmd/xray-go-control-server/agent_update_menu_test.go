@@ -53,6 +53,32 @@ func TestBuildAgentInstallCommandForDevIsQuoted(t *testing.T) {
 	}
 }
 
+func TestBuildAgentInstallCommandFitsKeeneticShellLineLimit(t *testing.T) {
+	command := buildAgentInstallCommandForChannel(
+		"https://185.252.177.2:18090",
+		"bubadom",
+		"Бубадом",
+		strings.Repeat("a", 64),
+		strings.Repeat("b", 64),
+		"latest",
+	)
+	lines := strings.Split(command, "\n")
+	if len(lines) != 4 {
+		t.Fatalf("bootstrap line count = %d, want 4:\n%s", len(lines), command)
+	}
+	for index, line := range lines {
+		if len(line) >= 512 {
+			t.Fatalf("bootstrap line %d is %d bytes, must stay below Keenetic's 512-byte input limit", index+1, len(line))
+		}
+	}
+	if !strings.Contains(lines[1], "_XRAY_AGENT_INSTALL_READY=1") {
+		t.Fatal("download line does not arm the guarded install")
+	}
+	if !strings.HasPrefix(lines[2], `[ "${_XRAY_AGENT_INSTALL_READY:-}" = 1 ] && TAG='latest' `) {
+		t.Fatalf("install line is not guarded by a successful download:\n%s", lines[2])
+	}
+}
+
 func TestFormatAgentUpdateCheckResult(t *testing.T) {
 	res := Result{
 		CommandID: "agent_update_check-1",
