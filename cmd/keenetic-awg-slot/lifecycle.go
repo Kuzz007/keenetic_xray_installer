@@ -697,7 +697,18 @@ func networkCleanupCommands(state runtimeState) [][]string {
 
 func commandExistsForCleanup(_ []string, output []byte) bool {
 	text := strings.ToLower(string(output))
-	return !strings.Contains(text, "no such") && !strings.Contains(text, "not found") && !strings.Contains(text, "cannot find") && !strings.Contains(text, "no such process")
+	for _, absent := range []string{
+		"no such",
+		"not found",
+		"cannot find",
+		"can't find device",
+		"does not exist",
+	} {
+		if strings.Contains(text, absent) {
+			return false
+		}
+	}
+	return true
 }
 
 func stopRuntime(state runtimeState) error {
