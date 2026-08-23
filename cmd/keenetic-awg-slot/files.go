@@ -65,6 +65,9 @@ func loadState(opts options) (runtimeState, error) {
 	if state.Schema != stateSchema || state.Runtime == "" || state.Tools == "" || state.Interface == "" {
 		return runtimeState{}, errors.New("AWG runtime state has an unsupported format")
 	}
+	if normalizedProfileSlot(state.ProfileSlot) == "" {
+		return runtimeState{}, errors.New("AWG runtime state has an invalid profile slot")
+	}
 	networkValues := 0
 	for _, value := range []uint32{state.RouteTable, state.RouteMark, state.RulePref} {
 		if value != 0 {

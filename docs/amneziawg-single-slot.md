@@ -144,6 +144,8 @@ The validation also covered the BusyBox teardown case where stopping
 missing device is now treated as an already-completed idempotent cleanup,
 while permission errors and invalid routing commands still fail closed.
 
-Do not use the existing `vless-go-failover switch` or bot slot buttons while
-AWG is active in this validation stage. Typed primary/backup integration is
-the next delivery stage.
+The legacy `single` profile remains isolated for compatibility. Do not use the
+typed switch or bot slot buttons while that legacy profile is active. Phase 4A
+adds separate named AWG profiles and guarded manual VLESS/AWG switching; see
+[`amneziawg-mixed-failover.md`](amneziawg-mixed-failover.md). Bot control and
+automatic AWG failover remain later stages.
