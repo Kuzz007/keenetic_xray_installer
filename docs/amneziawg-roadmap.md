@@ -77,9 +77,10 @@ choices.
      health-check.
    - Reuse the existing local SOCKS5 address and Keenetic policy.
    - Run the AWG daemon only while an AWG slot is active or being checked.
-   - Status: implemented behind the local `keenetic-awg-slot` CLI and bundled
-     in FULL/MINIMAL for Dev validation. It is deliberately separate from the
-     existing primary/backup selector. See
+   - Status: implemented behind the local `keenetic-awg-slot` CLI, bundled in
+     FULL/MINIMAL, and live-validated through activation, handshake, traffic,
+     idempotent deactivation and VLESS/SOCKS restoration on aarch64. It is
+     deliberately separate from the existing primary/backup selector. See
      [`amneziawg-single-slot.md`](amneziawg-single-slot.md).
 
 4. **Mixed failover**
