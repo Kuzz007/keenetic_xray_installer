@@ -165,6 +165,12 @@ active_slot() {
     [ -s "$STORE" ] && sed -n '1p' "$STORE" || echo "unknown"
 }
 
+full_slot_type() {
+    case "$1" in primary|backup) ;; *) echo unknown; return 1 ;; esac
+    TYPE_VALUE="$(sed -n '1p' "$XRAY_DIR/vpn-slot.$1.type" 2>/dev/null || true)"
+    case "$TYPE_VALUE" in awg) echo awg ;; *) echo vless ;; esac
+}
+
 cron_running() {
     ps 2>/dev/null | grep -Ei '[c]ron[d]?' >/dev/null 2>&1
 }
@@ -380,6 +386,10 @@ switch_to_slot() {
     MODE="$(detect_mode)"
     case "$MODE" in
         full)
+            if [ "$(full_slot_type "$target")" = awg ]; then
+                log "Recovery step: automatic AWG switch is disabled in mixed-failover phase 4A"
+                return 1
+            fi
             [ -x "$FULL_FAILOVER_CMD" ] || { log "Recovery step: switch skipped, command not found: $FULL_FAILOVER_CMD"; return 1; }
             log "Recovery step: switch $(active_slot) -> $target (full)"
             VLESS_GO_HISTORY_SUPPRESS=1 "$FULL_FAILOVER_CMD" switch "$target" --first >/dev/null 2>&1 || return 1

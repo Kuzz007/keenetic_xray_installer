@@ -123,6 +123,7 @@ func activateSlot(opts options) (resultErr error) {
 	}
 	state := runtimeState{
 		Phase:         "starting",
+		ProfileSlot:   opts.profileSlot,
 		Runtime:       opts.runtime,
 		Tools:         opts.tools,
 		Interface:     opts.interfaceName,
@@ -222,8 +223,8 @@ func activateSlot(opts options) (resultErr error) {
 	if err := saveState(opts, state); err != nil {
 		return err
 	}
-	fmt.Printf("AWG slot active: interface=%s socks=%s:%d\n", opts.interfaceName, socks.Address, socks.Port)
-	fmt.Println("The original Xray/VLESS configuration is saved for transactional rollback.")
+	fmt.Printf("AWG slot active: slot=%s interface=%s socks=%s:%d\n", opts.profileSlot, opts.interfaceName, socks.Address, socks.Port)
+	fmt.Println("The previous Xray/VPN configuration is saved for transactional rollback.")
 	return nil
 }
 
@@ -242,7 +243,7 @@ func deactivate(opts options) error {
 	if err := rollback(opts, state, true); err != nil {
 		return err
 	}
-	fmt.Println("AWG slot stopped; the previous Xray/VLESS configuration was restored.")
+	fmt.Println("AWG slot stopped; the previous Xray/VPN configuration was restored.")
 	return nil
 }
 
@@ -267,7 +268,7 @@ func recoverSlot(opts options) error {
 	if err := rollback(opts, state, true); err != nil {
 		return err
 	}
-	fmt.Println("AWG recovery completed; the stored VLESS configuration is active.")
+	fmt.Println("AWG recovery completed; the stored previous Xray configuration is active.")
 	return nil
 }
 

@@ -12,6 +12,16 @@ HISTORY_CMD="/opt/bin/vless-go-history"
 CONFIG_FILE="${CONFIG_FILE:-$XRAY_DIR/vless-go-watchdog.conf}"
 AWG_RUNTIME_STATE="$XRAY_DIR/awg/runtime.json"
 
+slot_type() {
+    case "$1" in primary|backup) ;; *) echo unknown; return 1 ;; esac
+    TYPE_FILE="$XRAY_DIR/vpn-slot.$1.type"
+    TYPE_VALUE="$(sed -n '1p' "$TYPE_FILE" 2>/dev/null || true)"
+    case "$TYPE_VALUE" in
+        awg) echo awg ;;
+        *) echo vless ;;
+    esac
+}
+
 SOCKS_HOST="${SOCKS_HOST:-127.0.0.1}"
 SOCKS_PORT="${SOCKS_PORT:-10808}"
 CHECK_URL="${CHECK_URL:-http://connectivitycheck.gstatic.com/generate_204}"
@@ -227,6 +237,10 @@ refresh_proxy0_if_needed() {
 switch_to() {
     SLOT="$1"
     REASON="${2:-manual}"
+    if [ "$(slot_type "$SLOT")" = "awg" ]; then
+        log "Automatic AWG switching is disabled in mixed-failover phase 4A; use a manual slot switch"
+        return 1
+    fi
     if awg_owns_xray; then
         log "VLESS switch skipped: isolated AWG slot owns Xray"
         return 1
@@ -272,6 +286,10 @@ rollback_to_backup_after_failed_recovery() {
 }
 
 probe_primary() {
+    if [ "$(slot_type primary)" = "awg" ]; then
+        log "Automatic AWG primary probe is disabled in mixed-failover phase 4A"
+        return 1
+    fi
     [ -s "$PRIMARY_STORE" ] || { log "Основной источник не настроен; probe primary невозможен."; return 1; }
     [ -x "$GO_RESOLVER" ] || { log "Go resolver/generator не найден: $GO_RESOLVER"; return 1; }
 
@@ -338,6 +356,10 @@ probe_primary() {
 
 recover_primary_once() {
     [ "$AUTO_RECOVER_PRIMARY" = "1" ] || { log "Auto recovery primary disabled: AUTO_RECOVER_PRIMARY=$AUTO_RECOVER_PRIMARY"; return 1; }
+    if [ "$(slot_type primary)" = "awg" ]; then
+        log "Automatic recovery to an AWG primary is disabled in mixed-failover phase 4A"
+        return 1
+    fi
     [ -s "$PRIMARY_STORE" ] || { log "Основной профиль не настроен; recovery primary невозможен."; return 1; }
     log "Проверка восстановления primary на временном SOCKS порту $RECOVERY_TEST_PORT"
     if ! probe_primary; then

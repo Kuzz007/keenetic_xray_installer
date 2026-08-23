@@ -125,6 +125,7 @@ Only after the slot is inactive can the stored profile be removed:
 /opt/bin/keenetic-awg-slot delete
 ```
 
-Do not use the existing `vless-go-failover switch` or bot slot buttons while
-AWG is active in this validation stage. Typed primary/backup integration is
-the next delivery stage.
+The legacy `single` profile remains isolated for compatibility. Phase 4A adds
+separate named AWG profiles and guarded manual VLESS/AWG switching; see
+[`amneziawg-mixed-failover.md`](amneziawg-mixed-failover.md). Bot control and
+automatic AWG failover remain later stages.

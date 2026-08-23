@@ -24,6 +24,7 @@ var slotVersion = "dev"
 
 type options struct {
 	dir              string
+	profileSlot      string
 	input            string
 	runtime          string
 	tools            string
@@ -52,6 +53,7 @@ type storedProfile struct {
 type runtimeState struct {
 	Schema         string   `json:"schema"`
 	Phase          string   `json:"phase"`
+	ProfileSlot    string   `json:"profile_slot,omitempty"`
 	PID            int      `json:"pid,omitempty"`
 	Runtime        string   `json:"runtime"`
 	Tools          string   `json:"tools"`
@@ -66,6 +68,8 @@ type runtimeState struct {
 
 type statusOutput struct {
 	Version       string `json:"version"`
+	SelectedSlot  string `json:"selected_slot"`
+	ActiveSlot    string `json:"active_slot,omitempty"`
 	Profile       string `json:"profile"`
 	AWGVersion    string `json:"awg_version,omitempty"`
 	AddressCount  int    `json:"address_count,omitempty"`
@@ -104,6 +108,7 @@ func run(args []string) error {
 	flags.SetOutput(os.Stderr)
 	opts := options{}
 	flags.StringVar(&opts.dir, "dir", "/opt/etc/xray/awg", "AWG profile and runtime state directory")
+	flags.StringVar(&opts.profileSlot, "slot", "single", "AWG profile slot: single, primary or backup")
 	flags.StringVar(&opts.input, "input", "-", "vpn:// input file, or - for stdin")
 	flags.StringVar(&opts.runtime, "runtime", "/opt/libexec/amneziawg-go", "amneziawg-go executable")
 	flags.StringVar(&opts.tools, "tools", "/opt/bin/awg", "AmneziaWG configurator executable")
@@ -193,6 +198,9 @@ func validateOptions(opts options) error {
 	if opts.xrayBinary != "" && !filepath.IsAbs(opts.xrayBinary) {
 		return errors.New("Xray binary path must be absolute")
 	}
+	if !validProfileSlot(opts.profileSlot) {
+		return errors.New("AWG profile slot must be single, primary or backup")
+	}
 	if opts.interfaceName == "" || len(opts.interfaceName) > 15 {
 		return errors.New("AWG interface must contain 1..15 characters")
 	}
@@ -205,6 +213,15 @@ func validateOptions(opts options) error {
 		}
 	}
 	return nil
+}
+
+func validProfileSlot(slot string) bool {
+	switch slot {
+	case "single", "primary", "backup":
+		return true
+	default:
+		return false
+	}
 }
 
 func isInterfaceAlphaNumeric(character byte) bool {
@@ -250,7 +267,7 @@ func importProfile(opts options) error {
 	if input != nil {
 		_ = input.Close()
 	}
-	if err := ensurePrivateDir(opts.dir); err != nil {
+	if err := ensurePrivateDir(filepath.Dir(profilePath(opts))); err != nil {
 		return err
 	}
 	if err := writeFileAtomic(profilePath(opts), []byte(profile.NativeConfig()), 0600); err != nil {
@@ -275,12 +292,12 @@ func importProfile(opts options) error {
 		return fmt.Errorf("store AWG profile metadata: %w", err)
 	}
 	fmt.Printf("AWG profile imported: version=%s addresses=%d allowed_ips=%d\n", profile.AWGVersion, len(profile.Addresses), len(profile.AllowedIPs))
-	fmt.Println("The active VLESS profile and Xray configuration were not changed.")
+	fmt.Println("The active VPN slot and Xray configuration were not changed.")
 	return nil
 }
 
 func printStatus(opts options) error {
-	status := statusOutput{Version: slotVersion, Profile: "not-configured", Phase: "inactive", Runtime: "stopped"}
+	status := statusOutput{Version: slotVersion, SelectedSlot: opts.profileSlot, Profile: "not-configured", Phase: "inactive", Runtime: "stopped"}
 	if raw, err := os.ReadFile(profilePath(opts)); err == nil {
 		profile, parseErr := awgconfig.ParseNativeConfig(string(raw))
 		if parseErr != nil {
@@ -296,6 +313,7 @@ func printStatus(opts options) error {
 	}
 	if state, err := loadState(opts); err == nil {
 		status.Phase = state.Phase
+		status.ActiveSlot = normalizedProfileSlot(state.ProfileSlot)
 		status.InterfaceName = state.Interface
 		status.RouteTable = state.RouteTable
 		status.RouteMark = state.RouteMark
@@ -325,6 +343,10 @@ func printStatus(opts options) error {
 		fmt.Printf("AWG_SLOT_ROUTE_MARK=%d\n", status.RouteMark)
 		fmt.Printf("AWG_SLOT_RULE_PREF=%d\n", status.RulePref)
 	}
+	fmt.Printf("AWG_SLOT_SELECTED=%s\n", status.SelectedSlot)
+	if status.ActiveSlot != "" {
+		fmt.Printf("AWG_SLOT_ACTIVE=%s\n", status.ActiveSlot)
+	}
 	return nil
 }
 
@@ -344,12 +366,23 @@ func deleteProfile(opts options) error {
 			return fmt.Errorf("delete AWG profile: %w", err)
 		}
 	}
-	fmt.Println("AWG profile deleted. Active VLESS state was not changed.")
+	fmt.Println("AWG profile deleted. Active VPN state was not changed.")
 	return nil
 }
 
-func profilePath(opts options) string  { return filepath.Join(opts.dir, "single.conf") }
-func metadataPath(opts options) string { return filepath.Join(opts.dir, "single.json") }
+func profilePath(opts options) string {
+	if opts.profileSlot == "single" {
+		return filepath.Join(opts.dir, "single.conf")
+	}
+	return filepath.Join(opts.dir, "profiles", opts.profileSlot+".conf")
+}
+
+func metadataPath(opts options) string {
+	if opts.profileSlot == "single" {
+		return filepath.Join(opts.dir, "single.json")
+	}
+	return filepath.Join(opts.dir, "profiles", opts.profileSlot+".json")
+}
 func statePath(opts options) string    { return filepath.Join(opts.dir, "runtime.json") }
 func rollbackPath(opts options) string { return filepath.Join(opts.dir, "xray.rollback.json") }
 func runtimeLogPath(opts options) string {
@@ -369,20 +402,30 @@ func cleanLabel(value string) string {
 	return value
 }
 
+func normalizedProfileSlot(slot string) string {
+	if slot == "" {
+		return "single"
+	}
+	if validProfileSlot(slot) {
+		return slot
+	}
+	return ""
+}
+
 func usage() {
 	fmt.Println(`keenetic-awg-slot - isolated self-hosted AmneziaWG slot
 
 Usage:
-  keenetic-awg-slot import --input FILE|-     # vpn:// never goes in argv
-  keenetic-awg-slot status [--json]
-  keenetic-awg-slot activate [runtime options]
+  keenetic-awg-slot import --slot single|primary|backup --input FILE|-
+  keenetic-awg-slot status --slot single|primary|backup [--json]
+  keenetic-awg-slot activate --slot single|primary|backup [runtime options]
   keenetic-awg-slot deactivate
   keenetic-awg-slot recover
   keenetic-awg-slot delete
   keenetic-awg-slot version
 
-The single AWG slot is separate from primary/backup until mixed failover is
-implemented. Activation keeps the existing SOCKS inbound and replaces only
-the current VLESS outbound. Any failed runtime, handshake or SOCKS check
-restores the previous Xray configuration.`)
+The legacy single profile remains available. Named primary/backup profiles are
+used by the mixed failover layer. Activation keeps the existing SOCKS inbound
+and replaces only the current outbound. Any failed runtime, handshake or SOCKS
+check restores the previous Xray configuration.`)
 }

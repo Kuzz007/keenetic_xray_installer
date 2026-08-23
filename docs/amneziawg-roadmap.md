@@ -87,6 +87,10 @@ choices.
    - Support VLESS→AWG, AWG→VLESS and AWG→AWG.
    - Switch the selected adapter transactionally and roll back to the last
      healthy slot on failure.
+   - Status: phase 4A implements named AWG profiles and guarded manual typed
+     switching for Dev validation. Automatic AWG selection remains disabled
+     in watchdog/recovery until the unified health supervisor is added. See
+     [`amneziawg-mixed-failover.md`](amneziawg-mixed-failover.md).
 
 5. **Agent and bot**
    - Add typed profile status without returning secrets.

@@ -1,15 +1,17 @@
 #!/bin/sh
 set -e
 
-XRAY_DIR="/opt/etc/xray"
+XRAY_DIR="${XRAY_DIR:-/opt/etc/xray}"
 SOURCE_STORE="$XRAY_DIR/vless-go.source"
 PRIMARY_STORE="$XRAY_DIR/vless-go.primary"
 BACKUP_STORE="$XRAY_DIR/vless-go.backup"
 ACTIVE_STORE="$XRAY_DIR/vless-go.active"
-GO_UPDATE_CMD="/opt/bin/vless-go-update"
-HISTORY_CMD="/opt/bin/vless-go-history"
-LOCK_HELPER="/opt/libexec/vless-go-lock.sh"
+GO_UPDATE_CMD="${GO_UPDATE_CMD:-/opt/bin/vless-go-update}"
+HISTORY_CMD="${HISTORY_CMD:-/opt/bin/vless-go-history}"
+LOCK_HELPER="${LOCK_HELPER:-/opt/libexec/vless-go-lock.sh}"
 AWG_RUNTIME_STATE="$XRAY_DIR/awg/runtime.json"
+AWG_PROFILE_DIR="$XRAY_DIR/awg/profiles"
+AWG_SLOT_CMD="${AWG_SLOT_CMD:-/opt/bin/keenetic-awg-slot}"
 
 if [ -s "$LOCK_HELPER" ]; then
     . "$LOCK_HELPER"
@@ -29,6 +31,7 @@ usage() {
     echo "  status"
     echo "  set-primary SRC [--selector first|index:N]"
     echo "  set-backup SRC [--selector first|index:N]"
+    echo "  set-awg primary|backup --input FILE|-"
     echo "  set-selector primary|backup first|index:N"
     echo "  switch primary|backup [--selector first|index:N] [--first] [--no-restart]"
     echo "  update-active [--selector first|index:N] [--first] [--no-restart]"
@@ -41,6 +44,53 @@ slot_file() {
         backup) echo "$BACKUP_STORE" ;;
         *) return 1 ;;
     esac
+}
+
+type_file() {
+    case "$1" in
+        primary|backup) echo "$XRAY_DIR/vpn-slot.$1.type" ;;
+        *) return 1 ;;
+    esac
+}
+
+slot_type() {
+    SLOT="$1"
+    FILE="$(type_file "$SLOT")" || return 1
+    VALUE="$(sed -n '1p' "$FILE" 2>/dev/null || true)"
+    case "$VALUE" in
+        vless|awg) printf '%s\n' "$VALUE"; return 0 ;;
+    esac
+    if [ -s "$(slot_file "$SLOT")" ]; then
+        echo vless
+        return 0
+    fi
+    if [ -s "$AWG_PROFILE_DIR/$SLOT.conf" ]; then
+        echo awg
+        return 0
+    fi
+    echo unknown
+}
+
+save_slot_type() {
+    SLOT="$1"
+    VALUE="$2"
+    FILE="$(type_file "$SLOT")" || return 1
+    case "$VALUE" in vless|awg) ;; *) return 1 ;; esac
+    mkdir -p "$XRAY_DIR"
+    TMP="$FILE.tmp.$$"
+    printf '%s\n' "$VALUE" > "$TMP"
+    chmod 600 "$TMP" 2>/dev/null || true
+    mv -f "$TMP" "$FILE"
+}
+
+write_active_slot() {
+    SLOT="$1"
+    case "$SLOT" in primary|backup) ;; *) return 1 ;; esac
+    mkdir -p "$XRAY_DIR"
+    TMP="$ACTIVE_STORE.tmp.$$"
+    printf '%s\n' "$SLOT" > "$TMP"
+    chmod 600 "$TMP" 2>/dev/null || true
+    mv -f "$TMP" "$ACTIVE_STORE"
 }
 
 selector_file() {
@@ -114,12 +164,45 @@ save_source() {
     VALUE="$2"
     SELECTOR="${3:-first}"
     validate_source "$VALUE" || exit 1
+    ACTIVE="$(sed -n '1p' "$ACTIVE_STORE" 2>/dev/null || true)"
+    if [ -s "$AWG_RUNTIME_STATE" ] && [ "$ACTIVE" = "$SLOT" ]; then
+        echo "ERROR: active AWG slot $SLOT cannot be replaced; switch to the other slot first." >&2
+        exit 1
+    fi
     FILE="$(slot_file "$SLOT")" || { echo "ОШИБКА: некорректный слот: $SLOT" >&2; exit 1; }
     mkdir -p "$XRAY_DIR"
     printf '%s\n' "$VALUE" > "$FILE"
     chmod 600 "$FILE" 2>/dev/null || true
     echo "Источник $SLOT сохранён: $FILE"
     save_selector "$SLOT" "$SELECTOR"
+    save_slot_type "$SLOT" vless
+}
+
+set_awg_profile() {
+    [ "$#" -ge 1 ] || { echo "ERROR: set-awg requires primary or backup" >&2; exit 1; }
+    SLOT="$1"
+    shift
+    case "$SLOT" in primary|backup) ;; *) echo "ERROR: invalid AWG slot: $SLOT" >&2; exit 1 ;; esac
+    INPUT="-"
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --input)
+                [ "$#" -ge 2 ] || { echo "ERROR: --input requires FILE or -" >&2; exit 1; }
+                INPUT="$2"
+                shift 2
+                ;;
+            *) echo "ERROR: unknown set-awg argument: $1" >&2; exit 1 ;;
+        esac
+    done
+    [ -x "$AWG_SLOT_CMD" ] || { echo "ERROR: AWG slot manager is not installed: $AWG_SLOT_CMD" >&2; exit 1; }
+    ACTIVE="$(sed -n '1p' "$ACTIVE_STORE" 2>/dev/null || true)"
+    if [ "$ACTIVE" = "$SLOT" ]; then
+        echo "ERROR: configure AWG only in the inactive slot; switch to the other slot first." >&2
+        exit 1
+    fi
+    "$AWG_SLOT_CMD" import --slot "$SLOT" --input "$INPUT"
+    save_slot_type "$SLOT" awg
+    echo "AWG profile staged in $SLOT; active slot ${ACTIVE:-unknown} was not changed."
 }
 
 apply_source_if_active() {
@@ -242,32 +325,164 @@ run_update() {
     echo "Активный VLESS selector: $SELECTOR"
 }
 
+rollback_to_awg_slot() {
+    SLOT="$1"
+    [ "$(slot_type "$SLOT")" = "awg" ] || return 0
+    echo "Rolling back to the previous AWG slot: $SLOT" >&2
+    if "$AWG_SLOT_CMD" activate --slot "$SLOT"; then
+        write_active_slot "$SLOT"
+        return 0
+    fi
+    echo "ERROR: rollback to AWG slot $SLOT failed; run keenetic-awg-slot recover." >&2
+    return 1
+}
+
+switch_to_awg() {
+    SLOT="$1"
+    OLD_SLOT="$(sed -n '1p' "$ACTIVE_STORE" 2>/dev/null || true)"
+    if [ -s "$AWG_RUNTIME_STATE" ]; then
+        if [ "$OLD_SLOT" = "$SLOT" ]; then
+            "$AWG_SLOT_CMD" status --slot "$SLOT"
+            echo "AWG slot $SLOT is already active."
+            return 0
+        fi
+        "$AWG_SLOT_CMD" deactivate
+    fi
+
+    set +e
+    "$AWG_SLOT_CMD" activate --slot "$SLOT"
+    RC="$?"
+    set -e
+    if [ "$RC" -ne 0 ]; then
+        rollback_to_awg_slot "$OLD_SLOT" || true
+        history_log failed_switch action=switch from="${OLD_SLOT:-unknown}" to="$SLOT" type=awg rc="$RC"
+        return "$RC"
+    fi
+    if ! write_active_slot "$SLOT"; then
+        "$AWG_SLOT_CMD" deactivate || true
+        rollback_to_awg_slot "$OLD_SLOT" || true
+        echo "ERROR: AWG activated but active slot state could not be committed." >&2
+        return 1
+    fi
+    history_log manual_switch from="${OLD_SLOT:-unknown}" to="$SLOT" type=awg
+    echo "Active VPN slot: $SLOT (AWG)"
+}
+
+switch_to_vless() {
+    SLOT="$1"
+    SOURCE_VALUE="$2"
+    shift 2
+    OLD_SLOT="$(sed -n '1p' "$ACTIVE_STORE" 2>/dev/null || true)"
+    HAD_AWG=0
+    if [ -s "$AWG_RUNTIME_STATE" ]; then
+        HAD_AWG=1
+        "$AWG_SLOT_CMD" deactivate
+    fi
+
+    set +e
+    (run_update "$SOURCE_VALUE" "$SLOT" "switch" "$@")
+    RC="$?"
+    set -e
+    if [ "$RC" -ne 0 ]; then
+        if [ "$HAD_AWG" = 1 ]; then
+            rollback_to_awg_slot "$OLD_SLOT" || true
+        fi
+        return "$RC"
+    fi
+}
+
+switch_typed() {
+    SLOT="$1"
+    shift
+    case "$SLOT" in primary|backup) ;; *) echo "ERROR: invalid VPN slot: $SLOT" >&2; exit 1 ;; esac
+    TYPE="$(slot_type "$SLOT")"
+    case "$TYPE" in
+        awg)
+            [ "$#" -eq 0 ] || { echo "ERROR: AWG switch does not accept VLESS selector flags" >&2; exit 1; }
+            [ -x "$AWG_SLOT_CMD" ] || { echo "ERROR: AWG slot manager is not installed: $AWG_SLOT_CMD" >&2; exit 1; }
+            [ -s "$AWG_PROFILE_DIR/$SLOT.conf" ] || { echo "ERROR: AWG profile $SLOT is not configured" >&2; exit 1; }
+            switch_to_awg "$SLOT"
+            ;;
+        vless)
+            SOURCE_VALUE="$(slot_source "$SLOT")" || { echo "ERROR: VLESS source $SLOT is not configured" >&2; exit 1; }
+            switch_to_vless "$SLOT" "$SOURCE_VALUE" "$@"
+            ;;
+        *)
+            history_log failed_switch to="$SLOT" reason=profile_not_configured
+            echo "ERROR: VPN slot $SLOT is not configured" >&2
+            exit 1
+            ;;
+    esac
+}
+
+update_active_typed() {
+    if [ -s "$ACTIVE_STORE" ]; then
+        SLOT="$(sed -n '1p' "$ACTIVE_STORE")"
+    else
+        SLOT="current"
+    fi
+    if [ "$SLOT" != "current" ] && [ "$(slot_type "$SLOT")" = "awg" ]; then
+        echo "Active AWG slot $SLOT has no VLESS subscription to update."
+        return 0
+    fi
+    SOURCE_VALUE=""
+    if [ "$SLOT" != "current" ]; then
+        SOURCE_VALUE="$(slot_source "$SLOT" 2>/dev/null || true)"
+    fi
+    [ -n "$SOURCE_VALUE" ] || SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE" 2>/dev/null || true)"
+    [ -n "$SOURCE_VALUE" ] || { history_log failed_update reason=no_active_source; echo "ОШИБКА: активный источник не найден" >&2; exit 1; }
+    run_update "$SOURCE_VALUE" "$SLOT" "update-active" "$@"
+}
+
+print_slot_status() {
+    SLOT="$1"
+    LABEL="$2"
+    TYPE="$(slot_type "$SLOT")"
+    case "$TYPE" in
+        vless)
+            if [ -s "$(slot_file "$SLOT")" ]; then
+                echo "  $LABEL профиль: настроен (VLESS)"
+                echo "  selector $LABEL профиля: $(slot_selector "$SLOT")"
+            else
+                echo "  $LABEL профиль: повреждён (VLESS source missing)"
+            fi
+            ;;
+        awg)
+            if [ -s "$AWG_PROFILE_DIR/$SLOT.conf" ]; then
+                echo "  $LABEL профиль: настроен (AWG)"
+            else
+                echo "  $LABEL профиль: повреждён (AWG profile missing)"
+            fi
+            ;;
+        *) echo "  $LABEL профиль: не настроен" ;;
+    esac
+}
+
 status() {
     echo "Статус failover-lite:"
     [ -s "$ACTIVE_STORE" ] && echo "  активный слот: $(sed -n '1p' "$ACTIVE_STORE")" || echo "  активный слот: неизвестен"
-    if [ -s "$PRIMARY_STORE" ]; then
-        echo "  основной профиль: настроен"
-        echo "  selector основного профиля: $(slot_selector primary)"
+    print_slot_status primary "основной"
+    print_slot_status backup "резервный"
+    if [ -s "$ACTIVE_STORE" ] && [ "$(slot_type "$(sed -n '1p' "$ACTIVE_STORE")")" = "awg" ]; then
+        echo "  текущий транспорт: AWG"
+    elif [ -s "$SOURCE_STORE" ]; then
+        echo "  текущий источник: настроен (VLESS)"
     else
-        echo "  основной профиль: не настроен"
+        echo "  текущий источник: не настроен"
     fi
-    if [ -s "$BACKUP_STORE" ]; then
-        echo "  резервный профиль: настроен"
-        echo "  selector резервного профиля: $(slot_selector backup)"
-    else
-        echo "  резервный профиль: не настроен"
-    fi
-    [ -s "$SOURCE_STORE" ] && echo "  текущий источник: настроен" || echo "  текущий источник: не настроен"
 }
 
+if [ "${VLESS_GO_FAILOVER_LIB_ONLY:-0}" != 1 ]; then
 case "${1:-status}" in
     status) status ;;
     set-primary) shift; parse_set_args "$@"; save_source primary "$SET_SOURCE" "$SET_SELECTOR"; apply_source_if_active primary "$SET_SELECTOR" ;;
     set-backup) shift; parse_set_args "$@"; save_source backup "$SET_SOURCE" "$SET_SELECTOR"; apply_source_if_active backup "$SET_SELECTOR" ;;
+    set-awg) shift; set_awg_profile "$@" ;;
     set-selector) shift; [ "$#" -ge 2 ] || { echo "ОШИБКА: set-selector требует слот и selector" >&2; exit 1; }; save_selector "$1" "$2" ;;
-    switch) shift; [ "$#" -ge 1 ] || { echo "ОШИБКА: switch требует primary или backup" >&2; exit 1; }; SLOT="$1"; shift; SOURCE_VALUE="$(slot_source "$SLOT")" || { history_log failed_switch to="$SLOT" reason=source_not_configured; echo "ОШИБКА: источник $SLOT не настроен" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "switch" "$@" ;;
-    update-active) shift; if [ -s "$ACTIVE_STORE" ]; then SLOT="$(sed -n '1p' "$ACTIVE_STORE")"; SOURCE_VALUE="$(slot_source "$SLOT" 2>/dev/null || true)"; else SLOT="current"; SOURCE_VALUE=""; fi; [ -n "$SOURCE_VALUE" ] || SOURCE_VALUE="$(sed -n '1p' "$SOURCE_STORE" 2>/dev/null || true)"; [ -n "$SOURCE_VALUE" ] || { history_log failed_update reason=no_active_source; echo "ОШИБКА: активный источник не найден" >&2; exit 1; }; run_update "$SOURCE_VALUE" "$SLOT" "update-active" "$@" ;;
-    sync-primary) [ -s "$SOURCE_STORE" ] || { echo "ОШИБКА: текущий источник не настроен" >&2; exit 1; }; save_source primary "$(sed -n '1p' "$SOURCE_STORE")" "first"; printf '%s\n' primary > "$ACTIVE_STORE"; chmod 600 "$ACTIVE_STORE" 2>/dev/null || true ;;
+    switch) shift; [ "$#" -ge 1 ] || { echo "ОШИБКА: switch требует primary или backup" >&2; exit 1; }; SLOT="$1"; shift; switch_typed "$SLOT" "$@" ;;
+    update-active) shift; update_active_typed "$@" ;;
+    sync-primary) [ -s "$SOURCE_STORE" ] || { echo "ОШИБКА: текущий источник не настроен" >&2; exit 1; }; save_source primary "$(sed -n '1p' "$SOURCE_STORE")" "first"; write_active_slot primary ;;
     -h|--help|help) usage ;;
     *) echo "ОШИБКА: неизвестная команда: $1" >&2; usage >&2; exit 1 ;;
 esac
+fi

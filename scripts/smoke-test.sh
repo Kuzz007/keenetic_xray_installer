@@ -295,6 +295,12 @@ else
     fail "lan-ip unit tests (run: sh scripts/test-lan-ip.sh)"
 fi
 
+if sh "$ROOT_DIR/scripts/test-vless-go-mixed-failover.sh" >/dev/null 2>&1; then
+    ok "mixed VLESS/AWG transaction tests"
+else
+    fail "mixed VLESS/AWG transaction tests (run: sh scripts/test-vless-go-mixed-failover.sh)"
+fi
+
 info ""
 info "== Summary =="
 if [ "$FAILURES" -eq 0 ]; then ok "smoke test passed with $WARNINGS warning(s)"; exit 0; fi

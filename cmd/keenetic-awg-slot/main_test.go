@@ -249,6 +249,7 @@ func TestAvailableMemoryKB(t *testing.T) {
 func TestValidateOptionsRejectsUnsafeInterfaceAndRelativeExecutables(t *testing.T) {
 	opts := options{
 		dir:           "/opt/etc/xray/awg",
+		profileSlot:   "single",
 		runtime:       "/opt/libexec/amneziawg-go",
 		tools:         "/opt/bin/awg",
 		interfaceName: "-help",
@@ -262,5 +263,57 @@ func TestValidateOptionsRejectsUnsafeInterfaceAndRelativeExecutables(t *testing.
 	opts.runtime = "amneziawg-go"
 	if err := validateOptions(opts); err == nil {
 		t.Fatal("relative runtime path must be rejected")
+	}
+}
+
+func TestProfilePathsKeepLegacySingleAndSeparateTypedSlots(t *testing.T) {
+	dir := t.TempDir()
+	tests := []struct {
+		slot     string
+		confTail string
+		jsonTail string
+	}{
+		{slot: "single", confTail: filepath.Join("single.conf"), jsonTail: filepath.Join("single.json")},
+		{slot: "primary", confTail: filepath.Join("profiles", "primary.conf"), jsonTail: filepath.Join("profiles", "primary.json")},
+		{slot: "backup", confTail: filepath.Join("profiles", "backup.conf"), jsonTail: filepath.Join("profiles", "backup.json")},
+	}
+	for _, test := range tests {
+		opts := options{dir: dir, profileSlot: test.slot}
+		if got := profilePath(opts); got != filepath.Join(dir, test.confTail) {
+			t.Fatalf("profilePath(%s) = %q", test.slot, got)
+		}
+		if got := metadataPath(opts); got != filepath.Join(dir, test.jsonTail) {
+			t.Fatalf("metadataPath(%s) = %q", test.slot, got)
+		}
+	}
+}
+
+func TestNormalizeProfileSlotPreservesLegacyState(t *testing.T) {
+	if got := normalizedProfileSlot(""); got != "single" {
+		t.Fatalf("legacy empty slot normalized to %q", got)
+	}
+	if got := normalizedProfileSlot("backup"); got != "backup" {
+		t.Fatalf("backup normalized to %q", got)
+	}
+	if got := normalizedProfileSlot("invalid"); got != "" {
+		t.Fatalf("invalid slot normalized to %q", got)
+	}
+}
+
+func TestLoadStateRejectsInvalidProfileSlot(t *testing.T) {
+	opts := options{dir: t.TempDir(), profileSlot: "single"}
+	state := runtimeState{
+		Schema: stateSchema, ProfileSlot: "other", Runtime: "/opt/libexec/amneziawg-go",
+		Tools: "/opt/bin/awg", Interface: "awgx0",
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath(opts), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadState(opts); err == nil || !strings.Contains(err.Error(), "invalid profile slot") {
+		t.Fatalf("loadState error = %v, want invalid profile slot", err)
 	}
 }
