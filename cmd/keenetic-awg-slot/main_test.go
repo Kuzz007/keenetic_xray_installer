@@ -167,6 +167,26 @@ func TestNetworkCleanupCommandsSupportLegacyState(t *testing.T) {
 	}
 }
 
+func TestCleanupTreatsMissingBusyBoxDeviceAsAlreadyRemoved(t *testing.T) {
+	for _, output := range []string{
+		"ip: can't find device 'awgx0'\n",
+		`Device "awgx0" does not exist.`,
+		"RTNETLINK answers: No such process\n",
+	} {
+		if commandExistsForCleanup(nil, []byte(output)) {
+			t.Fatalf("missing resource was treated as a cleanup failure: %q", output)
+		}
+	}
+	for _, output := range []string{
+		"RTNETLINK answers: Operation not permitted\n",
+		"ip: invalid argument '200' to 'table'\n",
+	} {
+		if !commandExistsForCleanup(nil, []byte(output)) {
+			t.Fatalf("material cleanup error was ignored: %q", output)
+		}
+	}
+}
+
 func TestWriteFileAtomicUsesPrivateMode(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows does not expose Unix permission bits; router and CI targets are Linux")
