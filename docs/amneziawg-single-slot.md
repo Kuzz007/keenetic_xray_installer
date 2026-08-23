@@ -125,6 +125,25 @@ Only after the slot is inactive can the stored profile be removed:
 /opt/bin/keenetic-awg-slot delete
 ```
 
+## Completed aarch64 live validation
+
+The complete single-slot transaction passed on the tested aarch64 Keenetic
+router with the FULL `dev-e779b2523a49` bundle:
+
+- a self-hosted AWG 2 guest profile imported without changing active VLESS;
+- activation created `awgx0` with routing table `200`, mark `51820` and rule
+  priority `18020`;
+- the peer completed a recent handshake and transferred traffic;
+- deactivation removed the AWG runtime state and returned the slot to
+  `inactive` while retaining the imported profile;
+- the original VLESS path again passed the HTTP health check through the same
+  `127.0.0.1:10808` SOCKS endpoint.
+
+The validation also covered the BusyBox teardown case where stopping
+`amneziawg-go` removes its TUN device before the manager's final cleanup. A
+missing device is now treated as an already-completed idempotent cleanup,
+while permission errors and invalid routing commands still fail closed.
+
 Do not use the existing `vless-go-failover switch` or bot slot buttons while
 AWG is active in this validation stage. Typed primary/backup integration is
 the next delivery stage.
